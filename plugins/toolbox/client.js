@@ -1570,8 +1570,20 @@ return {
         return () => { try { window.removeEventListener(SESSION_EVENT, onChanged) } catch (e) {} }
       }, [])
       const hookSession = props.useSessions((s) => (s && s.current ? String(s.current) : undefined))
-      const flowSessionIds = props.useSessions((s) => (s && Array.isArray(s.ids) ? s.ids : []))
-      const flowSessionsById = props.useSessions((s) => (s && s.byId ? s.byId : {}))
+      const rawFlowSessionIds = props.useSessions((s) => (s ? s.ids : undefined))
+      const rawFlowSessionsById = props.useSessions((s) => (s ? s.byId : undefined))
+      // better-sidebar 的适配快照可能只给 byId，或把 ids 保留为 Set/其他可迭代容器。
+      // 业务层统一收敛成数组，绝不直接假设 ids 可迭代。
+      const flowSessionIds = Array.isArray(rawFlowSessionIds)
+        ? rawFlowSessionIds
+        : (rawFlowSessionIds && typeof rawFlowSessionIds[Symbol.iterator] === 'function'
+            ? Array.from(rawFlowSessionIds)
+            : (rawFlowSessionsById && typeof rawFlowSessionsById === 'object'
+                ? (rawFlowSessionsById instanceof Map ? [...rawFlowSessionsById.keys()] : Object.keys(rawFlowSessionsById))
+                : []))
+      const flowSessionRow = (id) => rawFlowSessionsById instanceof Map
+        ? rawFlowSessionsById.get(id)
+        : (rawFlowSessionsById && typeof rawFlowSessionsById === 'object' ? rawFlowSessionsById[id] : undefined)
       const currentSessionId = props.sessionId || (hookSession || lsSession) || undefined
       // cwd：按 currentSessionId 经 Host RPC 查询（宿主视角 byId 记录不可靠）；hook 按自身 current 查作兜底
       const [sessionCwd, setSessionCwd] = React.useState(undefined)
@@ -2493,7 +2505,7 @@ return {
       const flowSessionGroups = (() => {
         const groups = new Map()
         for (const id of flowSessionIds) {
-          const row = flowSessionsById[id] || {}
+          const row = flowSessionRow(id) || {}
           const cwd = typeof row.cwd === 'string' && row.cwd ? row.cwd : '其他会话'
           if (!groups.has(cwd)) groups.set(cwd, [])
           groups.get(cwd).push({ id, row })

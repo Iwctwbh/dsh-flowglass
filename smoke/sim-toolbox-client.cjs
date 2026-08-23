@@ -287,6 +287,8 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     check('框选图标栏复用 Zoom 透明度/按钮尺寸，工作区树默认收起并使用文件夹图标', css.indexOf('.tb-flow-zoom-float,.tb-flow-selection-bar{padding:3px 5px;opacity:.42') >= 0
       && css.indexOf('.tb-flow-icon-btn{position:relative;width:25px;height:24px') >= 0
       && src.indexOf('flowTreeOpen[group.cwd] ? group.sessions.map') >= 0 && src.indexOf("className: 'tb-flow-tree-folder'") >= 0)
+    check('会话树兼容 Array/Set/byId-only 的 Better Sidebar 快照', src.indexOf('rawFlowSessionIds[Symbol.iterator]') >= 0
+      && src.indexOf('Array.from(rawFlowSessionIds)') >= 0 && src.indexOf('Object.keys(rawFlowSessionsById)') >= 0)
     check('框选图标栏位于 Zoom 上方，计数使用圆形描边', css.indexOf('.tb-flow-zoom-float.with-selection{bottom:14px}') >= 0
       && css.indexOf('.tb-flow-selection-bar{bottom:54px') >= 0 && css.indexOf('.tb-flow-selection-count{width:24px;height:24px;padding:0') >= 0)
     check('面板主布局只作用于 HTML 包装层，不会把左下浮层拉成竖条', css.indexOf('.tb-frame>.tb-panel-html{') >= 0

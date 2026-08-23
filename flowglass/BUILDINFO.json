@@ -15,11 +15,11 @@
       "flow"
     ]
   },
-  "fingerprint": "6d6fd5d5d3f37d7f",
+  "fingerprint": "df05e3ce43e95163",
   "builderVersion": "2",
   "sourceHashes": {
     "plugins/flow/tool.js": "8e21234437ef9f2410f6def150d490c47310975b67ca21d79f5d46ff7ad6575f",
-    "plugins/toolbox/client.js": "318b50801e181bfb62974870be28040eb75af97bac35a30a534e1b2f73104396",
+    "plugins/toolbox/client.js": "fe295a628f28db98788e1088b7ba00cf247c39de96a1154f2116b8b632d9ae47",
     "plugins/toolbox/host.js": "abb5ab10c04dd991645b3f8a5b0b82ffb40be511e927e21e5bbaf002ab0d1f35",
     "shared/host.js": "80348f490a5639d27fc60d1b86192331558143ab72e8c732012cc2a3d65714c6",
     "shared/runtime.js": "75a6fc739f9e2e018d61c4ace46b24fbe9af8648ec24b549f4e84d2c68f375a5"
