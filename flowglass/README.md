@@ -1,6 +1,6 @@
 # 流镜（dsh-flowglass）
 
-这是本仓库的默认产品与默认构建目标，是 **DSH 原生静态 Host/Client 插件**。
+这是 dsh-flowglass 仓库的默认产品与默认构建目标，是 **DSH 原生静态 Host/Client 插件**。
 
 - bundleId: `flow`
 - 版本: 0.3.0

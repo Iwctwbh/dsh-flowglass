@@ -22,5 +22,6 @@ export default Object.freeze({
     descriptor('panel'),
     descriptor('plugins'),
     descriptor('sessionInfo'),
+
   ]),
 })

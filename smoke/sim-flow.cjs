@@ -7,7 +7,7 @@ const path = require('path')
 const ROOT = path.resolve(__dirname, '..')
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8')
 
-// ---- 主会话事件样本：用户 → 助手 → [read+grep 平行] → 助手 → subagent 分支 → 助手 ----
+// ---- 主会话事件样本：用户 → 助手 → [read+grep 平行] → 助手 → [subagent x2 并行] → 助手 ----
 const MAIN_EVENTS = [
   { seq: 1, time: 1000, type: 'user/message', data: { content: [{ type: 'text', text: '帮我看下这个目录' }], source: { kind: 'user' } } },
   { seq: 2, time: 1100, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '好的，我先并行读文件' }] }, usage: { outputTokens: 12 } } },
@@ -17,8 +17,10 @@ const MAIN_EVENTS = [
   { seq: 6, time: 1310, type: 'tool/result', data: { message: { content: [{ type: 'tool-result', toolCallId: 'c2', content: [{ type: 'text', text: 'grep hits' }] }] } } },
   { seq: 7, time: 1400, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '再派个子代理调研' }] }, usage: { outputTokens: 9 } } },
   { seq: 8, time: 1500, type: 'tool/call', data: { turn: 1, step: 2, name: 'subagent', callId: 'c3', arguments: '{"description":"调研","prompt":"看看"}' } },
-  { seq: 9, time: 1600, type: 'tool/result', data: { message: { content: [{ type: 'tool-result', toolCallId: 'c3', content: [{ type: 'text', text: 'started subagent 228a8697-2b7a-422a-b3c0-1cf61c965d5c' }] }] } } },
-  { seq: 10, time: 1700, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '子代理已启动' }] }, usage: { outputTokens: 5 } } },
+  { seq: 9, time: 1501, type: 'tool/call', data: { turn: 1, step: 2, name: 'subagent', callId: 'c4', arguments: '{"description":"审核","prompt":"检查"}' } },
+  { seq: 10, time: 1600, type: 'tool/result', data: { message: { content: [{ type: 'tool-result', toolCallId: 'c3', content: [{ type: 'text', text: 'started subagent 228a8697-2b7a-422a-b3c0-1cf61c965d5c' }] }] } } },
+  { seq: 11, time: 1610, type: 'tool/result', data: { message: { content: [{ type: 'tool-result', toolCallId: 'c4', content: [{ type: 'text', text: 'started subagent 338a8697-2b7a-422a-b3c0-1cf61c965d6d' }] }] } } },
+  { seq: 12, time: 1700, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '子代理已启动' }] }, usage: { outputTokens: 5 } } },
 ]
 // ---- 子代理会话事件样本 ----
 const CHILD_EVENTS = [
@@ -40,18 +42,27 @@ const LIVE_EVENTS = [
   { seq: 2, time: 3010, type: 'step/start', data: { turn: 1, step: 1 } },
   { seq: 3, time: 3020, type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'still going' } } },
 ]
+// ---- 长会话：验证初始 60 条、每次向上增量 60 条 ----
+const LONG_EVENTS = Array.from({ length: 130 }, (_, i) => ({
+  seq: i + 1,
+  time: 4000 + i,
+  type: 'user/message',
+  data: { content: [{ type: 'text', text: 'long-' + String(i + 1).padStart(3, '0') }], source: { kind: 'user' } },
+}))
 
 const sessionQuery = {
   async readSession(sid) {
     if (sid === 's-main') return { session: { id: 's-main' }, events: MAIN_EVENTS }
     if (sid === '228a8697-2b7a-422a-b3c0-1cf61c965d5c') return { session: { id: sid }, events: CHILD_EVENTS }
+    if (sid === '338a8697-2b7a-422a-b3c0-1cf61c965d6d') return { session: { id: sid }, events: CHILD_EVENTS }
     if (sid === 's-fail') return { session: { id: sid }, events: FAIL_EVENTS }
     if (sid === 's-live') return { session: { id: sid }, events: LIVE_EVENTS }
+    if (sid === 's-long') return { session: { id: sid }, events: LONG_EVENTS }
     return { session: { id: sid }, events: [] }
   },
   async listSessions() { return [{ header: { id: 's-main' }, live: true }] },
 }
-const sessions = { get: (id) => (id === '228a8697-2b7a-422a-b3c0-1cf61c965d5c' ? { events: CHILD_EVENTS, header: { id } } : undefined), list: () => [] }
+const sessions = { get: (id) => (/^(228|338)a8697/.test(id) ? { events: CHILD_EVENTS, header: { id } } : undefined), list: () => [] }
 
 const handlers = {}
 const ctx = {
@@ -102,6 +113,9 @@ const check = (label, cond, detail) => {
   check('子代理 出=返回标记', r.html.indexOf('出') >= 0)
   check('子代理 live 徽章（运行中）', r.html.indexOf('运行中') >= 0)
   check('子代理 id 截断显示', r.html.indexOf('228a8697') >= 0)
+  check('同 step 并行子代理合并成组', r.html.indexOf('并行子代理 ×2') >= 0 && r.html.indexOf('fl-subgrp') >= 0)
+  check('子代理入口卡可直接进入', r.html.indexOf('fl-sub-open') >= 0 && r.html.indexOf('data-action="fenter"') >= 0)
+  check('子代理跟随开关默认关闭', r.html.indexOf('○ 子代理跟随') >= 0 && r.state.follow === false)
 
   // live 开关：暂停后无 autorefresh
   r = await h({ action: 'toggle-live', fields: {}, state: r.state, root: ROOT, session: 's-main' })
@@ -109,6 +123,18 @@ const check = (label, cond, detail) => {
   check('暂停 → 开关文案', r.html.indexOf('已暂停') >= 0)
   r = await h({ action: 'toggle-live', fields: {}, state: r.state, root: ROOT, session: 's-main' })
   check('恢复 → autorefresh 回归', r.html.indexOf('data-autorefresh="2000"') >= 0)
+
+  // 跟随开关：进入时 Host 返回给 Client 一次性 Harness 会话导航指令。
+  r = await h({ action: 'toggle-follow', fields: {}, state: r.state, root: ROOT, session: 's-main' })
+  check('开启子代理跟随', r.state.follow === true && r.html.indexOf('● 子代理跟随') >= 0)
+  r = await h({ action: 'fenter', fields: { __el: { seq: '8' } }, state: r.state, root: ROOT, session: 's-main' })
+  check('进入子流镜仍实时', r.html.indexOf('子代理流镜') >= 0 && r.html.indexOf('data-autorefresh="2000"') >= 0)
+  check('跟随返回 Harness 子会话导航', r.navigateSession && r.navigateSession.sessionId === '228a8697-2b7a-422a-b3c0-1cf61c965d5c' && r.navigateSession.parentSessionId === 's-main')
+  // Harness 真正切到子 Session 后会重拉面板：应保留 home/crumbs，不能变成无返回的全新流镜。
+  r = await h({ action: '', fields: {}, state: r.state, root: ROOT, session: '228a8697-2b7a-422a-b3c0-1cf61c965d5c' })
+  check('Harness 切到子 Session 后仍保留返回链', r.html.indexOf('data-action="fback"') >= 0 && r.state.home === 's-main' && r.state.crumbs.length === 1)
+  r = await h({ action: 'fback', fields: {}, state: r.state, root: ROOT, session: '228a8697-2b7a-422a-b3c0-1cf61c965d5c' })
+  check('返回上级也返回 Harness 导航', r.navigateSession && r.navigateSession.sessionId === 's-main')
 
   // 点卡片展开完整详情（read 调用 seq=3）
   r = await h({ action: 'fdetail', fields: { __el: { seq: '3' } }, state: r.state, root: ROOT, session: 's-main' })
@@ -135,6 +161,15 @@ const check = (label, cond, detail) => {
   r = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-live' })
   check('流式中 → 片段实时展示', r.html.indexOf('still going') >= 0)
   check('流式中 → 运行中计时器', r.html.indexOf('data-flow-timer') >= 0)
+
+  // 长会话向上分页：初始 60，每次 fmore +60，全部加载后消失。
+  r = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-long' })
+  check('长会话初始仅显示最近 60 条', r.html.indexOf('data-flow-visible="60"') >= 0 && r.html.indexOf('long-071') >= 0 && r.html.indexOf('long-070') < 0)
+  check('顶部仅保留自动加载提示（loading 由 Client 浮层渲染）', r.html.indexOf('data-action="fmore"') < 0 && r.html.indexOf('data-flow-older-hint') >= 0 && r.html.indexOf('fl-older-loading') < 0)
+  r = await h({ action: 'fmore', fields: {}, state: r.state, root: ROOT, session: 's-long' })
+  check('第一次加载 → 显示 120 条', r.html.indexOf('data-flow-visible="120"') >= 0 && r.html.indexOf('long-011') >= 0 && r.html.indexOf('long-010') < 0)
+  r = await h({ action: 'fmore', fields: {}, state: r.state, root: ROOT, session: 's-long' })
+  check('第二次加载 → 显示全部且不再显示自动加载占位', r.html.indexOf('data-flow-visible="130"') >= 0 && r.html.indexOf('long-001') >= 0 && r.html.indexOf('data-flow-older-hint') < 0)
 
   console.log(failures ? ('\n共 ' + failures + ' 项失败') : '\n全部通过')
   process.exit(failures ? 1 : 0)

@@ -5,7 +5,7 @@
 
 return {
   name: 'toolbox',
-  inject: ['timer'],
+  inject: ['timer', 'sessions'],
   apply(ctx) {
     // ===== 命名空间（TOOLBOX_RUNTIME 由拼接的 shared/runtime.js 提供；动态默认=历史名称）=====
     const RT = TOOLBOX_RUNTIME
@@ -32,6 +32,34 @@ return {
     const slots = ctx.get('slots')
     if (slots === undefined) return
     const themeSvc = ctx.get('theme')
+    const sessionsClient = ctx.get('sessions') || ctx.sessions
+
+    // Flowglass 的“子代理跟随”要走 Harness 正式会话导航，不直接改 localStorage。
+    // 子代理优先使用 catalog 的精确 address；若 catalog 尚未拉取，先刷新父会话再解析。
+    const navigateHarnessSession = async (request) => {
+      if (!request || !request.sessionId) return
+      if (!sessionsClient) throw new Error('sessions 服务不可用')
+      const target = String(request.sessionId)
+      const parent = request.parentSessionId ? String(request.parentSessionId) : ''
+      if (request.kind === 'subagent' && parent && typeof sessionsClient.openSubagent === 'function') {
+        let address = typeof sessionsClient.subagentAddress === 'function' ? sessionsClient.subagentAddress(target) : null
+        if (!address && typeof sessionsClient.refreshSubagents === 'function') {
+          try { await sessionsClient.refreshSubagents(parent) } catch (e) {}
+          if (typeof sessionsClient.subagentAddress === 'function') address = sessionsClient.subagentAddress(target)
+        }
+        if (!address && sessionsClient.list && typeof sessionsClient.list.getSnapshot === 'function') {
+          const snap = sessionsClient.list.getSnapshot()
+          const catalog = snap && snap.subagentsByParent && snap.subagentsByParent[parent]
+          const entry = catalog && Array.isArray(catalog.entries)
+            ? catalog.entries.find((it) => it && it.kind === 'child' && it.id === target)
+            : null
+          if (entry && entry.mode) address = { parentSessionId: parent, childSessionId: target, mode: entry.mode }
+        }
+        if (address) { sessionsClient.openSubagent(address); return }
+      }
+      if (typeof sessionsClient.open !== 'function') throw new Error('sessions.open 不可用')
+      sessionsClient.open(target)
+    }
 
     // ===== localStorage 变化事件桥（v6.5）=====
     // app-shell 每次切会话都会写 localStorage['dsh.sessions.current']（浏览器全局权威）。
@@ -249,6 +277,11 @@ return {
       '.jr-resize-corner:hover{background:rgba(59,130,246,.22);border-radius:0 0 10px 0}',
       '.jr-resize-badge{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);padding:5px 12px;border:1px solid var(--dsw-alias-border-l2,#4a4b55);border-radius:6px;background:var(--dsw-alias-bg-overlay,#1e1f24);color:var(--dsw-alias-label-primary,#e8e8ea);font-size:12px;font-variant-numeric:tabular-nums;z-index:1310;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.3)}',
       '.tb-frame{position:relative;display:flex;flex-direction:column;gap:10px;min-height:0}',
+      // 「回到最新」浮标：只控制工具面板的主 .tb-pane-body，不影响 Harness 聊天区。
+      '.tb-jump-latest{position:absolute;right:16px;bottom:14px;z-index:7;display:inline-flex;align-items:center;height:28px;padding:0 13px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2,#454650);background:var(--dsw-alias-bg-overlay,#1e1f24);color:var(--tb-accent-text,#7fa7f0);font-size:12px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.3);font-family:inherit;animation:jrDrawerUp .16s ease-out}',
+      '.tb-jump-latest:hover{border-color:var(--tb-accent-border,rgba(91,141,239,.45));background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b))}',
+      // Flowglass 历史加载用 Client 浮层，不放在会被 innerHTML 替换的滚动内容里。
+      '.tb-flow-older-loading{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:10;height:30px;display:inline-flex;align-items:center;gap:8px;padding:0 13px;border:1px solid var(--tb-accent-border,rgba(91,141,239,.45));border-radius:999px;background:var(--dsw-alias-bg-overlay,#1e1f24);color:var(--tb-accent-text,#7fa7f0);font-size:12px;font-weight:600;white-space:nowrap;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,.3);animation:jrDrawerUp .16s ease-out}',
       // ---- 画中画（Document PiP）：主抽屉 DOM 的实时镜像窗口（脱离 WebUI 框体） ----
       '.jr-pip-root{display:flex;flex-direction:column;height:100vh;background:var(--dsw-alias-bg-base,#17181d);color:var(--dsw-alias-label-primary,#e8e8ea);font-size:13px;overflow:hidden;font-family:inherit}',
       '.jr-pip-bar{flex:none;display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l1,#3a3b44);background:var(--dsw-alias-bg-layer-1,#26272e)}',
@@ -459,7 +492,8 @@ return {
       '.fl-name{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;font-weight:700;color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.fl-args{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       // ---- 三列泳道（手绘参考图 2：左=子代理分支区 / 中=主干用户·助手 / 右=工具调用卡） ----
-      '.fl-lane{display:grid;grid-template-columns:minmax(96px,140px) minmax(0,1fr) minmax(0,1.25fr);gap:0 10px;min-width:0;align-items:stretch}',
+      // 左泳道不再封顶 140px：随画布共同拉伸，给并行子代理足够的可读宽度。
+      '.fl-lane{display:grid;grid-template-columns:minmax(140px,1.05fr) minmax(180px,1fr) minmax(220px,1.2fr);gap:0 10px;min-width:0;align-items:stretch}',
       '.fl-lane-main{min-width:0;display:flex;flex-direction:column;justify-content:center;position:relative}',
       // 主干竖线贯通：每行中列全高画线，且向下多延 4px 盖住容器行间距（gap:4px），行间首尾相接成一条连续线；
       // 卡片不透明底自然盖线、只在空隙露出；线色与 ▼ 箭头一致（text-3 + .7 透明度），2.5px
@@ -471,19 +505,23 @@ return {
       '.fl-lane-side.fl-grp{position:relative;border:1px dashed var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:10px;padding:10px 10px;margin:4px 0}',
       '.fl-grp-tag{position:absolute;top:-7px;right:10px;padding:0 5px;font-size:9px;line-height:13px;font-weight:600;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));background:var(--dsw-alias-bg-base,#17181d);border-radius:3px;letter-spacing:.3px}',
       '.fl-lane-line{width:2.5px;align-self:center;flex:1;min-height:26px;background:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));opacity:.7}',
-      // 子代理分支块（左列）：height:0+min-height:100% 经典技巧——分支不参与行高计算（行高由中列主干决定），
-      // 自身拉伸进行高：入口贴顶、支线步骤中间限高滚动、出口贴底（= 中列最后一张卡下缘，对齐语义）；卡片右缘伸横线向主干
-      '.fl-subcol{display:flex;flex-direction:column;gap:5px;min-width:0;height:0;min-height:100%}',
+      // 子代理分支块（左列）：真正参与行高计算，避免 height:0 导致多分支互相叠压。
+      // auto-fit 让宽画布自动多列，窄画布保持单列。
+      '.fl-subcol{position:relative;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(190px,100%),1fr));gap:8px;min-width:0;min-height:112px;align-items:stretch}',
+      '.fl-subcol.fl-subgrp{border:1px dashed var(--tb-accent-border,rgba(91,141,239,.4));border-radius:10px;padding:11px 8px 8px}',
+      '.fl-subgrp-tag{position:absolute;top:-7px;right:10px;padding:0 5px;font-size:9px;line-height:13px;font-weight:600;color:var(--tb-active-text,#7fa7f0);background:var(--dsw-alias-bg-base,#17181d);border-radius:3px;letter-spacing:.2px}',
+      '.fl-subbranch{display:flex;flex-direction:column;gap:5px;min-width:0;min-height:104px}',
       // 分支行保底高度：中列只有一根竖线时（孤立分支行）分支不被压没
-      '.fl-lane:has(> .fl-subcol){min-height:120px}',
+      '.fl-lane:has(> .fl-subcol){min-height:112px}',
       '.fl-sub-card{position:relative;flex:none;border:1px solid var(--tb-accent-border,rgba(91,141,239,.45));border-radius:8px;padding:5px 8px;background:var(--tb-accent-bg,rgba(91,141,239,.08));display:flex;flex-direction:column;gap:3px;min-width:0;cursor:pointer}',
       '.fl-sub-card::after{content:"";position:absolute;right:-11px;top:50%;width:10px;height:1px;background:var(--tb-accent-border,rgba(91,141,239,.45))}',
-      '.fl-sub-steps{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:2px;padding:3px 4px 3px 8px;margin-left:6px;border-left:1px dashed var(--tb-accent-border,rgba(91,141,239,.4))}',
+      '.fl-sub-steps{flex:1;min-height:22px;max-height:132px;overflow:auto;display:flex;flex-direction:column;gap:2px;padding:3px 4px 3px 8px;margin-left:6px;border-left:1px dashed var(--tb-accent-border,rgba(91,141,239,.4))}',
       // 出口卡贴底（支线步骤区 flex 填充把出口压到底部，与返回后的主干卡对齐）
       '.fl-sub-close{margin-top:auto}',
       '.fl-sub-meta{display:flex;align-items:center;gap:6px}',
       '.fl-sub-step{display:flex;align-items:center;gap:4px;min-width:0;font-size:10.5px}',
       '.fl-sub-io{display:flex;align-items:baseline;gap:5px;font-family:ui-monospace,Consolas,monospace;font-size:10.5px;min-width:0}',
+      '.fl-older{min-height:30px}',
       '.fl-wp{display:flex;flex-direction:column;justify-content:center;gap:10px;min-width:0}',
       '.fl-wl{display:flex;flex-direction:column;gap:2px;min-width:0}',
       '.fl-wl-txt{font-family:ui-monospace,Consolas,monospace;font-size:9px;line-height:1.2;color:var(--tb-accent-text,#7fa7f0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
@@ -852,6 +890,8 @@ return {
       const [error, setError] = React.useState(null)
       const [copied, setCopied] = React.useState(null)
       const [busyTool, setBusyTool] = React.useState(null)
+      const [showJumpLatest, setShowJumpLatest] = React.useState(false)
+      const [flowOlderLoading, setFlowOlderLoading] = React.useState(false)
       const [managing, setManaging] = React.useState(false)
       const [plugins, setPlugins] = React.useState([])
       const [pluginCaps, setPluginCaps] = React.useState(null) // Host 半 capabilities（编译模式降级 UI 依据；null=未加载，按全能力渲染）
@@ -1132,7 +1172,7 @@ return {
       const htmlScrollRef = React.useRef(null) // 静默刷新前记录的滚动位置（effect 里恢复，防自动刷新打断阅读）
       const seqRef = React.useRef({}) // toolId -> 最新请求序号：丢弃过期响应，防 provider/模型联动竞态
       // 流程右侧调用卡的最短动画跨 innerHTML 轮询续播：scope 隔离主/子会话，key 对应调用 seq。
-      const flowAnimRef = React.useRef({ scope: null, seen: new Set(), expires: new Map(), introEnds: new Map(), statuses: new Map(), outputStarts: new Map(), outputExpires: new Map(), timers: new Map() })
+      const flowAnimRef = React.useRef({ scope: null, visible: 0, seen: new Set(), expires: new Map(), introEnds: new Map(), statuses: new Map(), outputStarts: new Map(), outputExpires: new Map(), timers: new Map() })
       const managingRef = React.useRef(false)
       managingRef.current = managing
       const activeRef = React.useRef(null) // 延迟回调里取最新 active（重启落定后的面板刷新）
@@ -1141,6 +1181,13 @@ return {
       openRef.current = isOpen
       const retryCountRef = React.useRef({}) // toolId -> 面板加载失败重试次数（一次性重试，非轮询；成功清零）
       const attemptedRef = React.useRef({}) // toolId -> 面板请求已发起（首开死锁兜底用：tools 补齐后补打一次，之后不再重复）
+      const flowOlderLoadingRef = React.useRef(false) // 滚到 Flowglass 顶部时每次只发一个增量请求
+      const lastPanelActiveRef = React.useRef(null) // 离开再返回 Flowglass 时重置为最近 60 条
+      const flowScrollByScopeRef = React.useRef(new Map()) // 主/子流镜各自的阅读位置
+      const flowScrollIntentRef = React.useRef(null) // enter=新子流镜到底；back=恢复上级
+      const flowSuppressHistoryAnimRef = React.useRef(false) // 向上加载的历史节点不播放“新事件”动画
+      const flowFollowStateBySessionRef = React.useRef(new Map()) // Harness 跟随切换后重建 Flowglass crumbs
+      const flowHarnessNavTargetRef = React.useRef(null) // 只有 Flowglass 主动导航的目标会话才恢复返回链
 
       // 停靠模式/激活 Tab/分类工具记忆变化即落盘（宽/高/浮动位置在手势结束时单独落盘，避免每帧写）
       React.useEffect(() => { lsWrite({ dockMode, active, activeByCat }) }, [dockMode, active, activeByCat])
@@ -1161,6 +1208,23 @@ return {
       // 静默刷新后恢复滚动位置（loadPanel 在 setHtml 前把各滚动容器 scrollTop 记进 htmlScrollRef）
       React.useEffect(() => {
         if (!panelRef.current) return
+        const flowIntent = flowScrollIntentRef.current
+        const flow = panelRef.current.querySelector('[data-flow][data-flow-scope]')
+        if (flowIntent && flow) {
+          flowScrollIntentRef.current = null
+          htmlScrollRef.current = null
+          const body = flow.querySelector('.tb-pane-body')
+          if (body) {
+            const scope = flow.getAttribute('data-flow-scope') || ''
+            if (flowIntent === 'back' && flowScrollByScopeRef.current.has(scope)) {
+              body.scrollTop = flowScrollByScopeRef.current.get(scope)
+            } else {
+              // column-reverse 的视觉底部是 scrollTop=0。
+              body.scrollTop = 0
+            }
+          }
+          return
+        }
         // 明确声明默认到底部的正常方向面板（当前为「上下文」）优先于旧 Tab 的滚动位置恢复。
         const defaultBottom = panelRef.current.querySelector('[data-scroll-default="bottom"]')
         if (defaultBottom) {
@@ -1184,6 +1248,38 @@ return {
         } catch (e) {}
       }, [html])
 
+      // header + 独立滚动区的原设计：离开主列表底部 40px 后显示浮标。
+      // dangerouslySetInnerHTML 会替换面板 DOM，因此随 html/Tab 重新挂载捕获阶段 scroll 监听。
+      React.useEffect(() => {
+        if (!isOpen || managing) { setShowJumpLatest(false); return undefined }
+        const root = panelRef.current
+        if (!root) { setShowJumpLatest(false); return undefined }
+        const primary = () => root.querySelector('.tb-pane-body')
+        const update = (body) => {
+          if (!body) { setShowJumpLatest(false); return }
+          const away = body.classList.contains('tb-pane-col')
+            ? (body.scrollHeight - body.scrollTop - body.clientHeight > 40)
+            : (Math.abs(body.scrollTop) > 40)
+          setShowJumpLatest(away)
+        }
+        const onScroll = (e) => {
+          const body = primary()
+          if (!body || e.target !== body) return // 排除 .fl-pre / 详情浮层等内部滚动区
+          update(body)
+        }
+        update(primary())
+        root.addEventListener('scroll', onScroll, true)
+        return () => { try { root.removeEventListener('scroll', onScroll, true) } catch (e) {} }
+      }, [isOpen, managing, active, html])
+
+      const jumpToLatest = () => {
+        const body = panelRef.current && panelRef.current.querySelector('.tb-pane-body')
+        if (!body) return
+        const top = body.classList.contains('tb-pane-col') ? body.scrollHeight : 0
+        try { body.scrollTo({ top, behavior: 'smooth' }) } catch (e) { body.scrollTop = top }
+        setShowJumpLatest(false)
+      }
+
       // 新调用固定先走完 1.5s（输入 .5s + 流光 1s）；返回动画由 pending → 完成/失败的真实状态触发。
       // dangerouslySetInnerHTML 会整块替换卡片 DOM，因此用调用 key 保存截止时间，并在每次替换后把类续挂到新节点。
       React.useEffect(() => {
@@ -1206,6 +1302,8 @@ return {
           return
         }
         const scope = flow.getAttribute('data-flow-scope') || ''
+        const visible = Math.max(0, Number(flow.getAttribute('data-flow-visible')) || 0)
+        const historyExpanded = store.scope === scope && visible > (store.visible || 0)
         const cards = [...flow.querySelectorAll('.fl-wp[data-flow-card]')]
         const mainSelector = '.fl-node[data-flow-main-card][data-flow-role="user"],.fl-node[data-flow-main-card][data-flow-role="ai"]'
         const mainCards = [...flow.querySelectorAll(mainSelector)]
@@ -1232,6 +1330,22 @@ return {
           for (const card of mainCards) {
             const rawKey = card.getAttribute('data-flow-main-card') || ''
             if (rawKey !== latestUserKey) store.seen.add('main:' + rawKey)
+          }
+        }
+        store.visible = visible
+        if (flowSuppressHistoryAnimRef.current || historyExpanded) {
+          // fmore 只是展开旧历史，不是新事件到达：把本次新出现的旧卡直接并入基线。
+          flowSuppressHistoryAnimRef.current = false
+          for (const card of cards) {
+            const key = card.getAttribute('data-flow-card') || ''
+            if (key) {
+              store.seen.add(key)
+              store.statuses.set(key, card.getAttribute('data-flow-status') || 'pending')
+            }
+          }
+          for (const card of mainCards) {
+            const key = card.getAttribute('data-flow-main-card') || ''
+            if (key) store.seen.add('main:' + key)
           }
         }
         const now = Date.now()
@@ -1423,6 +1537,7 @@ return {
         attemptedRef.current[toolId] = true // 标记已发起请求（refreshTools 兜底据此判定是否补打）
         const silent = Boolean(opts && opts.silent) // 静默刷新（自动轮询）：不转圈、不清错误
         const seq = (seqRef.current[toolId] || 0) + 1
+        const minFlowLoadingUntil = toolId === 'flow' && action === 'fmore' ? Date.now() + 500 : 0
         seqRef.current[toolId] = seq
         if (!silent) setBusyTool(toolId)
         if (!silent) setError(null)
@@ -1430,6 +1545,16 @@ return {
         let locked = null
         const unlock = () => { if (locked) for (const s of locked) { try { s.disabled = false } catch (e) {} } }
         try {
+          if (toolId === 'flow') {
+            const currentFlow = panelRef.current && panelRef.current.querySelector('[data-flow][data-flow-scope]')
+            const currentBody = currentFlow && currentFlow.querySelector('.tb-pane-body')
+            const currentScope = currentFlow && (currentFlow.getAttribute('data-flow-scope') || '')
+            if (currentBody && currentScope && (action === 'fenter' || action === 'fback')) {
+              flowScrollByScopeRef.current.set(currentScope, currentBody.scrollTop)
+              flowScrollIntentRef.current = action === 'fback' ? 'back' : 'enter'
+            }
+            if (action === 'fmore') flowSuppressHistoryAnimRef.current = true
+          }
           let fields = collectFields()
           if (el) {
             // 点击元素自身的 data-* 属性随请求带回（data-key / data-hash / data-path 等）
@@ -1460,13 +1585,29 @@ return {
           })
           const res = await Promise.race([callP, timeoutP])
           if (seqRef.current[toolId] !== seq) return // 已有更新的请求发出：过期响应直接丢弃（联动切换竞态修复）；DOM 由新请求的响应接管
+          // 历史页返回很快时也保留至少 0.5s 的顶部 loading，避免只闪一帧。
+          if (minFlowLoadingUntil > Date.now()) {
+            await new Promise((resolve) => { try { ctx.timeout(resolve, minFlowLoadingUntil - Date.now()) } catch (e) { resolve() } })
+            if (seqRef.current[toolId] !== seq) return
+          }
           if (res && res.ok) {
             retryCountRef.current[toolId] = 0 // 成功：清零一次性重试计数
             stateRef.current[toolId] = res.state
             htmlRef.current[toolId] = res.html
+            // 会话 scope 变化（Harness 自己切换会话）默认进入新流镜底部；
+            // Flowglass 内部 fback 则由 flowScrollIntentRef 恢复上级保存位置。
+            const currentFlow = panelRef.current && panelRef.current.querySelector('[data-flow][data-flow-scope]')
+            const currentScope = currentFlow && (currentFlow.getAttribute('data-flow-scope') || '')
+            const scopeMatch = /data-flow-scope="([^"]*)"/.exec(res.html)
+            const nextScope = scopeMatch ? scopeMatch[1] : ''
+            if (toolId === 'flow' && currentScope && nextScope && currentScope !== nextScope && !flowScrollIntentRef.current) {
+              const currentBody = currentFlow.querySelector('.tb-pane-body')
+              if (currentBody) flowScrollByScopeRef.current.set(currentScope, currentBody.scrollTop)
+              flowScrollIntentRef.current = 'enter'
+            }
             // 任何动作都保存滚动位置（自动轮询/展开详情/提交等）：全量 innerHTML 重渲染会丢滚动/选择，
             // 先记录各可滚动子容器 scrollTop 与所属工具，setHtml 后经 effect 恢复（切工具不恢复）
-            if (panelRef.current) {
+            if (panelRef.current && !flowScrollIntentRef.current) {
               try {
                 const scrolls = []
                 const scrollers = panelRef.current.querySelectorAll('.tb-pane-body, .tb-code, .fl-pre, .tb-desc')
@@ -1475,6 +1616,25 @@ return {
               } catch (e) {}
             }
             setHtml(res.html)
+            // Host 只在 Flowglass 已开启“子代理跟随”且用户主动点击进入时返回该指令。
+            // 使用 SessionRuntime 导航会让 Harness 的会话列表、会话页和持久选中态一起更新。
+            if (toolId === 'flow' && res.navigateSession) {
+              const target = String(res.navigateSession.sessionId || '')
+              const oldScope = currentScope || ''
+              if (target) {
+                // Host 返回的 state 已包含新 sid + crumbs。Harness 切 Session 会清空常规面板缓存，
+                // 因此在 Client 独立暂存，等目标 Session 真正成为 current 后再注入。
+                flowFollowStateBySessionRef.current.set(target, res.state)
+                if (action === 'fback' && oldScope) flowFollowStateBySessionRef.current.delete(oldScope)
+                flowHarnessNavTargetRef.current = target
+              }
+              try { await navigateHarnessSession(res.navigateSession) }
+              catch (e) {
+                if (flowHarnessNavTargetRef.current === target) flowHarnessNavTargetRef.current = null
+                if (target) flowFollowStateBySessionRef.current.delete(target)
+                setError('Flowglass 已切换，但 Harness 跟随失败: ' + String((e && e.message) || e))
+              }
+            }
             // 自动刷新约定：工具 HTML 带 data-autorefresh="ms" → 抽屉静默定时重拉（静默 = 不转圈）
             const am = /data-autorefresh="(\d+)"/.exec(res.html)
             setAutoMs((cur) => {
@@ -1576,6 +1736,34 @@ return {
         root.addEventListener('change', onNativeChange)
         return () => { try { root.removeEventListener('change', onNativeChange) } catch (err) {} }
       }, [isOpen])
+
+      // Flowglass 向上分页：.tb-pane-body 是 column-reverse，Chrome 中视觉顶部的
+      // scrollTop 通常是负的 -max；也兼容返回正 max 的实现。使用绝对值与最大距离比较。
+      // loadPanel 的旧 scrollTop 恢复会把原来最早的那张卡留在原位，新加载内容出现在它上方。
+      React.useEffect(() => {
+        if (!isOpen || active !== 'flow') return undefined
+        const root = panelRef.current
+        if (!root) return undefined
+        const onFlowScroll = (e) => {
+          const body = e.target
+          if (!body || !body.classList || !body.classList.contains('tb-pane-body')) return
+          const flow = body.closest && body.closest('[data-flow][data-flow-has-older="1"]')
+          if (!flow || flowOlderLoadingRef.current) return
+          const max = Math.max(0, body.scrollHeight - body.clientHeight)
+          // 距视觉顶部 80px 内即预加载，避免必须精确碰顶才触发。
+          if (max <= 0 || Math.abs(max - Math.abs(body.scrollTop)) > 80) return
+          flowOlderLoadingRef.current = true
+          setFlowOlderLoading(true)
+          flowSuppressHistoryAnimRef.current = true
+          const load = loadPanelRef.current
+          if (typeof load !== 'function') { flowOlderLoadingRef.current = false; setFlowOlderLoading(false); return }
+          Promise.resolve(load('flow', 'fmore', null, { silent: true }))
+            .catch(() => {})
+            .finally(() => { flowOlderLoadingRef.current = false; setFlowOlderLoading(false) })
+        }
+        root.addEventListener('scroll', onFlowScroll, true)
+        return () => { try { root.removeEventListener('scroll', onFlowScroll, true) } catch (e) {} }
+      }, [isOpen, active, html])
 
       async function refreshTools() {
         const list = await fetchTools(cwdRef.current)
@@ -1795,9 +1983,21 @@ return {
         // 优先 st.sid 渲染），切会话不清理会沿用旧会话 id——必须清空让工具从新会话重算。
         // 工具列表只在跨工作区（cwd 变）时重拉（工具按仓库根分组）。
         if (cwdChanged || sidChanged) {
+          const isFlowFollow = sidChanged && flowHarnessNavTargetRef.current === sid
+          const followState = isFlowFollow ? flowFollowStateBySessionRef.current.get(sid) : null
           htmlRef.current = {}
           stateRef.current = {}
           seqRef.current = {}
+          if (followState) stateRef.current.flow = followState
+          if (sidChanged) {
+            flowHarnessNavTargetRef.current = null
+            if (!isFlowFollow) {
+              // 用户手动切换 Session：不沿用之前 Flowglass 的临时返回链。
+              flowFollowStateBySessionRef.current.clear()
+              flowScrollByScopeRef.current.clear()
+              flowScrollIntentRef.current = 'enter'
+            }
+          }
         }
         if (cwdChanged) {
           // 同时清上一工作区的在屏 HTML 与逐工具请求标记：经过无工具箱的工作区后延迟重载
@@ -1847,10 +2047,20 @@ return {
       // isOpen 变化重新触发本 effect 正常加载）
       React.useEffect(() => {
         if (!isOpen) return
-        if (!active) { setHtml(null); return }
+        if (!active) { lastPanelActiveRef.current = null; setHtml(null); return }
         // localStorage 记忆可能指向已停止的工具：tools 已加载且不含它时等 refreshTools 纠正，不闪错误
         if (tools.length && !tools.some((t) => t.id === active)) return
-        setHtml(htmlRef.current[active] || null)
+        const switched = lastPanelActiveRef.current !== active
+        lastPanelActiveRef.current = active
+        if (active === 'flow' && switched) {
+          // 分页只是本次阅读状态：切换 Tab 后回来从最近 60 条重新开始。
+          stateRef.current[active] = null
+          htmlRef.current[active] = null
+          htmlScrollRef.current = null
+          setHtml(null)
+        } else {
+          setHtml(htmlRef.current[active] || null)
+        }
         loadPanel(active, '', null)
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [active, isOpen])
@@ -2392,6 +2602,17 @@ return {
           html
             ? React.createElement('div', { dangerouslySetInnerHTML: { __html: html } })
             : React.createElement('div', { className: 'tb-notice' }, '加载面板…'),
+          active === 'flow' && flowOlderLoading ? React.createElement('div', {
+            className: 'tb-flow-older-loading',
+            role: 'status',
+            'aria-live': 'polite',
+          }, React.createElement('span', { className: 'tb-tab-spin' }), '正在加载更早流程…') : null,
+          showJumpLatest ? React.createElement('button', {
+            type: 'button',
+            className: 'tb-jump-latest',
+            title: '平滑回到当前面板的最新内容',
+            onClick: jumpToLatest,
+          }, '↓ 回到最新') : null,
         )
       }
 

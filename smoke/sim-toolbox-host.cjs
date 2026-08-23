@@ -154,19 +154,27 @@ const check = (label, cond, detail) => {
   // 模拟工具注册（lastRoot 归向）：
   reg.register({ id: 'jira', label: 'Jira', order: 0 }, async () => ({ html: '<b>J</b>' })) // → lastRoot（W/repo，框架2后attach）
   await reg.runInBuild('W', async () => { reg.register({ id: 'git', label: 'Git', order: 1 }, async () => ({ html: '<b>G</b>' })) }) // → build root（W）
+  await reg.runInBuild('W', async () => {
+    reg.register({ id: 'nav', label: 'Nav', order: 2 }, async () => ({
+      html: '<b>N</b>',
+      navigateSession: { sessionId: 'child-1', parentSessionId: 'parent-1', kind: 'subagent', ignored: 'x' },
+    }))
+  })
   reg.register({ id: 'usage', label: '用量', order: 2 }, async () => ({ html: '<u>U</u>' })) // → lastRoot（W/repo）
 
   const toolsW = reg.tools('W')
   const toolsW1 = reg.tools('W/repo')
   const toolsW2 = reg.tools('W2')
-  check('tools(W) 含 git（build 上下文归 W）', JSON.stringify(toolsW.map((t) => t.id)) === JSON.stringify(['git']), JSON.stringify(toolsW))
+  check('tools(W) 含 git/nav（build 上下文归 W）', JSON.stringify(toolsW.map((t) => t.id)) === JSON.stringify(['git', 'nav']), JSON.stringify(toolsW))
   check('tools(W/repo) 含 jira/usage（lastRoot 归 W/repo）', toolsW1.map((t) => t.id).sort().join(',') === 'jira,usage', JSON.stringify(toolsW1))
   check('tools(W2) 无工具（未注册）', toolsW2.length === 0, JSON.stringify(toolsW2))
 
   const pW = await reg.panel('W', { tool: 'git', action: '' })
   const pW1 = await reg.panel('W/repo', { tool: 'jira', action: '' })
   const pCross = await reg.panel('W2', { tool: 'git', action: '' })
+  const pNav = await reg.panel('W', { tool: 'nav', action: '' })
   check('panel 按 root 路由命中', pW.ok && pW.html === '<b>G</b>' && pW1.ok && pW1.html === '<b>J</b>')
+  check('panel 透传窄化后的会话导航指令', pNav.navigateSession && pNav.navigateSession.sessionId === 'child-1' && pNav.navigateSession.parentSessionId === 'parent-1' && pNav.navigateSession.kind === 'subagent' && pNav.navigateSession.ignored === undefined)
   check('跨 root 调未注册工具 → 明确错误', pCross.ok === false && /未注册/.test(pCross.error), pCross.error)
 
   // —— build 互斥（评审 H2/H3 回归）：runInBuild 整个异步段持锁——段内 register 稳定归本 root，

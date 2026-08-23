@@ -276,6 +276,10 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     check('CSS 含导航条目选择器', css.indexOf('[data-dsh-toolbox-entry]{') >= 0 && css.indexOf('.tb-nav-icon') >= 0)
     check('CSS 含折叠 rail 变体', css.indexOf('[data-dsh-frame][data-sidebar-collapsed] [data-dsh-toolbox-entry]') >= 0)
     check('CSS 含 .tb-entry 与 .jr-drawer', css.indexOf('.tb-entry{') >= 0 && css.indexOf('.jr-drawer{') >= 0)
+    check('CSS/源码含工具面板「回到最新」浮标', css.indexOf('.tb-jump-latest{') >= 0
+      && src.indexOf('showJumpLatest') >= 0 && src.indexOf('↓ 回到最新') >= 0)
+    check('CSS/源码含 Flowglass Client 顶部 loading 与 80px 预加载阈值', css.indexOf('.tb-flow-older-loading{') >= 0
+      && src.indexOf('flowOlderLoading') >= 0 && src.indexOf('> 80') >= 0)
     check('CSS 含隐藏行与计数覆盖规则', css.indexOf('li[data-cordis-row][data-tb-hide~="1"]{display:none!important}') >= 0
       && css.indexOf('button[data-cordis-badge] span[data-tb-count]::after') >= 0)
   }

@@ -63,6 +63,15 @@ const makeToolboxRegistry = () => {
         if (!res || typeof res.html !== 'string') return { ok: false, error: '工具返回了无效的面板内容' }
         const out = { ok: true, html: res.html, state: res.state == null ? null : res.state }
         if (typeof res.copy === 'string' && res.copy) out.copy = res.copy
+        // Flowglass 子代理跟随：一次性 Client 导航指令。只透传窄化后的标量，
+        // 避免把工具 handler 的任意对象带过 Host→Client 边界。
+        if (res.navigateSession && typeof res.navigateSession === 'object' && typeof res.navigateSession.sessionId === 'string') {
+          out.navigateSession = {
+            sessionId: res.navigateSession.sessionId,
+            ...(typeof res.navigateSession.parentSessionId === 'string' ? { parentSessionId: res.navigateSession.parentSessionId } : {}),
+            ...(res.navigateSession.kind === 'subagent' || res.navigateSession.kind === 'session' ? { kind: res.navigateSession.kind } : {}),
+          }
+        }
         return out
       } catch (e) { return { ok: false, error: String((e && e.message) || e) } }
     },
