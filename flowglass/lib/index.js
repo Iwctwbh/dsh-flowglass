@@ -1262,8 +1262,8 @@ return {
 
     const handler = async ({ action, fields, state, session }) => {
       if (!sq) return { ok: false, error: 'sessionQuery 服务不可用', html: '' }
-      const st = (state && typeof state === 'object' && state) ? state : { live: true, follow: false, limit: 60, sid: null, home: null, expanded: null, crumbs: [] }
-      st.follow = st.follow === true
+      const st = (state && typeof state === 'object' && state) ? state : { live: true, follow: true, limit: 60, sid: null, home: null, expanded: null, crumbs: [] }
+      if (typeof st.follow !== 'boolean') st.follow = true
       if (!Number.isFinite(Number(st.limit)) || Number(st.limit) < 60) st.limit = 60
       if (typeof st.expanded !== 'number' && st.expanded != null) st.expanded = null
       if (!Array.isArray(st.crumbs)) st.crumbs = []

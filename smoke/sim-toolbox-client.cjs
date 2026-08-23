@@ -283,7 +283,9 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     check('CSS/源码含 Flowglass 透明 Zoom+Zen、默认框选、悬停分支和工作区会话树', css.indexOf('.tb-flow-zoom-float') >= 0
       && css.indexOf('.jr-drawer.jr-flow-zen') >= 0 && css.indexOf('.tb-flow-selection-bar') >= 0
       && css.indexOf('.tb-flow-bring-popup') >= 0 && css.indexOf('.tb-flow-session-tree') >= 0 && css.indexOf('.fl-marquee{') >= 0
-      && src.indexOf('flowSelectMode') < 0 && src.indexOf('branchFlowAt') >= 0 && src.indexOf('sendSelectedFlow') >= 0)
+      && src.indexOf('requestFullscreen') >= 0 && src.indexOf('flowSelectMode') < 0 && src.indexOf('branchFlowAt') >= 0 && src.indexOf('sendSelectedFlow') >= 0)
+    check('面板主布局只作用于 HTML 包装层，不会把左下浮层拉成竖条', css.indexOf('.tb-frame>.tb-panel-html{') >= 0
+      && css.indexOf('.tb-frame:has(.tb-pane)>div{') < 0 && src.indexOf("className: 'tb-panel-html'") >= 0)
     check('CSS 含隐藏行与计数覆盖规则', css.indexOf('li[data-cordis-row][data-tb-hide~="1"]{display:none!important}') >= 0
       && css.indexOf('button[data-cordis-badge] span[data-tb-count]::after') >= 0)
   }

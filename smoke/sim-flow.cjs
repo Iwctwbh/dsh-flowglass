@@ -117,7 +117,7 @@ const check = (label, cond, detail) => {
   check('子代理 id 截断显示', r.html.indexOf('228a8697') >= 0)
   check('同 step 并行子代理合并成组', r.html.indexOf('并行子代理 ×2') >= 0 && r.html.indexOf('fl-subgrp') >= 0)
   check('子代理入口卡可直接进入', r.html.indexOf('fl-sub-open') >= 0 && r.html.indexOf('data-action="fenter"') >= 0)
-  check('子代理跟随开关默认关闭', r.html.indexOf('○ 子代理跟随') >= 0 && r.state.follow === false)
+  check('子代理跟随开关默认开启', r.html.indexOf('● 子代理跟随') >= 0 && r.state.follow === true)
 
   // live 开关：暂停后无 autorefresh
   r = await h({ action: 'toggle-live', fields: {}, state: r.state, root: ROOT, session: 's-main' })
@@ -128,7 +128,9 @@ const check = (label, cond, detail) => {
 
   // 跟随开关：进入时 Host 返回给 Client 一次性 Harness 会话导航指令。
   r = await h({ action: 'toggle-follow', fields: {}, state: r.state, root: ROOT, session: 's-main' })
-  check('开启子代理跟随', r.state.follow === true && r.html.indexOf('● 子代理跟随') >= 0)
+  check('可手动关闭子代理跟随', r.state.follow === false && r.html.indexOf('○ 子代理跟随') >= 0)
+  r = await h({ action: 'toggle-follow', fields: {}, state: r.state, root: ROOT, session: 's-main' })
+  check('可恢复开启子代理跟随', r.state.follow === true && r.html.indexOf('● 子代理跟随') >= 0)
   r = await h({ action: 'fenter', fields: { __el: { seq: '8' } }, state: r.state, root: ROOT, session: 's-main' })
   check('进入子流镜仍实时', r.html.indexOf('子代理流镜') >= 0 && r.html.indexOf('data-autorefresh="2000"') >= 0)
   check('跟随返回 Harness 子会话导航', r.navigateSession && r.navigateSession.sessionId === '228a8697-2b7a-422a-b3c0-1cf61c965d5c' && r.navigateSession.parentSessionId === 's-main')

@@ -502,7 +502,7 @@ return {
       // .tb-pane-body 用 column-reverse —— DOM 最新在前 ⇒ 视觉越往下越新，且滚动条默认停在底部
       '.jr-drawer-body:has(.tb-pane){overflow:hidden}',
       '.tb-frame:has(.tb-pane){flex:1;min-height:0;overflow:hidden}',
-      '.tb-frame:has(.tb-pane)>div{flex:1;min-height:0;display:flex;flex-direction:column}',
+      '.tb-frame>.tb-panel-html{flex:1;min-height:0;display:flex;flex-direction:column}',
       '.tb-pane{position:relative;display:flex;flex-direction:column;flex:1;min-height:0;gap:10px;overflow:hidden}',
       '.tb-pane-head{flex:none;display:flex;flex-direction:column;gap:10px}',
       '.tb-pane-body{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column-reverse;gap:4px;padding-right:4px}',
@@ -1366,6 +1366,23 @@ return {
       const flowHarnessNavTargetRef = React.useRef(null) // 只有 Flowglass 主动导航的目标会话才恢复返回链
       const suppressFlowClickUntilRef = React.useRef(0)
 
+      const exitFlowZen = async () => {
+        const el = drawerRef.current
+        try {
+          if (typeof document !== 'undefined' && document.fullscreenElement === el && typeof document.exitFullscreen === 'function') await document.exitFullscreen()
+        } catch (e) {}
+        setFlowZen(false)
+      }
+
+      const toggleFlowZen = async () => {
+        if (flowZen) { await exitFlowZen(); return }
+        const el = drawerRef.current
+        setFlowZen(true) // 先进入 CSS 全视口 Zen，Fullscreen API 被禁时仍可用。
+        if (!el || typeof el.requestFullscreen !== 'function') return
+        try { await el.requestFullscreen() }
+        catch (e) { setError('浏览器拒绝原生全屏，已回退到视口 Zen 模式') }
+      }
+
       // 停靠模式/激活 Tab/分类工具记忆变化即落盘（宽/高/浮动位置在手势结束时单独落盘，避免每帧写）
       React.useEffect(() => { lsWrite({ dockMode, active, activeByCat }) }, [dockMode, active, activeByCat])
 
@@ -1711,7 +1728,7 @@ return {
 
       React.useEffect(() => {
         if (active === 'flow') return
-        setFlowZen(false)
+        exitFlowZen()
         setFlowSelectedSeqs([])
         setFlowBringPopup(false)
         setFlowUiNotice('')
@@ -1719,10 +1736,26 @@ return {
 
       React.useEffect(() => {
         if (!flowZen || typeof window === 'undefined') return undefined
-        const onKey = (e) => { if (e.key === 'Escape') setFlowZen(false) }
+        // 原生全屏时 Esc 由浏览器退出并触发 fullscreenchange；回退 Zen 则自行处理。
+        const onKey = (e) => { if (e.key === 'Escape' && (typeof document === 'undefined' || !document.fullscreenElement)) setFlowZen(false) }
         window.addEventListener('keydown', onKey)
         return () => { try { window.removeEventListener('keydown', onKey) } catch (e) {} }
       }, [flowZen])
+
+      React.useEffect(() => {
+        if (typeof document === 'undefined') return undefined
+        const onFullscreen = () => {
+          const el = drawerRef.current
+          if (document.fullscreenElement === el) setFlowZen(true)
+          else if (!document.fullscreenElement) setFlowZen(false)
+        }
+        document.addEventListener('fullscreenchange', onFullscreen)
+        return () => {
+          try { document.removeEventListener('fullscreenchange', onFullscreen) } catch (e) {}
+          const el = drawerRef.current
+          try { if (document.fullscreenElement === el && document.exitFullscreen) document.exitFullscreen().catch(() => {}) } catch (e) {}
+        }
+      }, [])
 
       const flowScope = () => {
         const flow = panelRef.current && panelRef.current.querySelector('[data-flow][data-flow-scope]')
@@ -2596,7 +2629,7 @@ return {
           React.createElement('button', { type: 'button', className: 'tb-flow-zoom-value tb-flow-zoom-btn', title: '恢复 100%', onClick: () => setFlowZoomLevel(100) }, flowZoom + '%'),
           React.createElement('button', { type: 'button', className: 'tb-flow-zoom-btn', disabled: flowZoom >= 150, onClick: () => stepFlowZoom(1) }, '+'),
           React.createElement('button', {
-            type: 'button', className: 'tb-flow-zoom-btn', title: flowZen ? '退出 Zen 全屏（Esc）' : '进入 Zen 全屏', onClick: () => setFlowZen((v) => !v),
+            type: 'button', className: 'tb-flow-zoom-btn', title: flowZen ? '退出 Zen 原生全屏（Esc）' : '进入 Zen 原生全屏', onClick: toggleFlowZen,
           }, React.createElement('svg', { viewBox: '0 0 16 16', width: 13, height: 13, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
             flowZen
               ? React.createElement('path', { d: 'M6 2v4H2M10 2v4h4M6 14v-4H2M10 14v-4h4' })
@@ -3057,7 +3090,7 @@ return {
           error ? React.createElement('div', { className: 'tb-error' }, String(error)) : null,
           copied ? React.createElement('div', { className: 'tb-banner tb-banner-info' }, String(copied)) : null,
           html
-            ? React.createElement('div', { dangerouslySetInnerHTML: { __html: html } })
+            ? React.createElement('div', { className: 'tb-panel-html', dangerouslySetInnerHTML: { __html: html } })
             : React.createElement('div', { className: 'tb-notice' }, '加载面板…'),
           flowZoomControl,
           flowSelectionBar,

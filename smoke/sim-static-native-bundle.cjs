@@ -41,6 +41,7 @@ const check = (label, cond, detail) => {
   check('Flow Client 保留跟随返回链，且历史加载无顶部 loading 浮层', client.includes('flowFollowStateBySessionRef') && !client.includes('tb-flow-older-loading'))
   check('Flow Client 恢复工具面板「回到最新」浮标', client.includes('tb-jump-latest') && client.includes('showJumpLatest') && client.includes('↓ 回到最新'))
   check('Flow Client 含透明 Zoom+Zen/默认框选/真实分支/工作区会话树 popup', client.includes('tb-flow-zoom-float') && client.includes('jr-flow-zen')
+    && client.includes('requestFullscreen') && client.includes('fullscreenchange')
     && client.includes('tb-flow-selection-bar') && client.includes('tb-flow-bring-popup') && client.includes('tb-flow-session-tree') && client.includes('fl-marquee')
     && client.includes('sessionsClient.fork') && client.includes('sessionsClient.create') && client.includes('inputActions'))
 
