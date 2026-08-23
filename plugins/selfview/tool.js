@@ -25,40 +25,67 @@ return {
     const log = (line) => { logLines.push(fmtClock(Date.now()) + ' ' + line); if (logLines.length > 40) logLines.shift() }
 
     // ---- 命令队列 + 结果配对 ----
+    // 多 GUI 表面（多标签页/桌面+浏览器）都会长轮询 selfview/pull。单 FIFO 无差别派发会让
+    // 「A 页建的 refMap、B 页来执行」→ ref 失效；点击落在用户看不见的表面毫无反应。
+    // 因此命令带表面亲和：优先派给「最近成功执行」的表面；截图类优先「截屏流所在」表面；
+    // 表面消失（无该 cid 的 waiter）时回落 FIFO。clientId 由 Client 半以 sessionStorage 提供。
     let seq = 0
-    const queue = []      // 待取命令
-    const waiters = []    // 挂起的 pull：[resolve]
-    const pending = {}    // id -> resolve（工具调用等结果）
+    const queue = []      // 待取命令 { cmd, dead, prefer }（dead=已超时作废，出队即弃）
+    const waiters = []    // 挂起的 pull：{ cid, resolve(item) }
+    const pending = {}    // id -> { resolve, item }（工具调用等结果）
+    const liveCmds = new Map() // id -> item（超时作废标记用）
+    const seenClients = new Set() // 出现过的表面 id（>1 时快照附多表面提示）
+    let preferredCid = ''  // 最近一次成功执行命令的表面
+    let streamCid = ''     // 截屏流所在表面（push state stream=true 时更新）
 
-    const pushCmd = (cmd) => {
-      if (waiters.length) waiters.shift()(cmd)
-      else queue.push(cmd)
+    const pushCmd = (cmd, prefer) => {
+      const item = { cmd: cleanCmd(cmd), dead: false, prefer: prefer || '', cid: '' }
+      liveCmds.set(item.cmd.id, item)
+      if (waiters.length) {
+        let idx = item.prefer ? waiters.findIndex((w) => w.cid === item.prefer) : -1
+        if (idx < 0 && preferredCid) idx = waiters.findIndex((w) => w.cid === preferredCid)
+        const w = (idx >= 0 ? waiters.splice(idx, 1)[0] : waiters.shift())
+        w.resolve(item)
+      } else queue.push(item)
+      return item
     }
     // RPC 返回必须是无损 JSON：剥掉 undefined 字段（如未传的 selector/maxLines），否则 cloneJson 拒收整条命令
     const cleanCmd = (o) => { const r = {}; for (const k of Object.keys(o)) if (o[k] !== undefined) r[k] = o[k]; return r }
-    const sendToClient = (cmd, timeoutMs) => new Promise((resolve) => {
+    const sendToClient = (cmd, timeoutMs, opts) => new Promise((resolve) => {
       const id = 'c' + (++seq)
+      const item = pushCmd(Object.assign({ id }, cmd), opts && opts.stream ? (streamCid || preferredCid) : preferredCid)
       const timer = ctx.timeout(() => {
+        // 审计 M12：超时只回错误不回收命令的话，Client 重连后第一个 pull 会取出并执行
+        // 这条「已报失败」的陈旧点击/填充——必须就地作废（还在队列里则出队时被跳过）
+        item.dead = true
+        liveCmds.delete(id)
         if (pending[id]) {
           delete pending[id]
-          resolve({ ok: false, error: 'Client 无响应（' + Math.round((timeoutMs || 12000) / 1000) + 's 超时）——界面插件的 Client 半在运行吗？浏览器标签页开着吗？' })
+          resolve({ ok: false, error: 'Client 无响应（' + Math.round((timeoutMs || 12000) / 1000) + 's 超时），命令已作废' })
         }
       }, timeoutMs || 12000)
-      pending[id] = (res) => { try { timer() } catch (e) {} delete pending[id]; resolve(res) }
-      pushCmd(cleanCmd(Object.assign({ id }, cmd)))
+      pending[id] = { resolve: (res) => { try { timer() } catch (e) {} delete pending[id]; liveCmds.delete(id); if (res && res.ok && item.cid) preferredCid = item.cid; resolve(res) } }
     })
 
-    ctx.effect(() => harness.handle('selfview/pull', async () => {
+    ctx.effect(() => harness.handle('selfview/pull', async (args) => {
       clientSeenAt = Date.now()
-      if (queue.length) return queue.shift()
+      const cid = args && typeof args.clientId === 'string' ? args.clientId : ''
+      if (cid) seenClients.add(cid)
+      // 出队跳过已作废命令（审计 M12）：超时的点击/填充绝不复活执行
+      while (queue.length) {
+        const item = queue.shift()
+        if (item.dead) { liveCmds.delete(item.cmd.id); continue }
+        item.cid = cid
+        return item.cmd
+      }
       return await new Promise((resolve) => {
         const timer = ctx.timeout(() => {
-          const i = waiters.indexOf(wrapped)
+          const i = waiters.findIndex((w) => w.resolve === wrapped)
           if (i >= 0) waiters.splice(i, 1)
           resolve({ cmd: 'none' }) // 25s 心跳空转，Client 立刻重新 pull
         }, 25000)
-        const wrapped = (cmd) => { try { timer() } catch (e) {} resolve(cmd) }
-        waiters.push(wrapped)
+        const wrapped = (item) => { try { timer() } catch (e) {} item.cid = cid; resolve(item.cmd) }
+        waiters.push({ cid, resolve: wrapped })
       })
     }))
 
@@ -66,8 +93,11 @@ return {
       clientSeenAt = Date.now()
       const id = args && typeof args.id === 'string' ? args.id : ''
       const res = args && args.res && typeof args.res === 'object' ? args.res : { ok: false, error: '空结果' }
-      const r = pending[id]
-      if (r) r(res)
+      const entry = pending[id]
+      if (entry) {
+        if (res.ok && entry.item && entry.item.cid) preferredCid = entry.item.cid
+        entry.resolve(res)
+      } else if (liveCmds.has(id)) liveCmds.delete(id) // 陈旧结果（命令已超时作废）：静默丢弃
       // 截图结果顺带更新面板缩略图元信息（全量 b64 不进闭包——结果体可能 MB 级，用完即弃）
       if (res && res.ok && res.thumbB64) {
         lastThumb = { dataUrl: 'data:image/jpeg;base64,' + res.thumbB64, w: res.w || 0, h: res.h || 0, at: Date.now() }
@@ -79,11 +109,17 @@ return {
     ctx.effect(() => harness.handle('selfview/push', async (args) => {
       clientSeenAt = Date.now()
       if (!args || typeof args !== 'object') return { ok: true }
+      const cid = typeof args.clientId === 'string' ? args.clientId : ''
+      if (cid) seenClients.add(cid)
       if (args.kind === 'state') {
         streamOn = Boolean(args.stream)
+        if (streamOn && cid) streamCid = cid // 授权流在哪台表面，ui_capture 就优先派给哪台（审计 E2）
         if (typeof args.note === 'string' && args.note) log(args.note)
       } else if (args.kind === 'thumb' && typeof args.thumbB64 === 'string') {
-        lastThumb = { dataUrl: 'data:image/jpeg;base64,' + args.thumbB64, w: args.w || 0, h: args.h || 0, at: Date.now() }
+        // 入口白名单（审计 L20）：base64 字形校验 + 尺寸上限，异常数据不入 lastThumb
+        if (/^[A-Za-z0-9+/=]+$/.test(args.thumbB64) && args.thumbB64.length <= 2 * 1024 * 1024) {
+          lastThumb = { dataUrl: 'data:image/jpeg;base64,' + args.thumbB64, w: Number(args.w) || 0, h: Number(args.h) || 0, at: Date.now() }
+        }
       } else if (args.kind === 'log' && typeof args.line === 'string') {
         log(args.line)
       }
@@ -92,9 +128,9 @@ return {
 
     // 停止时：唤醒全部挂起 pull / 工具等待者，Client 侧长轮询自行退出
     ctx.effect(() => () => {
-      while (waiters.length) waiters.shift()({ cmd: 'stop' })
-      for (const k of Object.keys(pending)) pending[k]({ ok: false, error: '界面插件已停止' })
-      for (const k of Object.keys(pending)) delete pending[k]
+      while (waiters.length) { const w = waiters.shift(); try { w.resolve({ cmd: 'stop' }) } catch (e) {} }
+      for (const k of Object.keys(pending)) { try { pending[k].resolve({ ok: false, error: '界面插件已停止' }) } catch (e) {} delete pending[k] }
+      liveCmds.clear()
     })
 
     // ---- 截图落盘（stdin 批写二进制） ----
@@ -109,14 +145,16 @@ return {
       const sub = ctx.get('subprocess')
       if (!sub) return { ok: false, error: 'subprocess 服务不可用' }
       try {
+        // 同一子进程内顺手做保留清理（审计 L22）：全尺寸 JPEG 每张数百 KB~数 MB，
+        // 无限累积会吃满磁盘——只保留最新 20 张，清理失败静默不影响主流程
         const handle = sub.spawn({
-          argv: ['node', '-e', "let d='';process.stdin.on('data',(c)=>d+=c).on('end',()=>{const fs=require('fs');fs.mkdirSync(require('path').dirname(process.argv[1]),{recursive:true});fs.writeFileSync(process.argv[1],Buffer.from(d,'base64'))})", file],
+          argv: ['node', '-e', "let d='';process.stdin.on('data',(c)=>d+=c).on('end',()=>{const fs=require('fs'),path=require('path');try{fs.mkdirSync(path.dirname(process.argv[1]),{recursive:true});fs.writeFileSync(process.argv[1],Buffer.from(d,'base64'))}catch(e){process.exit(3)}try{const dir=path.dirname(process.argv[1]);const list=fs.readdirSync(dir).filter((f)=>/^shot-\\d+\\.jpg$/.test(f)).map((f)=>({f,t:fs.statSync(path.join(dir,f)).mtimeMs})).sort((a,b)=>b.t-a.t);for(const x of list.slice(20)){try{fs.unlinkSync(path.join(dir,x.f))}catch(e2){}}}catch(e){})", file],
           stdio: { stdin: { data: b64 }, stdout: { maxBytes: 512 }, stderr: { maxBytes: 2048 } },
           graceMs: 20000,
         })
         await handle.done
         lastShotPath = file
-        log('截图已保存 ' + file)
+        log('截图已保存 ' + file + '（目录仅保留最近 20 张）')
         return { ok: true, path: file }
       } catch (e) {
         return { ok: false, error: '写文件失败: ' + String((e && e.message) || e) }
@@ -141,14 +179,18 @@ return {
       parameters: {
         selector: { type: 'string', description: '可选 CSS 选择器，只看该子树（默认整个页面）' },
         maxLines: { type: 'number', description: '最大行数（默认 300）' },
+        maxDepth: { type: 'number', description: '最大遍历深度（默认 48，范围 14-160；深层元素漏掉时调大）' },
       },
       output: objOut,
       timeoutMs: 20000,
       isConcurrencySafe: () => true,
       execute: async (args) => {
-        const res = await sendToClient({ cmd: 'snapshot', selector: args && args.selector, maxLines: args && args.maxLines }, 12000)
+        const res = await sendToClient({ cmd: 'snapshot', selector: args && args.selector, maxLines: args && args.maxLines, maxDepth: args && args.maxDepth }, 12000)
         if (!res.ok) return { text: '快照失败：' + (res.error || '未知错误') }
-        return { text: res.text || '（空页面）' }
+        let text = res.text || '（空页面）'
+        // 审计 E2：多表面并存时 refs 会跨表面失效——让模型知道该环境风险
+        if (seenClients.size > 1) text += '\n注意：检测到 ' + seenClients.size + ' 个界面表面同时连接（多标签页/多窗口）。refs 只在产生它的表面有效，操作可能被其他表面抢走——建议只保留一个 GUI 窗口。'
+        return { text }
       },
     })
 
@@ -160,7 +202,9 @@ return {
       timeoutMs: 30000,
       isConcurrencySafe: () => true,
       execute: async () => {
-        const res = await sendToClient({ cmd: 'capture' }, 15000)
+        // 截图优先派给「截屏流所在」的表面（审计 E2）：授权流绑定在授权它的那个页面上，
+        // 命令落到别的表面只会收到 no-stream 误报
+        const res = await sendToClient({ cmd: 'capture' }, 15000, { stream: true })
         if (!res.ok) {
           if (res.error === 'no-stream') return { text: '截图失败：截屏未开启。请用户在 工具箱 →「界面」Tab 点一次「开启截屏」按钮完成浏览器授权（只需一次，之后流保持复用）。' }
           return { text: '截图失败：' + (res.error || '未知错误') }
@@ -250,8 +294,13 @@ return {
         '</div>')
       if (st.notice) parts.push('<div class="tb-banner tb-banner-info">' + esc(st.notice) + '</div>')
       if (lastThumb) {
-        parts.push('<div class="tb-preview"><div class="tb-preview-head"><span class="tb-preview-name">最近截图 ' + lastThumb.w + '×' + lastThumb.h + ' · ' + fmtClock(lastThumb.at) + '</span></div>' +
-          '<img class="tb-preview-img" src="' + lastThumb.dataUrl + '" alt="最近截图缩略图" /></div>')
+        // 渲染侧白名单（审计 L20）：dataUrl 必须是 jpeg data URL 字形，w/h 数字归一——
+        // 同函数其余字段均过 esc()，唯独 img src 此前裸拼，属防御不一致
+        const srcOk = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(String(lastThumb.dataUrl || ''))
+        const tw = Number(lastThumb.w) || 0
+        const th = Number(lastThumb.h) || 0
+        parts.push('<div class="tb-preview"><div class="tb-preview-head"><span class="tb-preview-name">最近截图 ' + tw + '×' + th + ' · ' + fmtClock(lastThumb.at) + '</span></div>' +
+          (srcOk ? '<img class="tb-preview-img" src="' + lastThumb.dataUrl + '" alt="最近截图缩略图" />' : '<div class="tb-note">缩略图数据异常，已跳过渲染</div>') + '</div>')
       }
       if (logLines.length) {
         parts.push('<div class="tb-sec"><span class="tb-sec-label">操作日志（最近 ' + logLines.length + ' 条）</span><pre class="tb-code">' + esc(logLines.slice().reverse().join('\n')) + '</pre></div>')

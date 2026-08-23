@@ -13,9 +13,11 @@ return {
     const subprocess = ctx.get('subprocess')
     let lastResult = null // 最近一次响应本体（闭包持有，不进 state；插件重跑即清空，面板提示重发）
 
-    // 子进程脚本：数组 join 无内嵌 \n 字面量（规避双层求值转义坑）
+    // 子进程脚本：数组 join 无内嵌 \n 字面量（规避双层求值转义坑）。
+    // 脚本经 argv -e 注入（静态模板 <1KB），请求 spec（含可达 MB 级的 body）走 stdin——
+    // 不走 env：Windows 环境块总长 32K 字符，大 body 会让 spawn 莫名失败（审计 L5）
     const FETCH_SCRIPT = [
-      "const spec = JSON.parse(process.env.HTTP_REQ || '{}')",
+      "const spec = JSON.parse(require('fs').readFileSync(0, 'utf8'))",
       "const ctrl = new AbortController()",
       "setTimeout(() => ctrl.abort(), 30000)",
       "const t0 = Date.now()",
@@ -65,20 +67,23 @@ return {
       return { root, session: null }
     }
 
-    const runNode = async (script, env, cwd) => {
+    const runNode = async (script, spec, cwd) => {
       if (!subprocess) return { ok: false, error: 'subprocess 服务不可用' }
-      const handle = subprocess.spawn({
-        argv: ['node', '-'],
+      // 外层看门狗 45s：wall-clock 到点主动 terminate()（子进程脚本内的 AbortController 30s 保持不动）。
+      // 注意 graceMs 只是「退出后 SIGTERM→SIGKILL 升级窗口」，不是运行超时——别把它当 45s 上限理解。
+      const handle = withDeadline(ctx, subprocess.spawn({
+        argv: ['node', '-e', script],
         cwd,
-        stdio: { stdin: { data: script }, stdout: { maxBytes: 4 * 1024 * 1024 }, stderr: { maxBytes: 128 * 1024 } },
+        stdio: { stdin: { data: JSON.stringify(spec) }, stdout: { maxBytes: 4 * 1024 * 1024 }, stderr: { maxBytes: 128 * 1024 } },
         graceMs: 45000,
-        env,
-      })
+      }), 45000)
       const outcome = await handle.done
-      const stdout = handle.collected.stdout.readFrom(0).text
-      const stderr = handle.collected.stderr.readFrom(0).text
-      if (outcome.exitCode !== 0) return { ok: false, error: (stderr || stdout).slice(0, 500) }
-      return { ok: true, stdout }
+      const so = handle.collected.stdout.readFrom(0)
+      const se = handle.collected.stderr.readFrom(0)
+      // lossy 标志：输出超过 maxBytes 被截尾，记给调用方并入面板提示
+      const truncated = !!(so.lossy || se.lossy)
+      if (outcome.exitCode !== 0) return { ok: false, error: (se.text || so.text).slice(0, 500), truncated }
+      return { ok: true, stdout: so.text, truncated }
     }
 
     // ---- 键值对（params/headers/form）同步与组装 ----
@@ -94,6 +99,14 @@ return {
     }
     const enabled = (rows) => (rows || []).filter((r) => r.on !== false && r.k)
 
+    // 历史快照脱敏：键名小写匹配这些敏感头的值替换为 '<redacted>' 占位，其余头原样保存
+    const SENSITIVE_HEADER_RE = /^(authorization|cookie|proxy-authorization|x-api-key)$/
+    const maskHeaders = (rows) => (rows || []).map((r) =>
+      (r && r.k && r.v && SENSITIVE_HEADER_RE.test(String(r.k).trim().toLowerCase()))
+        ? { k: r.k, v: '<redacted>', on: r.on }
+        : r
+    )
+
     const buildRequest = (st) => {
       let url = st.url || ''
       const qp = enabled(st.params)
@@ -102,7 +115,10 @@ return {
         url += (url.indexOf('?') >= 0 ? '&' : '?') + q
       }
       const headers = {}
-      for (const r of enabled(st.headers)) headers[r.k] = r.v
+      for (const r of enabled(st.headers)) {
+        if (r.v === '<redacted>') continue // 历史脱敏占位值不真发出去（重发前需在 Headers 区重填）
+        headers[r.k] = r.v
+      }
       let body = null
       if (st.bodyType === 'json') {
         body = st.body || ''
@@ -224,8 +240,8 @@ return {
             '<div class="tb-rec-main">' +
               '<div class="tb-rec-top"><span class="tb-pill tb-pill-plain">' + esc(it.m) + '</span>' +
               '<span class="tb-rec-summary">' + esc(oneLine(it.u, 70)) + '</span></div>' +
-              '<div class="tb-rec-sub"><span>' + (it.s ? '<span class="' + (it.s < 400 ? 'tb-tx-done' : 'tb-tx-danger') + '">' + it.s + '</span>' : '<span class="tb-tx-danger">失败</span>') + '</span>' +
-              '<span>' + (it.ms != null ? it.ms + 'ms' : '') + '</span><span>' + fmtClock(it.t) + '</span></div>' +
+              '<div class="tb-rec-sub"><span>' + (it.s ? '<span class="' + (it.s < 400 ? 'tb-tx-done' : 'tb-tx-danger') + '">' + esc(it.s) + '</span>' : '<span class="tb-tx-danger">失败</span>') + '</span>' +
+              '<span>' + esc(it.ms != null ? it.ms + 'ms' : '') + '</span><span>' + fmtClock(it.t) + '</span></div>' +
             '</div>' +
           '</div>'
         ).join('') + '</div>')
@@ -234,23 +250,30 @@ return {
       return parts.join('')
     }
 
-    const send = async (st, ws) => {
+    const send = async (st, ws, redactCount) => {
       const spec = buildRequest(st)
-      const res = await runNode(FETCH_SCRIPT, { HTTP_REQ: JSON.stringify(spec) }, ws.root)
+      const res = await runNode(FETCH_SCRIPT, spec, ws.root)
       if (!res.ok) { lastResult = { ok: false, error: res.error }; return }
       try {
         lastResult = JSON.parse(res.stdout)
       } catch (e) {
-        lastResult = { ok: false, error: '响应解析失败: ' + res.stdout.slice(0, 300) }
+        lastResult = { ok: false, error: '响应解析失败' + (res.truncated ? '（子进程输出超过上限已截尾）' : '') + ': ' + res.stdout.slice(0, 300) }
       }
       const r = lastResult
       st.history = [{
         m: spec.method, u: spec.url,
-        params: st.params, headers: st.headers, bodyType: st.bodyType, body: st.body, form: st.form,
+        params: st.params,
+        headers: maskHeaders(st.headers), // 落盘前脱敏：authorization/cookie 等敏感头只存 '<redacted>' 占位
+        bodyType: st.bodyType, body: st.body, form: st.form,
         s: r.ok ? r.status : 0, ms: r.ms != null ? r.ms : null, t: Date.now(),
       }].concat(st.history || []).slice(0, 8)
       const persisted = await writeJsonStore(ctx, REL_STORE, st.history, ws.root, ws.session)
-      st.notice = persisted ? null : '⚠ 历史未能写入 ' + REL_STORE + '，仅保存在面板内存中'
+      // 提示条并入现有 notice 通道：输出截尾 / 敏感头待重填 / 历史写盘失败
+      const notes = []
+      if (res.truncated) notes.push('子进程输出超过上限已截尾')
+      if (redactCount) notes.push(String(redactCount) + ' 个敏感头需重填')
+      if (!persisted) notes.push('⚠ 历史未能写入 ' + REL_STORE + '，仅保存在面板内存中')
+      st.notice = notes.join('；') || null
     }
 
     const handler = async ({ action, fields, state, root, session }) => {
@@ -295,7 +318,9 @@ return {
           st.method = it.m; st.url = it.u
           st.params = it.params || []; st.headers = it.headers || []
           st.bodyType = it.bodyType || 'none'; st.body = it.body || ''; st.form = it.form || []
-          await send(st, ws)
+          // 历史快照里敏感头是 '<redacted>' 占位：buildRequest 组装时跳过这些头，这里统计数量提醒重填
+          const nRedacted = (st.headers || []).filter((r) => r && r.v === '<redacted>').length
+          await send(st, ws, nRedacted)
         }
       }
       else if (action === 'clear-history') {

@@ -8,7 +8,10 @@
 
 return {
   name: 'aiassist-tool',
-  inject: ['fs', 'llm', 'agentDefaultModel', 'timer'],
+  // llm/agentDefaultModel 为可选依赖（makeLlmHelper 内部 ctx.get + available:false 优雅降级），
+  // 不进 inject：服务缺失时 Tab 仍在、可浏览历史，发送时提示「llm 服务不可用」。
+  // 注意：运行时桩 payload 的 inject 来自 build/plugin-catalog.mjs，需同步改为 ['fs','timer'] 并重新生成。
+  inject: ['fs', 'timer'],
   apply(ctx) {
     const ai = makeLlmHelper(ctx)
     const subprocess = ctx.get('subprocess')
@@ -67,12 +70,25 @@ return {
     let lastDiff = null      // commitmsg diff 本体（{ scope, text, truncated }）
     let lastLog = null       // aisummary 日志采样本体（{ text, truncated, omitted, events }）
     const paramMem = {}      // presetId -> params 记忆（切换回来恢复上次参数）
+    // compare rounds 落盘串行链：双击「并发对比」时两个在途 send 各自基于磁盘追加自己的轮次，
+    // 不再整文件互相覆盖丢轮次（与台账写锁同型的轻量 per-root promise 链）
+    let cmpSaveChain = Promise.resolve()
+    const enqueueCompareSave = (fn) => {
+      const run = cmpSaveChain.then(fn, fn)
+      cmpSaveChain = run.then(() => undefined, () => undefined)
+      return run
+    }
 
     const pad2 = (n) => (n < 10 ? '0' : '') + n
     const fmtClock = (t) => { const d = new Date(t); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) }
+    // 数值槽位先归一再拼 HTML（history 可经 state 往返/磁盘恢复，防御深度；非法值不出 NaN/注入面）
+    const numOf = (v) => { const x = Number(v); return Number.isFinite(x) ? x : 0 }
 
     // ===== 通用历史卡片（AI 类历史统一视觉；原 7 个工具的卡片样式不变）=====
     function aiHistoryCard(it, srcText, dstText, srcLabel, dstLabel) {
+      const ms = numOf(it.ms)
+      const outN = Number(it.out)
+      const out = it.out != null && Number.isFinite(outN) ? outN : null
       const parts = []
       parts.push('<div class="tb-card">')
       if (srcLabel && srcText) parts.push('<div class="tb-sec"><span class="tb-sec-label">' + esc(srcLabel) + '</span>' +
@@ -80,10 +96,10 @@ return {
       parts.push(it.err
         ? '<div class="tb-banner tb-banner-error">' + esc(it.err) + '</div>'
         : '<div class="tb-sec"><span class="tb-sec-label">' + esc(dstLabel || '结果') + '</span><pre class="tb-code">' + esc(it.a != null ? it.a : (dstText || '（空结果）')) + '</pre></div>')
-      parts.push('<div class="tb-rec-sub"><span>' + esc(it.route || '') + '</span><span>' + it.ms + 'ms</span>' +
-        (it.out != null ? '<span>输出 ' + it.out + ' tok</span>' : '') +
-        '<span>' + fmtClock(it.t) + '</span>' +
-        (dstText ? '<button type="button" class="tb-btn tb-btn-sm tb-btn-ghost" data-action="copy" data-i="' + it.__i + '">复制</button>' : '') +
+      parts.push('<div class="tb-rec-sub"><span>' + esc(it.route || '') + '</span><span>' + ms + 'ms</span>' +
+        (out != null ? '<span>输出 ' + out + ' tok</span>' : '') +
+        '<span>' + fmtClock(numOf(it.t)) + '</span>' +
+        (dstText ? '<button type="button" class="tb-btn tb-btn-sm tb-btn-ghost" data-action="copy" data-i="' + numOf(it.__i) + '">复制</button>' : '') +
         '</div></div>')
       return parts.join('')
     }
@@ -289,13 +305,15 @@ return {
           if (st.info.error) {
             parts.push('<div class="tb-banner tb-banner-error">' + esc(st.info.error) + '</div>')
           } else if (p.input === 'gitsource') {
-            parts.push('<div class="tb-banner tb-banner-info">暂存 ' + st.info.staged + ' · 未暂存 ' + st.info.unstaged + ' · 未跟踪 ' + st.info.untracked +
+            const num = (v) => numOf(v)
+            parts.push('<div class="tb-banner tb-banner-info">暂存 ' + num(st.info.staged) + ' · 未暂存 ' + num(st.info.unstaged) + ' · 未跟踪 ' + num(st.info.untracked) +
               (st.info.empty ? ' · 暂存区与工作区 diff 均为空（未跟踪文件不参与 diff）'
-                : ' · 取用 ' + (st.info.scope === 'staged' ? '暂存区' : '工作区') + ' diff ' + st.info.chars + ' 字符' + (st.info.truncated ? '（超 ' + DIFF_CAP + ' 已截断）' : '')) +
+                : ' · 取用 ' + (st.info.scope === 'staged' ? '暂存区' : '工作区') + ' diff ' + num(st.info.chars) + ' 字符' + (st.info.truncated ? '（超 ' + DIFF_CAP + ' 已截断）' : '')) +
               '</div>')
           } else if (p.input === 'sessionlog') {
-            parts.push('<div class="tb-banner tb-banner-info">事件 ' + st.info.events + ' · 对话 ' + st.info.chars + ' 字符' +
-              (st.info.truncated ? '（首尾采样，省略 ' + st.info.omitted + '）' : '') + '</div>')
+            const num = (v) => numOf(v)
+            parts.push('<div class="tb-banner tb-banner-info">事件 ' + num(st.info.events) + ' · 对话 ' + num(st.info.chars) + ' 字符' +
+              (st.info.truncated ? '（首尾采样，省略 ' + num(st.info.omitted) + '）' : '') + '</div>')
           }
         }
       }
@@ -317,9 +335,11 @@ return {
           parts.push('<div class="tb-card" style="gap:6px"><div class="tb-sec"><span class="tb-sec-label">问题 · ' + fmtClock(res.t) + '</span>' +
             '<div style="font-size:12.5px;white-space:pre-wrap;word-break:break-word">' + esc(res.q) + '</div></div></div>')
           for (const it of res.items) {
+            const ms = numOf(it.ms)
+            const outN = Number(it.out)
             parts.push('<div class="tb-card">' +
               '<div class="tb-card-head"><span class="tb-key">' + esc(it.route) + '</span>' +
-              '<span class="tb-note">' + it.ms + 'ms' + (it.out != null ? ' · 输出 ' + it.out + ' tok' : '') + '</span></div>' +
+              '<span class="tb-note">' + ms + 'ms' + (it.out != null && Number.isFinite(outN) ? ' · 输出 ' + outN + ' tok' : '') + '</span></div>' +
               (it.err
                 ? '<div class="tb-banner tb-banner-error">' + esc(it.err) + '</div>'
                 : '<pre class="tb-code">' + esc(it.a || '（空回复）') + '</pre>') +
@@ -399,14 +419,18 @@ return {
           } else {
             const items = await Promise.all(st.picked.map((r) => askOne(st.q.trim(), r, ws)))
             lastResults = { q: st.q.trim(), t: Date.now(), items }
-            const saved = await readJsonStore(ctx, storeRel(p), ws.root, [])
-            const rounds = [{
+            const newRound = {
               q: lastResults.q, t: lastResults.t,
               items: items.map((it) => ({ route: it.route, a: String(it.a || '').slice(0, 4000), err: it.err, ms: it.ms, out: it.out })),
-            }].concat(Array.isArray(saved) ? saved : []).slice(0, p.cap)
-            st.history = rounds
-            const persisted = await writeJsonStore(ctx, storeRel(p), rounds, ws.root, ws.session)
-            st.notice = persisted ? null : '⚠ 对比记录未能写入 ' + storeRel(p)
+            }
+            // 落盘走串行链：并发 send 各自「读磁盘→追加本轮→覆写」，不再互相整文件覆盖丢轮次
+            st.history = await enqueueCompareSave(async () => {
+              const saved = await readJsonStore(ctx, storeRel(p), ws.root, [])
+              const rounds = [newRound].concat(Array.isArray(saved) ? saved : []).slice(0, p.cap)
+              const persisted = await writeJsonStore(ctx, storeRel(p), rounds, ws.root, ws.session)
+              st.notice = persisted ? null : '⚠ 对比记录未能写入 ' + storeRel(p)
+              return rounds
+            }).catch(() => st.history)
           }
         } else {
           const inp = await collectInput(p, st, ws, session)

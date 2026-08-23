@@ -97,12 +97,14 @@ return {
       on: (() => { try { return localStorage.getItem(PANEL_HIDE_KEY) !== '0' } catch (e) { return true } })(),
       headless: new Set(),
     }
-    styles.insert([
+    // styles.insert 返回 disposer——必须挂 ctx.effect，否则插件停止/重跑后旧样式残留，
+    // 重跑一次叠一份（PLUGIN-DEV.md 规则4；主题插件同款约束）
+    ctx.effect(() => styles.insert([
       'li[data-cordis-row][data-tb-hide~="' + PANEL_HIDE_TOKEN + '"]{display:none!important}',
       '[data-cordis-panel] section[data-tb-hide~="' + PANEL_HIDE_TOKEN + '"]{display:none!important}',
       'button[data-cordis-badge] span[data-tb-count]{font-size:0!important}',
       'button[data-cordis-badge] span[data-tb-count]::after{content:attr(data-tb-count);font-size:12px;line-height:16px}',
-    ].join(''))
+    ].join('')))
     function applyPanelHide() {
       if (typeof document === 'undefined' || !document.body) return
       const rows = document.querySelectorAll('li[data-cordis-row]')
@@ -163,7 +165,13 @@ return {
         attributeFilter: ['data-cordis-awaiting', 'data-cordis-row', 'data-cordis-badge'],
       })
       ctx.effect(() => () => mo.disconnect())
-      const phIv = setInterval(() => { if (panelHide.on) refreshPanelHide() }, 4000)
+      // 兜底轮询降频 + 页面隐藏时跳过：refreshPanelHide 每次都拉 runner.inventory()+manifestMap，
+      // 页面不可见时纯属空转；MutationObserver 已覆盖面板 DOM 变化的主路径，这里只兜漏网
+      const phIv = setInterval(() => {
+        if (!panelHide.on) return
+        try { if (typeof document !== 'undefined' && document.hidden) return } catch (e) {}
+        refreshPanelHide()
+      }, 10000)
       ctx.effect(() => () => clearInterval(phIv))
       refreshPanelHide()
       applyPanelHide()
@@ -557,18 +565,19 @@ return {
     ].join('\n')
     // 编译 bundle 的主 UI 样式以独立 scope 包裹，避免不同 bundle/版本的 .tb-*、.jr-* 互相覆盖。
     // 动态模式保持历史全局样式；导航按钮位于 scope 外，编译模式另补值级选择器。
-    styles.insert(RT.bundleId === 'dynamic'
+    // disposer 挂 ctx.effect：插件停止/重跑不回收会每次叠加一份 ~30KB 样式表（同 :100 处理）
+    ctx.effect(() => styles.insert(RT.bundleId === 'dynamic'
       ? toolboxCss
-      : '@scope ([data-dsh-toolbox-scope="' + RT.domValue() + '"]) {\n' + toolboxCss + '\n}')
+      : '@scope ([data-dsh-toolbox-scope="' + RT.domValue() + '"]) {\n' + toolboxCss + '\n}'))
     if (RT.bundleId !== 'dynamic') {
       const nav = '[data-dsh-toolbox-entry="' + RT.domValue() + '"]'
-      styles.insert([
+      ctx.effect(() => styles.insert([
         nav + '{width:100%;height:32px;color:var(--dsw-alias-label-secondary);cursor:pointer;white-space:nowrap;background:0 0;border:none;border-radius:8px;align-items:center;gap:8px;padding:0 12px;font-size:13px;display:flex;font-family:inherit;box-sizing:border-box}',
         nav + ':hover{background:var(--dsw-specific-sidebar-nav-item-hover,var(--dsw-alias-bg-layer-2,#31323b));color:var(--dsw-alias-label-primary)}',
         nav + '[data-active]{background:var(--dsw-specific-sidebar-nav-item-active,var(--dsw-alias-bg-layer-2,#31323b));color:var(--dsw-alias-label-primary);font-weight:600}',
         '[data-dsh-frame][data-sidebar-collapsed] ' + nav + '{justify-content:center;width:100%;padding:0}',
         '[data-dsh-frame][data-sidebar-collapsed] ' + nav + ' .tb-nav-label{display:none}',
-      ].join('\n'))
+      ].join('\n')))
     }
 
     let open = false
@@ -1510,17 +1519,19 @@ return {
               setCopied(null)
             }
           } else {
-            unlock() // 失败未重渲染：恢复 select 可用
             setError((res && res.error) || '面板加载失败')
             retryOnce(toolId)
           }
         } catch (e) {
           if (seqRef.current[toolId] === seq) {
-            unlock() // 异常未重渲染：恢复 select 可用
             setError('面板请求异常: ' + String((e && e.message) || e))
             retryOnce(toolId)
           }
         } finally {
+          // 解锁统一放 finally（幂等）：过期响应早退、失败、异常路径都要恢复面板内 select——
+          // 原先「过期 return 跳过 unlock」+「后发请求锁不到已禁用的 select」组合会让控件
+          // 永久禁用至下次成功动作。成功路径锁的是即将被 innerHTML 替换的旧节点，无害。
+          unlock()
           if (seqRef.current[toolId] === seq) setBusyTool((cur) => (cur === toolId ? null : cur))
         }
       }
@@ -1603,6 +1614,7 @@ return {
             session: currentSessionId || undefined,
           })
           if (r && !r.ok) setError(r.error || '插件操作失败')
+          else if (r && r.warning) setRebuildLines(['⚠ ' + String(r.warning)]) // 启停已生效但启停记忆写盘失败：不静默
         } catch (e) {
           setError('插件操作异常: ' + String((e && e.message) || e))
         }
@@ -1647,6 +1659,7 @@ return {
           if (!r) lines.push('批量操作无响应')
           else {
             if (r.error) lines.push('✗ ' + r.error)
+            if (r.warning) lines.push('⚠ ' + String(r.warning))
             if (Array.isArray(r.done) && r.done.length) lines.push((enable ? '已启动: ' : '已停止: ') + r.done.join('、'))
             if (Array.isArray(r.skippedClient) && r.skippedClient.length) lines.push('跳过（含 Client 半，需到 Cordis 面板）: ' + r.skippedClient.join('、'))
             if (Array.isArray(r.failed) && r.failed.length) lines.push('失败: ' + r.failed.join('；'))

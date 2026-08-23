@@ -3,7 +3,7 @@ import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 export const name = "dsh-dynamic-toolbox"
-export const inject = ["fs","credentials","subprocess","timer","sessionQuery","systemPrompt","tokenMeter","llm","agentDefaultModel","tools"]
+export const inject = ["fs","credentials","subprocess","timer","sessionQuery","systemPrompt","tokenMeter","tools"]
 
 const TOOLBOX_RUNTIME_OVERRIDES = {
   "mode": "static-bundle",
@@ -358,12 +358,28 @@ const readJsonStore = async (ctx, rel, wsRoot, fallback) => {
   const fsService = ctx.get('fs')
   const base = await storeBase(ctx, wsRoot)
   if (!fsService || !base) return fallback
+  let target = null
   try {
-    const target = await fsService.resolve(await mapDataRel(ctx, rel), { cwd: base })
+    target = await fsService.resolve(await mapDataRel(ctx, rel), { cwd: base })
     if (!await fsService.stat(target)) return fallback
-    const parsed = JSON.parse(await fsService.readText(target))
-    return parsed == null ? fallback : parsed
-  } catch (e) { return fallback }
+  } catch (e) { return fallback } // resolve/stat IO 失败：不动原文件，按缺省处理
+  let raw = null
+  try { raw = await fsService.readText(target) } catch (e) { return fallback }
+  let parsed
+  try {
+    parsed = JSON.parse(raw)
+  } catch (e) {
+    // 解析失败（半截写/手工改坏）：先把原文隔离为 .corrupt-<时间戳> 备份再返回 fallback，
+    // 阻断「损坏 → 显示空 → 下次成功写入覆盖销毁现场」的静默丢历史链条（best-effort）
+    try {
+      await fsService.writeText(target + '.corrupt-' + Date.now(), String(raw == null ? '' : raw), undefined, undefined, { mode: 'workspace-write', workspaceRoot: base })
+      console.warn('readJsonStore: JSON 解析失败，原文已隔离备份 (' + rel + ')')
+    } catch (e2) {
+      console.warn('readJsonStore: JSON 解析失败且隔离备份未成功 (' + rel + ')')
+    }
+    return fallback
+  }
+  return parsed == null ? fallback : parsed
 }
 const writeJsonStore = async (ctx, rel, data, wsRoot, session) => {
   const fsService = ctx.get('fs')
@@ -406,6 +422,18 @@ const resolveWorkspace = (ctx, rootArg, sessionId) => {
 //   ai.routeRow(st, route, note)       // provider/model 双下拉 HTML（provider 切换走 data-action-onchange="route"）
 // 注意：system 并入首条 user 消息文本（GenerateOptions 的 system 角色 source 契约未公开，此形态与 ask 一致、最稳）。
 const AI_USAGE_REL = '.dsh-dynamic-toolbox/toolbox-ai-usage.json'
+// ===== 用量台账写锁：per-root promise 链串行化所有对 toolbox-ai-usage.json 的读-改-写 =====
+// 背景：chat 的 track 是响应后异步追加，compare 多模型并发时多个 RMW 同帧起跑会互相整文件覆盖丢记录；
+// 「清空台账」也必须经同一把锁，避免清空写入 [] 后被在途追加的旧快照复活。fn 内部自行容错。
+const _aiUsageWriteChains = new Map()
+const enqueueAiUsageWrite = (root, fn) => {
+  const key = String(root || '?')
+  const prev = _aiUsageWriteChains.get(key) || Promise.resolve()
+  const run = prev.then(fn, fn) // 前序失败不阻塞后续
+  // 链上只存「已消化异常」的 promise，保证队列永不带毒；调用方拿 run 自行处理结果
+  _aiUsageWriteChains.set(key, run.then(() => undefined, () => undefined))
+  return run
+}
 const makeLlmHelper = (ctx) => {
   const llm = ctx.get('llm')
   const adm = ctx.get('agentDefaultModel')
@@ -482,13 +510,16 @@ const makeLlmHelper = (ctx) => {
     } finally {
       if (cancel) { try { cancel() } catch (e) {} }
     }
-    // 用量台账：异步落盘（ensureStoreDir 会起子进程，绝不能阻塞响应）
+    // 用量台账：异步落盘（ensureStoreDir 会起子进程，绝不能阻塞响应）；
+    // 经 per-root 写锁 enqueueAiUsageWrite 串行化，与并发调用/「清空台账」互斥，消除读-改-写丢更新
     if (track && track.root) {
       const rec = { t: t0, tool: String(track.tool || '?'), out: result.out != null ? result.out : null, ms: result.ms || 0, ok: !result.err }
       ;(async () => {
         try {
-          const cur = await readJsonStore(ctx, AI_USAGE_REL, track.root, [])
-          await writeJsonStore(ctx, AI_USAGE_REL, (Array.isArray(cur) ? cur : []).concat([rec]).slice(-100), track.root, track.session)
+          await enqueueAiUsageWrite(track.root, async () => {
+            const cur = await readJsonStore(ctx, AI_USAGE_REL, track.root, [])
+            await writeJsonStore(ctx, AI_USAGE_REL, (Array.isArray(cur) ? cur : []).concat([rec]).slice(-100), track.root, track.session)
+          })
         } catch (e) {}
       })()
     }
@@ -551,6 +582,26 @@ const findManifest = async (ctx) => {
     if (await fs.stat(t)) return { manifest: JSON.parse(await fs.readText(t)), root }
   } catch (e) {}
   return null
+}
+
+// ===== 子进程 wall-clock 看门狗 =====
+// spawn 的 graceMs 只是「退出后 SIGTERM→SIGKILL 升级窗口 + 管道排空延迟」，不是运行时长上限；
+// 裸 await handle.done 遇到 git 凭证 GUI 弹窗/网络盘锁文件会永久挂起。withDeadline 在 ms 到点时
+// 主动 terminate()，done settle（含被杀后的非零退出）后清计时器。用法：
+//   const h = withDeadline(ctx, sub.spawn({...}), 60000)
+//   const outcome = await h.done
+// 超时路径 outcome 为被终止的非零结果；调用方照常读 collected，必要时按 exitCode 区分提示。
+const withDeadline = (ctx, handle, ms) => {
+  let cancel = null
+  try {
+    cancel = ctx.timeout(() => {
+      try { handle.terminate() } catch (e) {}
+    }, ms)
+  } catch (e) { /* timer 服务不可用：退化为无看门狗（与旧行为一致） */ }
+  if (cancel && handle && handle.done && typeof handle.done.then === 'function') {
+    handle.done.then(() => { try { cancel() } catch (e) {} }, () => { try { cancel() } catch (e) {} })
+  }
+  return handle
 }
 
 
@@ -641,6 +692,26 @@ const base = (process.env.JIRA_BASE_URL || '').replace(/\\/+$/, '');
 const email = process.env.JIRA_EMAIL || '';
 const token = process.env.JIRA_TOKEN || '';
 const auth = 'Basic ' + Buffer.from(email + ':' + token).toString('base64');
+// 流式落盘（审计 M7）：content-length 缺失（chunked）/虚报时不能依赖预检——
+// 边下边累计字节数，超 20MB 立即断流、销毁半成品并抛错，杜绝整包 arrayBuffer 入内存
+const LIMIT = 20 * 1024 * 1024;
+async function streamTo(res, outPath) {
+  let total = 0;
+  const ws = fs.createWriteStream(outPath);
+  try {
+    for await (const chunk of res.body) {
+      total += chunk.length;
+      if (total > LIMIT) throw new Error('attachment too large (>20MB, streamed)');
+      if (!ws.write(chunk)) await new Promise((r) => ws.once('drain', r));
+    }
+    await new Promise((resolve, reject) => ws.end((err) => (err ? reject(err) : resolve())));
+    return total;
+  } catch (e) {
+    ws.destroy();
+    try { fs.unlinkSync(outPath) } catch (e2) {}
+    throw e;
+  }
+}
 (async () => {
   try {
     const url = process.env.JIRA_ATTACH_URL || '';
@@ -655,18 +726,19 @@ const auth = 'Basic ' + Buffer.from(email + ':' + token).toString('base64');
     const out = path.join(dir, safe);
     const res = await fetch(url, { headers: { Authorization: auth }, signal: AbortSignal.timeout(120000) });
     if (!res.ok) { console.log('ERR|HTTP ' + res.status); return; }
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length > 20 * 1024 * 1024) { console.log('ERR|attachment too large'); return; }
-    fs.writeFileSync(out, buf);
+    // content-length 预检仅作快速路径（可信时省一次建文件）；真实边界由 streamTo 流式保证
+    const cl = Number(res.headers.get('content-length') || 0);
+    if (cl > LIMIT) { console.log('ERR|attachment too large'); return; }
+    const total = await streamTo(res, out);
     console.log('OK|' + out);
-    console.log('LEN|' + buf.length);
-    if (buf.length <= 5 * 1024 * 1024) console.log('B64|' + buf.toString('base64'));
+    console.log('LEN|' + total);
+    if (total <= 5 * 1024 * 1024) console.log('B64|' + fs.readFileSync(out).toString('base64'));
   } catch (e) { console.log('ERR|' + String((e && e.message) || e)); }
 })()
 `
 
-// 一键归档脚本：读 .dsh-dynamic-toolbox/jira-issue-in.json（fetchAndArchive 先落盘，规避 Windows 环境变量长度限制），
-// 创建 Jira-Issue/{key}/ → 下载全部附件（覆盖同名）→ 写 issue.md（模板参考 prompt/Jira.md）→ 写 issue.json 机读副本
+// 一键归档脚本：读 <dataDir>/jira-issue-in-<唯一后缀>.json（archiveIssue 先落盘，规避 Windows 环境变量长度限制；
+// 唯一后缀防并发动作互相覆盖错档），创建 Jira-Issue/{key}/ → 下载全部附件（覆盖同名）→ 写 issue.md（模板参考 prompt/Jira.md）→ 写 issue.json 机读副本
 const ARCHIVE_SCRIPT = `
 const fs = require('fs');
 const path = require('path');
@@ -676,6 +748,25 @@ const token = process.env.JIRA_TOKEN || '';
 const auth = 'Basic ' + Buffer.from(email + ':' + token).toString('base64');
 const cell = (v) => String(v == null || v === '' ? '—' : v).split('|').join('｜').split('\\r\\n').join(' ').split('\\n').join(' ');
 const fmtSz = (n) => (n == null || isNaN(Number(n)) ? '—' : n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
+// 流式落盘（审计 M7）：同 ATTACH_SCRIPT——content-length 缺失/虚报时边下边累计，超 20MB 断流删残件
+const LIMIT = 20 * 1024 * 1024;
+async function streamTo(res, outPath) {
+  let total = 0;
+  const ws = fs.createWriteStream(outPath);
+  try {
+    for await (const chunk of res.body) {
+      total += chunk.length;
+      if (total > LIMIT) throw new Error('附件超过 20MB 上限（流式检测）');
+      if (!ws.write(chunk)) await new Promise((r) => ws.once('drain', r));
+    }
+    await new Promise((resolve, reject) => ws.end((err) => (err ? reject(err) : resolve())));
+    return total;
+  } catch (e) {
+    ws.destroy();
+    try { fs.unlinkSync(outPath) } catch (e2) {}
+    throw e;
+  }
+}
 (async () => {
   const out = { ok: false, dir: '', archivedAt: '', files: [], errors: [] };
   try {
@@ -696,10 +787,11 @@ const fmtSz = (n) => (n == null || isNaN(Number(n)) ? '—' : n < 1024 ? n + ' B
         if (!url.startsWith(base)) throw new Error('附件地址不被允许');
         const res = await fetch(url, { headers: { Authorization: auth }, signal: AbortSignal.timeout(120000) });
         if (!res.ok) throw new Error('HTTP ' + res.status);
-        const buf = Buffer.from(await res.arrayBuffer());
-        if (buf.length > 20 * 1024 * 1024) throw new Error('附件超过 20MB 上限');
-        fs.writeFileSync(path.join(dir, fname), buf);
-        rec.size = buf.length;
+        // content-length 预检仅快速路径；真实边界由 streamTo 流式保证（审计 M7）
+        const cl = Number(res.headers.get('content-length') || 0);
+        if (cl > LIMIT) throw new Error('附件超过 20MB 上限');
+        const outPath = path.join(dir, fname);
+        rec.size = await streamTo(res, outPath);
         rec.downloaded = true;
       } catch (e) { rec.error = String((e && e.message) || e); out.errors.push((a.filename || fname) + ': ' + rec.error); }
       out.files.push(rec);
@@ -761,7 +853,8 @@ const path = require('path');
 `
 
 const REL_DATA_DIR = '.dsh-dynamic-toolbox'
-const REL_WATCH_FILE = '.dsh-dynamic-toolbox\\jira-watch.json'
+// 相对路径统一正斜杠：反斜杠在 POSIX 上会成为字面文件名字符（与数据目录分裂）
+const REL_WATCH_FILE = '.dsh-dynamic-toolbox/jira-watch.json'
 const REL_ARCHIVE_DIR = pluginDataDir('jira') // .dsh-dynamic-toolbox/data/jira（shared 约定：内容产物目录）
 
 return {
@@ -786,14 +879,14 @@ return {
       if (rootArg && /^([A-Za-z]:[\\/]|\/)/.test(rootArg)) {
         return { root: rootArg.replace(/[\\/]+$/, ''), session: null }
       }
+      // 弱兜底：取 sessions.list()[0]（list 最新在前，即最新会话）——仅在无 sessionId 且 rootArg
+      // 非绝对路径时触达。旧实现遍历取「最后一个」会命中最旧会话、落错工作区，已废弃。
+      // 注：此层兜底与 shared/host.js 的 resolveWorkspace 存在语义差异，待后续统一到共享实现。
       if (sessionsSvc) {
         try {
-          let hit = null
-          for (const s of sessionsSvc.list()) {
-            const cwd = s && s.header && s.header.cwd
-            if (typeof cwd === 'string' && cwd) hit = s
-          }
-          if (hit) return { root: hit.header.cwd.replace(/[\\/]+$/, ''), session: hit }
+          const first = sessionsSvc.list()[0]
+          const cwd = first && first.header && first.header.cwd
+          if (first && typeof cwd === 'string' && cwd) return { root: cwd.replace(/[\\/]+$/, ''), session: first }
         } catch (e) {}
       }
       const sp = ctx.get('sandboxPolicy')
@@ -875,6 +968,7 @@ return {
         cwd: wsRoot,
         stdio: {
           stdin: { data: script },
+          // 注意：≤5MB 附件回传 base64 约 6.7MB，已贴近此 8MB 上限；调大预览阈值前先同步放大 maxBytes
           stdout: { maxBytes: 8 * 1024 * 1024 },
           stderr: { maxBytes: 256 * 1024 },
         },
@@ -911,14 +1005,26 @@ return {
 
     const readJsonFile = async (rel, wsRoot) => {
       if (!fsService) return []
+      let target = null
       try {
-        const target = await resolveDataPath(ctx, rel, wsRoot)
-        if (!target) return []
-        const info = await fsService.stat(target)
-        if (!info) return []
-        const parsed = JSON.parse(await fsService.readText(target))
-        return Array.isArray(parsed) ? parsed : []
+        target = await resolveDataPath(ctx, rel, wsRoot)
+        if (!target || !await fsService.stat(target)) return []
       } catch (e) { return [] }
+      let raw = null
+      try { raw = await fsService.readText(target) } catch (e) { return [] }
+      try {
+        const parsed = JSON.parse(raw)
+        return Array.isArray(parsed) ? parsed : []
+      } catch (e) {
+        // 解析失败：原文隔离备份（best-effort），阻断「损坏→显示空→下次写入覆盖销毁」链条；
+        // 显式 workspace-write@仓库根，避免缺省策略回落宿主进程 cwd 被 FS_SANDBOX_DENIED
+        try {
+          const qBase = await storeBase(ctx, wsRoot)
+          await fsService.writeText(target + '.corrupt-' + Date.now(), String(raw == null ? '' : raw), undefined, undefined, { mode: 'workspace-write', workspaceRoot: qBase })
+          console.warn('jira/readJsonFile: JSON 解析失败，原文已隔离备份 (' + rel + ')')
+        } catch (e2) {}
+        return []
+      }
     }
     const writeJsonFile = async (rel, data, ws) => {
       if (!fsService) return false
@@ -937,6 +1043,20 @@ return {
         console.error('jira/records 持久化失败:', String((e && e.message) || e))
         return false
       }
+    }
+    // 归档临时文件善后：fs 服务无删除 API，尽力用空内容覆写（文件内含完整工单本体的敏感副本）。
+    // 正常路径下 ARCHIVE_SCRIPT 读入后已自行 unlink，这里只兜底「子进程未跑起/早退」的残留；
+    // best-effort，失败静默（只影响残留，不影响功能）。
+    const scrubTempFile = async (rel, ws) => {
+      if (!fsService) return
+      try {
+        const target = await resolveDataPath(ctx, rel, ws.root)
+        if (!target || !await fsService.stat(target)) return
+        const sp = ctx.get('sandboxPolicy')
+        const base = await storeBase(ctx, ws.root)
+        const policy = sp && ws.session ? sp.resolve({ session: ws.session }) : { mode: 'workspace-write', workspaceRoot: base }
+        await fsService.writeText(target, '', undefined, undefined, policy)
+      } catch (e) {}
     }
 
 
@@ -1009,14 +1129,16 @@ return {
     }
 
     // ---- 归档（prompt/Jira.md 规范）：Jira-Issue/{key}/ = issue.md + issue.json + 全部附件 ----
-    // issue.json 是面板离线查看的机读副本；issue.md 是人类可读摘要（字段表+描述+附件清单）
+    // issue.json 是面板离线查看的机读副本；issue.md 是人类可读摘要（字段表+描述+附件清单）。
+    // 临时输入文件带唯一后缀：即便入口串行化被绕过，也不会出现「A 的子进程读到 B 的工单」的错档覆盖。
     const archiveIssue = async (issue, ws) => {
-      const inRel = '.dsh-dynamic-toolbox\\jira-issue-in.json'
+      const inRel = REL_DATA_DIR + '/jira-issue-in-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.json'
       if (!await writeJsonFile(inRel, issue, ws)) return { ok: false, error: '临时文件写入失败' }
       const env = await baseEnv()
       env.JIRA_ISSUE_FILE = await dataPathAbs(ctx, inRel, ws.root)
       env.JIRA_ARCHIVE_ROOT = await dataPathAbs(ctx, pluginDataDir('jira'), ws.root) // 绝对路径：归档落仓库根
       const res = await runNode(ARCHIVE_SCRIPT, env, ws.root)
+      await scrubTempFile(inRel, ws) // 尽力清理残留（正常路径子进程已 unlink，stat 不中即跳过）
       if (!res.ok) return { ok: false, error: res.error }
       try { return JSON.parse(res.stdout) } catch (e) { return { ok: false, error: '归档结果解析失败' } }
     }
@@ -1199,9 +1321,18 @@ return {
       return '<div class="jr-tabpanel tb-root tb-pane"><div class="tb-pane-head">' + parts.join('') + '</div><div class="tb-pane-body tb-pane-col">' + body + '</div></div>'
     }
 
-    const handler = async ({ action, fields, state, root, session }) => {
-      const ws = resolveWs(root, session)
-      if (!ws.root) return { ok: false, error: '无法确定工作区根', html: '' }
+    // per-root 动作串行链：Client 壳的请求序号防护只丢弃过期响应，Host 侧动作仍会并发执行；
+    // 入口统一排队后，「共享临时文件错档 / 记录读-改-写竞态 / 双击重复查询」从根上消失。
+    // render(st, busy) 的 busy 死参数暂不重构（按钮 disabled 维持现状，竞态已由本锁消除）。
+    const _actionChains = {}
+    const serializedAction = (rootKey, fn) => {
+      const key = String(rootKey || '?')
+      const prev = _actionChains[key] || Promise.resolve()
+      const run = prev.then(fn, fn) // 前序失败不阻塞后续；fn 自带 try/catch 契约
+      _actionChains[key] = run.then(() => undefined, () => undefined)
+      return run
+    }
+    const handleAction = async (ws, { action, fields, state }) => {
       const st = (state && typeof state === 'object' && state) ? state : { input: '', records: [], error: null, info: null, credOpen: false, credInfo: null }
       // state 迁移：issue/preview 本体已挪闭包（旧 state 可能还挂着 description/base64 大字段）
       delete st.issue; delete st.preview
@@ -1379,6 +1510,12 @@ return {
         return { ok: false, error: String((e && e.message) || e), html: '' }
       }
     }
+    const handler = ({ action, fields, state, root, session }) => {
+      const ws = resolveWs(root, session)
+      if (!ws.root) return Promise.resolve({ ok: false, error: '无法确定工作区根', html: '' })
+      // ws 在排队前解析一次并传入执行体，保证锁键与实际读写的工作区一致
+      return serializedAction(ws.root, () => handleAction(ws, { action, fields, state }))
+    }
 
     const runRecords = async (action, rec, ws, key) => {
       try {
@@ -1426,6 +1563,7 @@ return {
   apply(ctx) {
     const subprocess = ctx.get('subprocess')
     let lastDiff = null // { text, name, note } diff 本体（闭包持有，不进 state；重跑即清空回列表/详情）
+    let outTruncated = false // 本轮动作任一 git 输出超 maxBytes 被 lossy 截尾 → 面板顶部提示条（每轮动作开头重置）
 
     const resolveWs = (rootArg) => {
       if (rootArg && /^([A-Za-z]:[\\/]|\/)/.test(rootArg)) {
@@ -1447,16 +1585,21 @@ return {
     const runGit = async (args, root) => {
       if (!subprocess) return { ok: false, error: 'subprocess 服务不可用' }
       try {
-        const handle = subprocess.spawn({
+        // 看门狗 60s：wall-clock 到点主动 terminate()，防 git 凭证 GUI 弹窗等场景永久挂起。
+        // 注意 graceMs 只是「退出后 SIGTERM→SIGKILL 升级窗口 + 管道排空延迟」，不是运行超时——
+        // 别把它当 60s 上限理解，真正的时长上限由 withDeadline 提供（裸 await handle.done 会无限等）。
+        const handle = withDeadline(ctx, subprocess.spawn({
           argv: ['git', ...args],
           cwd: root,
           stdio: { stdin: 'ignore', stdout: { maxBytes: 16 * 1024 * 1024 }, stderr: { maxBytes: 256 * 1024 } },
           graceMs: 60000,
-        })
+        }), 60000)
         const outcome = await handle.done
-        const stdout = handle.collected.stdout.readFrom(0).text
-        const stderr = handle.collected.stderr.readFrom(0).text
-        return { ok: outcome.exitCode === 0, code: outcome.exitCode, out: stdout, err: stderr }
+        const so = handle.collected.stdout.readFrom(0)
+        const se = handle.collected.stderr.readFrom(0)
+        // lossy 标志：读取偏移滑出内存尾部窗口 = 输出超过 maxBytes 被截尾；解析前记录，渲染时提示
+        if (so.lossy || se.lossy) outTruncated = true
+        return { ok: outcome.exitCode === 0, code: outcome.exitCode, out: so.text, err: se.text }
       } catch (e) {
         return { ok: false, error: String((e && e.message) || e) }
       }
@@ -1531,20 +1674,39 @@ return {
       return { commits: commits.slice(0, limit), hasMore: commits.length > limit, error: null }
     }
 
+    // --numstat 加 -z 的解析：字段以 TAB 分隔、记录以 NUL（\0）结尾。实测（git 2.x windows）记录形态：
+    //   普通文件：`add\tdel\tpath\0`
+    //   改名/复制：`add\tdel\t\0oldpath\0newpath\0`——第二个 TAB 后是「空路径槽」，随后两段先 old 后 new
+    //     （对应非 -z 的复合形式 `12\t3\told/{a => b}/c.txt`：旧解析把整串当 path，点击后 pathspec 对不上 → diff 静默为空）
+    // 注意与直觉相反的点是顺序（先 old 后 new）和空槽：解析按位置消费，不猜内容形态
+    const parseNumstatZ = (body) => {
+      const files = []
+      const REC_RE = /^(\d+|-)\t(\d+|-)\t(.*)$/ // 记录头形态：两个数字字段 + 路径（改名记录的路径位是空串）
+      const recs = String(body || '').split('\0')
+      for (let i = 0; i < recs.length; i++) {
+        const m = recs[i].match(REC_RE)
+        if (!m) continue
+        if (m[3] !== '') {
+          files.push({ path: m[3], additions: m[1] === '-' ? null : Number(m[1]), deletions: m[2] === '-' ? null : Number(m[2]) })
+          continue
+        }
+        // 改名/复制记录：紧随的两段依次是 oldpath（跳过）、newpath（采用），按位置消费
+        const newPath = recs[i + 2]
+        i += 2
+        if (newPath) files.push({ path: newPath, additions: m[1] === '-' ? null : Number(m[1]), deletions: m[2] === '-' ? null : Number(m[2]) })
+      }
+      return files
+    }
+
     const loadCommit = async (root, hash) => {
       if (!/^[0-9a-fA-F]{7,40}$/.test(hash)) return { error: '非法的 commit hash' }
-      const r = await runGit(['show', '--numstat', '--format=%x1e%H%x1f%an%x1f%aI%x1f%s%x1f%b%x1e', hash], root)
+      const r = await runGit(['show', '--numstat', '-z', '--format=%x1e%H%x1f%an%x1f%aI%x1f%s%x1f%b%x1e', hash], root)
       if (!r.ok) return { error: firstLine(r.err) || 'git show failed' }
       const parts = (r.out || '').split('\x1e')
       const head = parts[1] || ''
-      const body = (parts[2] || '').replace(/^\s+/, '')
-      const files = []
-      for (const line of body.split(/\r?\n/)) {
-        if (!line) continue
-        const m = line.match(/^(\d+|-)\t(\d+|-)\t(.*)$/)
-        if (!m) continue
-        files.push({ path: m[3], additions: m[1] === '-' ? null : Number(m[1]), deletions: m[2] === '-' ? null : Number(m[2]) })
-      }
+      // -z 下 format 与第一条记录之间是「提交分隔 NUL + 空行」（\0\n），一并剥掉再切记录
+      const body = (parts[2] || '').replace(/^[\0\s]+/, '')
+      const files = parseNumstatZ(body)
       const hp = head.split('\x1f')
       return { commit: { hash: hp[0] || '', short: (hp[0] || '').slice(0, 7), author: hp[1] || '', date: hp[2] || '', subject: hp[3] || '', message: hp.slice(4).join('\x1f').trim(), files } }
     }
@@ -1660,6 +1822,7 @@ return {
     const handler = async ({ action, fields, state, root }) => {
       const wsRoot = resolveWs(root)
       if (!wsRoot) return { ok: false, error: '无法确定工作区根', html: '' }
+      outTruncated = false // 每轮动作重新累计截尾标志（只提示当前动作的输出状态）
       const st = (state && typeof state === 'object' && state) ? state : {
         view: 'list', branch: null, staged: 0, unstaged: 0, untracked: 0,
         ahead: null, behind: null, files: [], commits: [], hasMore: false, offset: 0,
@@ -1708,6 +1871,7 @@ return {
           lastDiff = null
         }
         const html = (st.error ? '<div class="tb-banner tb-banner-error">' + esc(st.error) + '</div>' : '') +
+          (outTruncated ? '<div class="tb-banner tb-banner-info">输出超过上限已截尾</div>' : '') +
           (st.view === 'diff' && lastDiff ? renderDiff(st) : (st.view === 'detail' && st.detail ? renderDetail(st) : renderList(st)))
         const next = { ...st }
         delete next.error
@@ -1732,24 +1896,55 @@ return {
   apply(ctx) {
     const fsService = ctx.get('fs')
 
+    // 路径规范化与包含判断：Windows 盘符/UNC 大小写不敏感折叠（与宿主 id 同算法），POSIX 保持原样
+    const normRoot = (p) => String(p || '').replace(/[\\/]+$/, '')
+    const canonPath = (p) => {
+      let s = String(p || '').replace(/\\/g, '/').replace(/\/+$/, '')
+      if (/^[a-zA-Z]:/.test(s) || s.indexOf('//') === 0) s = s.toLowerCase()
+      return s
+    }
+    const isUnder = (child, base) => {
+      const c = canonPath(child)
+      const b = canonPath(base)
+      return c === b || c.startsWith(b + '/')
+    }
+
     const resolveWs = (rootArg) => {
-      if (rootArg && /^([A-Za-z]:[\\/]|\/)/.test(rootArg)) {
-        return { root: rootArg.replace(/[\\/]+$/, ''), session: null }
-      }
       const sessionsSvc = ctx.get('sessions')
+      let hit = null
+      const sessionCwds = []
       if (sessionsSvc) {
         try {
-          let hit = null
           for (const s of sessionsSvc.list()) {
             const cwd = s && s.header && s.header.cwd
-            if (typeof cwd === 'string' && cwd) hit = s
+            if (typeof cwd === 'string' && cwd) {
+              if (!hit) hit = s // 取第一个有 cwd 的会话（list 最新在前；旧行为取最后一个=最旧，属审计 L8 同款缺陷）
+              sessionCwds.push(cwd.replace(/[\\/]+$/, ''))
+            }
           }
-          if (hit) return { root: hit.header.cwd.replace(/[\\/]+$/, ''), session: hit }
         } catch (e) {}
       }
       const sp = ctx.get('sandboxPolicy')
-      const root = sp && typeof sp.workspaceRoot === 'string' ? sp.workspaceRoot.replace(/[\\/]+$/, '') : ''
-      return { root, session: null }
+      const policyRoot = sp && typeof sp.workspaceRoot === 'string' ? sp.workspaceRoot.replace(/[\\/]+$/, '') : ''
+      // 显式绝对路径围栏：仅当落在会话 cwd / 策略工作区之内才采信（覆盖仓库 clone 为子目录、
+      // 框架传入子目录仓库根的场景）；其余一律拒绝回落默认解析——面板协议字段客户端可控，
+      // 裸收任意绝对路径等于把浏览工具变成盘外目录枚举/文本读取原语（审计 M1）。
+      if (rootArg && /^([A-Za-z]:[\\/]|\/|\\\\)/.test(rootArg)) {
+        const allowed = policyRoot ? sessionCwds.concat([policyRoot]) : sessionCwds
+        if (allowed.some((b) => isUnder(rootArg, b))) return { root: normRoot(rootArg), session: null }
+        return { root: '', session: null }
+      }
+      if (hit) return { root: hit.header.cwd.replace(/[\\/]+$/, ''), session: hit }
+      return { root: policyRoot, session: null }
+    }
+
+    // 相对路径围栏：拒绝空值/绝对形式/盘符/UNC/任何 .. 段。树节点路径虽由 Host 渲染产生，
+    // 但 state 每次动作从客户端回传、可被篡改，不能当作边界依据（审计 M1 第二层）。
+    const safeRel = (p) => {
+      const s = String(p == null ? '' : p)
+      if (!s || /^([A-Za-z]:[\\/]|\/|\\\\)/.test(s)) return null
+      if (s.split(/[\\/]+/).some((seg) => seg === '..')) return null
+      return s
     }
 
     const sortEntries = (entries) => entries
@@ -1808,14 +2003,20 @@ return {
       return rows.join('\n')
     }
 
-    // 文本预览：常见代码/文本扩展名才读；其余（图片/二进制/压缩包）提示不支持
+    // 文本预览：常见代码/文本扩展名才读；其余（图片/二进制/压缩包）提示不支持。
+    // 先查大小再读（L4）：readText 无上限，点一个几百 MB 的日志会全量进主进程再丢弃。
     const PREVIEW_CAP = 16 * 1024
+    const PREVIEW_MAX_BYTES = 2 * 1024 * 1024
     const TEXT_EXTS = /^(txt|md|markdown|json|jsonc|js|mjs|cjs|ts|tsx|jsx|css|html?|xml|ya?ml|toml|ini|env|sh|ps1|bat|cmd|py|java|go|rs|c|h|cpp|hpp|cs|sql|vue|svelte|log|csv|gitignore|gitattributes|editorconfig|lock|rc)$/
     const previewFile = async (rel, wsRoot) => {
       const ext = String(rel.split('.').pop() || '').toLowerCase()
       if (!TEXT_EXTS.test(ext)) return { error: '该类型（.' + ext + '）暂不支持文本预览' }
       const target = await fsService.resolve(rel, { cwd: wsRoot })
-      if (!await fsService.stat(target)) return { error: '文件不存在: ' + rel }
+      const meta = await fsService.stat(target)
+      if (!meta) return { error: '文件不存在: ' + rel }
+      if (typeof meta.size === 'number' && meta.size > PREVIEW_MAX_BYTES) {
+        return { error: '文件过大（约 ' + Math.max(1, Math.round(meta.size / 1024 / 1024)) + 'MB），文本预览上限 2MB' }
+      }
       const text = await fsService.readText(target)
       return { text: text.length > PREVIEW_CAP ? text.slice(0, PREVIEW_CAP) : text, truncated: text.length > PREVIEW_CAP, total: text.length }
     }
@@ -1827,7 +2028,8 @@ return {
       try {
         const elPath = fields.__el && fields.__el.path ? fields.__el.path : fields.path
         if (action === 'expand' && elPath) {
-          const p = String(elPath)
+          const p = safeRel(elPath)
+          if (!p) return { ok: false, error: '非法路径: ' + String(elPath), html: '' }
           const willOpen = !(st.expanded || {})[p]
           st.expanded = { ...(st.expanded || {}), [p]: willOpen }
           st.dirs = st.dirs || {}
@@ -1836,7 +2038,8 @@ return {
             st.dirs[p] = sortEntries(await fsService.listDir(target))
           }
         } else if (action === 'preview' && elPath) {
-          const p = String(elPath)
+          const p = safeRel(elPath)
+          if (!p) return { ok: false, error: '非法路径: ' + String(elPath), html: '' }
           // state 只记路径（本体每次动作重读，保持 state 轻量）；再点同一文件 = 收起
           st.preview = st.preview && st.preview.path === p ? null : { path: p }
         } else if (action === 'close-preview') {
@@ -1852,7 +2055,8 @@ return {
         let previewHtml = ''
         if (st.preview && st.preview.path) {
           try {
-            const r = await previewFile(st.preview.path, ws.root)
+            const pv = safeRel(st.preview.path)
+            const r = pv ? await previewFile(pv, ws.root) : { error: '非法路径: ' + String(st.preview.path) }
             previewHtml = r.error
               ? '<div class="tb-banner tb-banner-info">' + esc(st.preview.path + '：' + r.error) + '</div>'
               : '<div class="tb-preview"><div class="tb-preview-head">' +
@@ -2839,12 +3043,18 @@ return {
     const sq = ctx.get('sessionQuery')
 
     // ---- 性能：事件模型缓存（shared-host 的 readLog 负责事件缓存，这里缓存 build 结果） ----
-    const readLog = sq ? makeSessionLogReader(ctx, sq) : null
+    // 按会话各建读取器（同 flow）：单读取器在多会话切换时互踢缓存，
+    // 持久化会话每次切回都会退化为 readSession 全量重读
+    const readers = {}
+    const readLogFor = async (sid) => {
+      if (!readers[sid]) readers[sid] = makeSessionLogReader(ctx, sq)
+      return readers[sid](sid)
+    }
     let modelCache = null   // { sid, count, model, header }
     let recentCache = []    // 会话下拉选项缓存（refresh/pick/首次 才重取）
 
     const getModel = async (sid) => {
-      const r = await readLog(sid)
+      const r = await readLogFor(sid)
       if (!modelCache || modelCache.sid !== sid || modelCache.count !== r.count) {
         await loadManifestTools()
         modelCache = { sid, count: r.count, model: build(r.events), header: r.header }
@@ -2916,6 +3126,7 @@ return {
     const pad2 = (n) => (n < 10 ? '0' : '') + n
     const fmtTime = (t) => {
       const d = new Date(t)
+      if (isNaN(d.getTime())) return '' // 注入类事件可能缺 time 字段，防空值渲染出 NaN:NaN:NaN（同 flow）
       return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds())
     }
     const fmtDur = (ms) => ms == null ? '' : (ms < 1000 ? ms + 'ms' : (ms / 1000).toFixed(1) + 's')
@@ -2927,6 +3138,16 @@ return {
     const textOf = (blocks) => {
       if (!Array.isArray(blocks)) return ''
       return blocks.map((b) => (b && b.type === 'text' ? b.text : '')).filter(Boolean).join('\n')
+    }
+    // 结果消息 → 输出文本：遍历所有 content 块取第一段非空文本（同 flow 口径；
+    // 首块为空占位/前置说明、或多块结果时也能取到正文）
+    const resultTextOf = (msg) => {
+      if (!msg || !Array.isArray(msg.content)) return ''
+      let text = ''
+      for (const block of msg.content) {
+        if (!text && block) { const t = textOf(block.content); if (t) text = t }
+      }
+      return text
     }
 
     // ---- 日志 → 时间线条目 + 统计 ----
@@ -2953,10 +3174,18 @@ return {
           if (d.callId != null) byCallId[String(d.callId)] = it
         } else if (ev.type === 'tool/result') {
           const m = d.message || {}
-          const block = Array.isArray(m.content) ? m.content[0] : null
-          const callId = block && block.toolCallId != null ? String(block.toolCallId) : null
-          const text = block ? textOf(block.content) : ''
-          const failed = !!(d.error || (block && block.isError))
+          // 遍历 content 找第一个带 toolCallId 的块（首块非 tool-result 时也能配上对，同 flow）
+          let callId = null
+          let callBlock = null
+          if (Array.isArray(m.content)) {
+            for (const block of m.content) {
+              if (callId == null && block && block.toolCallId != null) { callId = String(block.toolCallId); callBlock = block; break }
+            }
+          }
+          const text = resultTextOf(m)
+          // isError 必须取自「配对到的那个 tool-result 块」：首块是空占位/前置说明、
+          // 失败标记落在后续块时，只看 content[0] 会把真实失败误标成成功
+          const failed = !!(d.error || (callBlock && callBlock.isError))
           if (failed) stats.errors++
           const it = callId ? byCallId[callId] : null
           if (it) {
@@ -3054,9 +3283,7 @@ return {
         if (!it || it.resSeq == null) return null
         const rev = model.bySeq[it.resSeq]
         const rm = rev && rev.data && rev.data.message
-        const block = rm && Array.isArray(rm.content) ? rm.content[0] : null
-        const text = block ? textOf(block.content) : ''
-        return text || null
+        return resultTextOf(rm) || null
       }
       const m = ev.type === 'assistant/message' ? (d.message || {}) : d
       return textOf(m.content) || null
@@ -3083,8 +3310,7 @@ return {
         if (it && it.resSeq != null) {
           const rev = model.bySeq[it.resSeq]
           const rm = rev && rev.data && rev.data.message
-          const block = rm && Array.isArray(rm.content) ? rm.content[0] : null
-          const text = block ? textOf(block.content) : ''
+          const text = resultTextOf(rm)
           const err = rev && rev.data && rev.data.error
           out = (err ? '[error] ' + esc(err.name || '') + ' ' + esc(err.code || '') + '\n\n' : '') +
             esc(text.length > 12000 ? text.slice(0, 12000) + '\n…（截断，共 ' + text.length + ' 字符）' : text)
@@ -3093,7 +3319,7 @@ return {
         }
         return '<div class="tb-preview">' + head +
           '<div class="tb-sec"><span class="tb-sec-label">输入 · ' + esc(String(d.name || '')) + '（T' + d.turn + '·S' + d.step + '）</span>' +
-          '<pre class="tb-code">' + esc(input) + '</pre></div>' +
+          '<pre class="tb-code">' + esc(input.length > 12000 ? input.slice(0, 12000) + '\n…（截断，共 ' + input.length + ' 字符）' : input) + '</pre></div>' +
           '<div class="tb-sec"><span class="tb-sec-label">输出</span>' +
           '<pre class="tb-code">' + out + '</pre></div></div>'
       }
@@ -3264,9 +3490,11 @@ return {
     const subprocess = ctx.get('subprocess')
     let lastResult = null // 最近一次响应本体（闭包持有，不进 state；插件重跑即清空，面板提示重发）
 
-    // 子进程脚本：数组 join 无内嵌 \n 字面量（规避双层求值转义坑）
+    // 子进程脚本：数组 join 无内嵌 \n 字面量（规避双层求值转义坑）。
+    // 脚本经 argv -e 注入（静态模板 <1KB），请求 spec（含可达 MB 级的 body）走 stdin——
+    // 不走 env：Windows 环境块总长 32K 字符，大 body 会让 spawn 莫名失败（审计 L5）
     const FETCH_SCRIPT = [
-      "const spec = JSON.parse(process.env.HTTP_REQ || '{}')",
+      "const spec = JSON.parse(require('fs').readFileSync(0, 'utf8'))",
       "const ctrl = new AbortController()",
       "setTimeout(() => ctrl.abort(), 30000)",
       "const t0 = Date.now()",
@@ -3316,20 +3544,23 @@ return {
       return { root, session: null }
     }
 
-    const runNode = async (script, env, cwd) => {
+    const runNode = async (script, spec, cwd) => {
       if (!subprocess) return { ok: false, error: 'subprocess 服务不可用' }
-      const handle = subprocess.spawn({
-        argv: ['node', '-'],
+      // 外层看门狗 45s：wall-clock 到点主动 terminate()（子进程脚本内的 AbortController 30s 保持不动）。
+      // 注意 graceMs 只是「退出后 SIGTERM→SIGKILL 升级窗口」，不是运行超时——别把它当 45s 上限理解。
+      const handle = withDeadline(ctx, subprocess.spawn({
+        argv: ['node', '-e', script],
         cwd,
-        stdio: { stdin: { data: script }, stdout: { maxBytes: 4 * 1024 * 1024 }, stderr: { maxBytes: 128 * 1024 } },
+        stdio: { stdin: { data: JSON.stringify(spec) }, stdout: { maxBytes: 4 * 1024 * 1024 }, stderr: { maxBytes: 128 * 1024 } },
         graceMs: 45000,
-        env,
-      })
+      }), 45000)
       const outcome = await handle.done
-      const stdout = handle.collected.stdout.readFrom(0).text
-      const stderr = handle.collected.stderr.readFrom(0).text
-      if (outcome.exitCode !== 0) return { ok: false, error: (stderr || stdout).slice(0, 500) }
-      return { ok: true, stdout }
+      const so = handle.collected.stdout.readFrom(0)
+      const se = handle.collected.stderr.readFrom(0)
+      // lossy 标志：输出超过 maxBytes 被截尾，记给调用方并入面板提示
+      const truncated = !!(so.lossy || se.lossy)
+      if (outcome.exitCode !== 0) return { ok: false, error: (se.text || so.text).slice(0, 500), truncated }
+      return { ok: true, stdout: so.text, truncated }
     }
 
     // ---- 键值对（params/headers/form）同步与组装 ----
@@ -3345,6 +3576,14 @@ return {
     }
     const enabled = (rows) => (rows || []).filter((r) => r.on !== false && r.k)
 
+    // 历史快照脱敏：键名小写匹配这些敏感头的值替换为 '<redacted>' 占位，其余头原样保存
+    const SENSITIVE_HEADER_RE = /^(authorization|cookie|proxy-authorization|x-api-key)$/
+    const maskHeaders = (rows) => (rows || []).map((r) =>
+      (r && r.k && r.v && SENSITIVE_HEADER_RE.test(String(r.k).trim().toLowerCase()))
+        ? { k: r.k, v: '<redacted>', on: r.on }
+        : r
+    )
+
     const buildRequest = (st) => {
       let url = st.url || ''
       const qp = enabled(st.params)
@@ -3353,7 +3592,10 @@ return {
         url += (url.indexOf('?') >= 0 ? '&' : '?') + q
       }
       const headers = {}
-      for (const r of enabled(st.headers)) headers[r.k] = r.v
+      for (const r of enabled(st.headers)) {
+        if (r.v === '<redacted>') continue // 历史脱敏占位值不真发出去（重发前需在 Headers 区重填）
+        headers[r.k] = r.v
+      }
       let body = null
       if (st.bodyType === 'json') {
         body = st.body || ''
@@ -3475,8 +3717,8 @@ return {
             '<div class="tb-rec-main">' +
               '<div class="tb-rec-top"><span class="tb-pill tb-pill-plain">' + esc(it.m) + '</span>' +
               '<span class="tb-rec-summary">' + esc(oneLine(it.u, 70)) + '</span></div>' +
-              '<div class="tb-rec-sub"><span>' + (it.s ? '<span class="' + (it.s < 400 ? 'tb-tx-done' : 'tb-tx-danger') + '">' + it.s + '</span>' : '<span class="tb-tx-danger">失败</span>') + '</span>' +
-              '<span>' + (it.ms != null ? it.ms + 'ms' : '') + '</span><span>' + fmtClock(it.t) + '</span></div>' +
+              '<div class="tb-rec-sub"><span>' + (it.s ? '<span class="' + (it.s < 400 ? 'tb-tx-done' : 'tb-tx-danger') + '">' + esc(it.s) + '</span>' : '<span class="tb-tx-danger">失败</span>') + '</span>' +
+              '<span>' + esc(it.ms != null ? it.ms + 'ms' : '') + '</span><span>' + fmtClock(it.t) + '</span></div>' +
             '</div>' +
           '</div>'
         ).join('') + '</div>')
@@ -3485,23 +3727,30 @@ return {
       return parts.join('')
     }
 
-    const send = async (st, ws) => {
+    const send = async (st, ws, redactCount) => {
       const spec = buildRequest(st)
-      const res = await runNode(FETCH_SCRIPT, { HTTP_REQ: JSON.stringify(spec) }, ws.root)
+      const res = await runNode(FETCH_SCRIPT, spec, ws.root)
       if (!res.ok) { lastResult = { ok: false, error: res.error }; return }
       try {
         lastResult = JSON.parse(res.stdout)
       } catch (e) {
-        lastResult = { ok: false, error: '响应解析失败: ' + res.stdout.slice(0, 300) }
+        lastResult = { ok: false, error: '响应解析失败' + (res.truncated ? '（子进程输出超过上限已截尾）' : '') + ': ' + res.stdout.slice(0, 300) }
       }
       const r = lastResult
       st.history = [{
         m: spec.method, u: spec.url,
-        params: st.params, headers: st.headers, bodyType: st.bodyType, body: st.body, form: st.form,
+        params: st.params,
+        headers: maskHeaders(st.headers), // 落盘前脱敏：authorization/cookie 等敏感头只存 '<redacted>' 占位
+        bodyType: st.bodyType, body: st.body, form: st.form,
         s: r.ok ? r.status : 0, ms: r.ms != null ? r.ms : null, t: Date.now(),
       }].concat(st.history || []).slice(0, 8)
       const persisted = await writeJsonStore(ctx, REL_STORE, st.history, ws.root, ws.session)
-      st.notice = persisted ? null : '⚠ 历史未能写入 ' + REL_STORE + '，仅保存在面板内存中'
+      // 提示条并入现有 notice 通道：输出截尾 / 敏感头待重填 / 历史写盘失败
+      const notes = []
+      if (res.truncated) notes.push('子进程输出超过上限已截尾')
+      if (redactCount) notes.push(String(redactCount) + ' 个敏感头需重填')
+      if (!persisted) notes.push('⚠ 历史未能写入 ' + REL_STORE + '，仅保存在面板内存中')
+      st.notice = notes.join('；') || null
     }
 
     const handler = async ({ action, fields, state, root, session }) => {
@@ -3546,7 +3795,9 @@ return {
           st.method = it.m; st.url = it.u
           st.params = it.params || []; st.headers = it.headers || []
           st.bodyType = it.bodyType || 'none'; st.body = it.body || ''; st.form = it.form || []
-          await send(st, ws)
+          // 历史快照里敏感头是 '<redacted>' 占位：buildRequest 组装时跳过这些头，这里统计数量提醒重填
+          const nRedacted = (st.headers || []).filter((r) => r && r.v === '<redacted>').length
+          await send(st, ws, nRedacted)
         }
       }
       else if (action === 'clear-history') {
@@ -3613,6 +3864,8 @@ return {
 
     const runNode = async (script, argv1) => {
       if (!subprocess) return { ok: false, error: 'subprocess 服务不可用' }
+      // 两处路径（列表脚本经 stdin / taskkill 经 node -e）都走同一个 spawn：统一包 15s wall-clock 看门狗，
+      // 到点主动 terminate()。注意 graceMs 只是「退出后 SIGTERM→SIGKILL 升级窗口」，不是运行超时。
       const spec = {
         argv: argv1 == null ? ['node', '-'] : ['node', '-e', script, String(argv1)],
         stdio: argv1 == null
@@ -3620,23 +3873,24 @@ return {
           : { stdin: 'ignore', stdout: { maxBytes: 1024 }, stderr: { maxBytes: 64 * 1024 } },
         graceMs: 30000,
       }
-      const handle = subprocess.spawn(spec)
+      const handle = withDeadline(ctx, subprocess.spawn(spec), 15000)
       const outcome = await handle.done
-      const stdout = handle.collected.stdout.readFrom(0).text
-      const stderr = handle.collected.stderr.readFrom(0).text
-      if (outcome.exitCode !== 0) return { ok: false, error: (stderr || stdout).slice(0, 500) }
-      return { ok: true, stdout }
+      const so = handle.collected.stdout.readFrom(0)
+      const se = handle.collected.stderr.readFrom(0)
+      const truncated = !!(so.lossy || se.lossy) // lossy = 输出超过 maxBytes 被截尾，记给调用方提示
+      if (outcome.exitCode !== 0) return { ok: false, error: (se.text || so.text).slice(0, 500), truncated }
+      return { ok: true, stdout: so.text, truncated }
     }
 
     const loadRows = async () => {
       const res = await runNode(LIST_SCRIPT)
-      if (!res.ok) return { error: res.error, rows: [] }
+      if (!res.ok) return { error: res.error, rows: [], truncated: !!res.truncated }
       try {
         const parsed = JSON.parse(res.stdout.trim() || '[]')
         const rows = Array.isArray(parsed) ? parsed : [parsed]
-        return { rows: rows.filter((r) => r && typeof r.port === 'number') }
+        return { rows: rows.filter((r) => r && typeof r.port === 'number'), truncated: !!res.truncated }
       } catch (e) {
-        return { error: '解析失败: ' + res.stdout.slice(0, 300), rows: [] }
+        return { error: '解析失败' + (res.truncated ? '（输出超过上限已截尾）' : '') + ': ' + res.stdout.slice(0, 300), rows: [], truncated: !!res.truncated }
       }
     }
 
@@ -3653,6 +3907,7 @@ return {
         '<button type="button" class="tb-btn tb-btn-primary" data-action="refresh">刷新</button>' +
       '</div>')
       if (st.error) parts.push('<div class="tb-banner tb-banner-error">' + esc(st.error) + '</div>')
+      if (st.truncated) parts.push('<div class="tb-banner tb-banner-info">输出超过上限已截尾</div>')
       if (st.info) parts.push('<div class="tb-banner tb-banner-info">' + esc(st.info) + '</div>')
       parts.push('<div class="tb-list-head"><span class="tb-list-title">监听端口<span class="tb-count">' + rows.length + '</span></span>' +
         '<span class="tb-note">共 ' + (st.rows || []).length + ' 条</span></div>')
@@ -3679,14 +3934,15 @@ return {
     }
 
     const handler = async ({ action, fields, state }) => {
-      const st = (state && typeof state === 'object' && state) ? state : { rows: null, q: '', arm: null, error: null, info: null }
+      const st = (state && typeof state === 'object' && state) ? state : { rows: null, q: '', arm: null, error: null, info: null, truncated: false }
       const el = fields && fields.__el ? fields.__el : {}
       if (typeof fields.q === 'string') st.q = fields.q
-      st.error = null; st.info = null
+      st.error = null; st.info = null; st.truncated = false
 
       if (action === '' || action === 'refresh') {
         const r = await loadRows()
         st.rows = r.rows; st.error = r.error || null; st.arm = null
+        st.truncated = !!r.truncated // 输出截尾标志 → 面板提示条（kill 后重载同理）
       } else if (action === 'kill' && el.pid && /^\d+$/.test(String(el.pid))) {
         st.arm = String(el.pid)
       } else if (action === 'kill-cancel') {
@@ -3699,6 +3955,7 @@ return {
           st.info = '已结束进程 PID ' + pid
           const r = await loadRows()
           st.rows = r.rows; st.error = r.error || null
+          st.truncated = !!r.truncated
         } else {
           st.error = '结束失败: ' + res.error
         }
@@ -3773,47 +4030,46 @@ return {
       ['中文段', '[\\u4e00-\\u9fa5]+', '混合 English 与 中文连续 段落'],
       ['IPv4', '\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b', '127.0.0.1 与 10.0.0.256'],
     ]
-    const regexRun = (pattern, flags, text) => {
-      if (!pattern) return { matches: [], error: null, truncated: false }
-      let re
-      try { re = new RegExp(pattern, flags.join('')) } catch (e) { return { matches: [], error: String(e.message || e), truncated: false } }
-      const matches = []
-      let truncated = false
-      if (re.global) {
-        let m
-        while ((m = re.exec(text)) !== null) {
-          if (matches.length >= REGEX_CAP) { truncated = true; break }
-          matches.push({ i: m.index, text: m[0], groups: m.slice(1) })
-          if (m[0] === '') re.lastIndex++
-        }
-      } else {
-        const m = re.exec(text)
-        if (m) matches.push({ i: m.index, text: m[0], groups: m.slice(1) })
-      }
-      return { matches, error: null, truncated }
+    // 正则执行迁入 node 子进程（审计 M2）：用户正则在主进程内同步 exec 时，灾难性回溯
+    // （如 (a+)+$ 配长文本）会冻结整个 DSH 事件循环；REGEX_CAP 只限匹配条数、限不住回溯时间。
+    // 脚本为静态模板（无用户输入插值），spec 经 stdin 传入（文本可 MB 级，避开 env 32K），
+    // 父侧 withDeadline 3s 看门狗兜底——超时即 terminate，面板提示「已中止」。
+    const REGEX_SCRIPT = [
+      "const fs = require('fs')",
+      "const spec = JSON.parse(fs.readFileSync(0, 'utf8'))",
+      "const out = { ok: true, matches: [], error: null, truncated: false, count: 0, replaced: null }",
+      "try {",
+      "  const CAP = 200",
+      "  const re = new RegExp(spec.pattern, (spec.flags || []).join(''))",
+      "  if (spec.op === 'replace') {",
+      "    let count = 0",
+      "    if (re.global) { const cnt = new RegExp(spec.pattern, (spec.flags || []).join('')); let m",
+      "      while ((m = cnt.exec(spec.text)) !== null) { count++; if (m[0] === '') cnt.lastIndex++; if (count >= 100000) break } }",
+      "    else count = re.test(spec.text) ? 1 : 0",
+      "    out.count = count",
+      "    out.replaced = String(spec.text).replace(re, spec.replacement == null ? '' : String(spec.replacement))",
+      "  } else {",
+      "    let m",
+      "    if (re.global) { while ((m = re.exec(spec.text)) !== null) {",
+      "      if (out.matches.length >= CAP) { out.truncated = true; break }",
+      "      out.matches.push({ i: m.index, text: m[0], groups: m.slice(1) })",
+      "      if (m[0] === '') re.lastIndex++",
+      "    } } else { const mm = re.exec(spec.text); if (mm) out.matches.push({ i: mm.index, text: mm[0], groups: mm.slice(1) }) }",
+      "  }",
+      "} catch (e) { out.ok = false; out.error = String((e && e.message) || e); out.matches = []; out.truncated = false; out.count = 0; out.replaced = null }",
+      "process.stdout.write(JSON.stringify(out))",
+    ].join('\n')
+    const runRegexChild = async (op, pattern, flags, text, replacement, wsRoot) => {
+      const r = await runChildJson(REGEX_SCRIPT, { op, pattern, flags: flags || ['g'], text: String(text == null ? '' : text), replacement }, wsRoot, 3000)
+      if (r.ok === false) return op === 'replace' ? { out: '', count: 0, error: r.error } : { matches: [], error: r.error, truncated: false }
+      return op === 'replace'
+        ? { out: r.replaced == null ? '' : r.replaced, count: r.count || 0, error: r.error }
+        : { matches: r.matches || [], error: r.error, truncated: !!r.truncated }
     }
-    const regexReplace = (pattern, flags, text, replacement) => {
-      if (!pattern) return { out: '', count: 0, error: null }
-      let re
-      try { re = new RegExp(pattern, flags.join('')) } catch (e) { return { out: '', count: 0, error: String(e.message || e) } }
-      let count = 0
-      if (re.global) {
-        try {
-          const cnt = new RegExp(pattern, flags.join(''))
-          let m
-          while ((m = cnt.exec(text)) !== null) {
-            count++
-            if (m[0] === '') cnt.lastIndex++
-            if (count >= 100000) break
-          }
-        } catch (e) {}
-      } else {
-        count = re.test(text) ? 1 : 0
-      }
-      let out = ''
-      try { out = text.replace(re, replacement) } catch (e) { return { out: '', count, error: String(e.message || e) } }
-      return { out, count, error: null }
-    }
+    // 结果缓存（闭包，同 lastCron 先例）：渲染只画缓存，不再每次 render 现算——
+    // key 是参数签名，输入变化后旧结果不展示，须重新点「测试」
+    let lastRegex = null
+    const regexSigOf = (r) => JSON.stringify([r.mode === 'replace' ? 'replace' : 'match', r.pattern || '', (r.flags || []).slice().sort(), r.text || '', r.replacement || ''])
 
     // ================= 子模式 cron：Cron 表达式 =================
     // 派生结果（字段明细含 Set / 未来时刻数组）留闭包——Set 不可 JSON 序列化，
@@ -4020,8 +4276,10 @@ return {
     const TD_TXT_CLS = { ' ': '', '+': 'tb-tx-done', '-': 'tb-tx-danger' }
 
     // ================= 子模式 gen：生成器 =================
+    // 脚本经 argv -e 注入（静态模板 ~1.6KB，远低于 32K 命令行上限），spec 走 stdin——
+    // 不再走 env：哈希输入文本可到 MB 级，Windows 环境块总长 32K 字符会莫名 spawn 失败（审计 L5）
     const GEN_SCRIPT = [
-      "const spec = JSON.parse(process.env.GEN_REQ || '{}')",
+      "const spec = JSON.parse(require('fs').readFileSync(0, 'utf8'))",
       "const c = require('crypto')",
       "const out = { ok: true, items: [] }",
       "try {",
@@ -4041,22 +4299,28 @@ return {
       "} catch (e) { out.ok = false; out.error = String((e && e.message) || e) }",
       "process.stdout.write(JSON.stringify(out))",
     ].join('\n')
-    const runGen = async (spec, wsRoot) => {
+    const runChildJson = async (script, spec, wsRoot, deadlineMs) => {
       if (!subprocess) return { ok: false, error: 'subprocess 服务不可用' }
       try {
-        const handle = subprocess.spawn({
-          argv: ['node', '-'],
+        // withDeadline：graceMs 不是运行时长上限，挂死子进程必须由看门狗 terminate（审计 M3）
+        const handle = withDeadline(ctx, subprocess.spawn({
+          argv: ['node', '-e', script],
           cwd: wsRoot,
-          stdio: { stdin: { data: GEN_SCRIPT }, stdout: { maxBytes: 1024 * 1024 }, stderr: { maxBytes: 64 * 1024 } },
-          graceMs: 30000,
-          env: { GEN_REQ: JSON.stringify(spec) },
-        })
+          stdio: { stdin: { data: JSON.stringify(spec) }, stdout: { maxBytes: 1024 * 1024 }, stderr: { maxBytes: 64 * 1024 } },
+          graceMs: 5000,
+        }), deadlineMs)
+        const t0 = Date.now()
         const outcome = await handle.done
-        const stdout = handle.collected.stdout.readFrom(0).text
-        if (outcome.exitCode !== 0) return { ok: false, error: handle.collected.stderr.readFrom(0).text.slice(0, 300) || '子进程失败' }
-        return JSON.parse(stdout)
+        const stdout = handle.collected.stdout.readFrom(0)
+        if (outcome.exitCode !== 0) {
+          const timedOut = deadlineMs && (Date.now() - t0) >= (deadlineMs - 300)
+          return { ok: false, error: timedOut ? ('执行超时已中止（' + Math.round(deadlineMs / 1000) + 's 看门狗）') : (handle.collected.stderr.readFrom(0).text.slice(0, 300) || '子进程失败') }
+        }
+        if (stdout.lossy) return { ok: false, error: '输出超过收集上限，已丢弃' }
+        return JSON.parse(stdout.text)
       } catch (e) { return { ok: false, error: String((e && e.message) || e) } }
     }
+    const runGen = (spec, wsRoot) => runChildJson(GEN_SCRIPT, spec, wsRoot, 30000)
     const GEN_CHARSETS = [['alnum', '字母数字'], ['hex', 'hex'], ['b64url', 'base64url'], ['num', '纯数字'], ['easy', '易读（无 0O1lI）']]
     const GEN_ALGOS = [['md5', 'MD5'], ['sha1', 'SHA-1'], ['sha256', 'SHA-256'], ['sha512', 'SHA-512']]
     const GEN_NS = [1, 5, 10, 50]
@@ -4103,8 +4367,11 @@ return {
 
     const renderRegex = (r) => {
       const mode = r.mode === 'replace' ? 'replace' : 'match'
-      const m = mode === 'match' ? regexRun(r.pattern, r.flags || ['g'], r.text || '') : null
-      const rp = mode === 'replace' ? regexReplace(r.pattern, r.flags || ['g'], r.text || '', r.replacement || '') : null
+      // 只画闭包缓存：签名匹配才展示（输入已变化则提示重新执行），渲染路径零正则计算
+      const sig = regexSigOf(r)
+      const m = mode === 'match' && lastRegex && lastRegex.key === sig && lastRegex.res.matches ? lastRegex.res : null
+      const rp = mode === 'replace' && lastRegex && lastRegex.key === sig && lastRegex.res.count != null ? lastRegex.res : null
+      const stale = r.pattern && !(lastRegex && lastRegex.key === sig)
       const parts = []
       parts.push('<div class="tb-chips">' +
         '<button type="button" class="tb-chip' + (mode === 'match' ? ' tb-chip-on' : '') + '" data-action="mode" data-v="match">匹配</button>' +
@@ -4126,6 +4393,9 @@ return {
       }
       parts.push('<div class="tb-sec"><span class="tb-sec-label">测试文本</span>' +
         '<textarea class="tb-textarea" data-field="text" placeholder="在此粘贴待匹配的文本">' + esc(r.text || '') + '</textarea></div>')
+      if (stale) {
+        parts.push('<div class="tb-banner tb-banner-info">参数已变化——点「测试」执行（正则在子进程内运行，3s 超时自动中止，防灾难性回溯冻结主进程）</div>')
+      }
       const err = m ? m.error : (rp ? rp.error : null)
       if (err) {
         parts.push('<div class="tb-banner tb-banner-error">正则无效：' + esc(err) + '</div>')
@@ -4327,8 +4597,14 @@ return {
           const preset = REGEX_PRESETS.find(([, p]) => p === el.p)
           if (!r.text && preset && preset[2]) r.text = preset[2]
         }
+        if (action === 'test' || action === 'preset') {
+          // 「测试」/点预设：正则进子进程执行（3s 看门狗），结果进闭包缓存供渲染
+          const op = r.mode === 'replace' ? 'replace' : 'match'
+          const res = await runRegexChild(op, r.pattern, r.flags || ['g'], r.text || '', r.replacement || '', ws.root)
+          lastRegex = { key: regexSigOf(r), res }
+        }
         if (action === 'copy-out') {
-          const rp = regexReplace(r.pattern, r.flags || ['g'], r.text || '', r.replacement || '')
+          const rp = await runRegexChild('replace', r.pattern, r.flags || ['g'], r.text || '', r.replacement || '', ws.root)
           if (!rp.error) copy = rp.out
         }
       } else if (st.sub === 'cron') {
@@ -4691,9 +4967,16 @@ return {
       const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim()
       return t.length > max ? t.slice(0, max - 1) + '…' : t
     }
+    // 文本提取：text/reasoning 直接取 text；tool-result 块下钻内层 content 取文本
+    // （工具结果条目否则恒显「非文本」但 token 照算——列表与详情共用本函数，口径一致）
     const textOf = (blocks) => {
       if (!Array.isArray(blocks)) return ''
-      return blocks.map((b) => (b && (b.type === 'text' || b.type === 'reasoning') ? b.text : '')).filter(Boolean).join('\n')
+      return blocks.map((b) => {
+        if (!b) return ''
+        if (b.type === 'text' || b.type === 'reasoning') return b.text || ''
+        if (b.type === 'tool-result' || b.type === 'tool_result' || b.toolCallId != null) return textOf(b.content)
+        return ''
+      }).filter(Boolean).join('\n')
     }
     const fmtTok = (n) => n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(n)
     const CAP = 12000
@@ -4807,7 +5090,10 @@ const create_aiassist = () => {
 
 return {
   name: 'aiassist-tool',
-  inject: ['fs', 'llm', 'agentDefaultModel', 'timer'],
+  // llm/agentDefaultModel 为可选依赖（makeLlmHelper 内部 ctx.get + available:false 优雅降级），
+  // 不进 inject：服务缺失时 Tab 仍在、可浏览历史，发送时提示「llm 服务不可用」。
+  // 注意：运行时桩 payload 的 inject 来自 build/plugin-catalog.mjs，需同步改为 ['fs','timer'] 并重新生成。
+  inject: ['fs', 'timer'],
   apply(ctx) {
     const ai = makeLlmHelper(ctx)
     const subprocess = ctx.get('subprocess')
@@ -4866,12 +5152,25 @@ return {
     let lastDiff = null      // commitmsg diff 本体（{ scope, text, truncated }）
     let lastLog = null       // aisummary 日志采样本体（{ text, truncated, omitted, events }）
     const paramMem = {}      // presetId -> params 记忆（切换回来恢复上次参数）
+    // compare rounds 落盘串行链：双击「并发对比」时两个在途 send 各自基于磁盘追加自己的轮次，
+    // 不再整文件互相覆盖丢轮次（与台账写锁同型的轻量 per-root promise 链）
+    let cmpSaveChain = Promise.resolve()
+    const enqueueCompareSave = (fn) => {
+      const run = cmpSaveChain.then(fn, fn)
+      cmpSaveChain = run.then(() => undefined, () => undefined)
+      return run
+    }
 
     const pad2 = (n) => (n < 10 ? '0' : '') + n
     const fmtClock = (t) => { const d = new Date(t); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) }
+    // 数值槽位先归一再拼 HTML（history 可经 state 往返/磁盘恢复，防御深度；非法值不出 NaN/注入面）
+    const numOf = (v) => { const x = Number(v); return Number.isFinite(x) ? x : 0 }
 
     // ===== 通用历史卡片（AI 类历史统一视觉；原 7 个工具的卡片样式不变）=====
     function aiHistoryCard(it, srcText, dstText, srcLabel, dstLabel) {
+      const ms = numOf(it.ms)
+      const outN = Number(it.out)
+      const out = it.out != null && Number.isFinite(outN) ? outN : null
       const parts = []
       parts.push('<div class="tb-card">')
       if (srcLabel && srcText) parts.push('<div class="tb-sec"><span class="tb-sec-label">' + esc(srcLabel) + '</span>' +
@@ -4879,10 +5178,10 @@ return {
       parts.push(it.err
         ? '<div class="tb-banner tb-banner-error">' + esc(it.err) + '</div>'
         : '<div class="tb-sec"><span class="tb-sec-label">' + esc(dstLabel || '结果') + '</span><pre class="tb-code">' + esc(it.a != null ? it.a : (dstText || '（空结果）')) + '</pre></div>')
-      parts.push('<div class="tb-rec-sub"><span>' + esc(it.route || '') + '</span><span>' + it.ms + 'ms</span>' +
-        (it.out != null ? '<span>输出 ' + it.out + ' tok</span>' : '') +
-        '<span>' + fmtClock(it.t) + '</span>' +
-        (dstText ? '<button type="button" class="tb-btn tb-btn-sm tb-btn-ghost" data-action="copy" data-i="' + it.__i + '">复制</button>' : '') +
+      parts.push('<div class="tb-rec-sub"><span>' + esc(it.route || '') + '</span><span>' + ms + 'ms</span>' +
+        (out != null ? '<span>输出 ' + out + ' tok</span>' : '') +
+        '<span>' + fmtClock(numOf(it.t)) + '</span>' +
+        (dstText ? '<button type="button" class="tb-btn tb-btn-sm tb-btn-ghost" data-action="copy" data-i="' + numOf(it.__i) + '">复制</button>' : '') +
         '</div></div>')
       return parts.join('')
     }
@@ -5088,13 +5387,15 @@ return {
           if (st.info.error) {
             parts.push('<div class="tb-banner tb-banner-error">' + esc(st.info.error) + '</div>')
           } else if (p.input === 'gitsource') {
-            parts.push('<div class="tb-banner tb-banner-info">暂存 ' + st.info.staged + ' · 未暂存 ' + st.info.unstaged + ' · 未跟踪 ' + st.info.untracked +
+            const num = (v) => numOf(v)
+            parts.push('<div class="tb-banner tb-banner-info">暂存 ' + num(st.info.staged) + ' · 未暂存 ' + num(st.info.unstaged) + ' · 未跟踪 ' + num(st.info.untracked) +
               (st.info.empty ? ' · 暂存区与工作区 diff 均为空（未跟踪文件不参与 diff）'
-                : ' · 取用 ' + (st.info.scope === 'staged' ? '暂存区' : '工作区') + ' diff ' + st.info.chars + ' 字符' + (st.info.truncated ? '（超 ' + DIFF_CAP + ' 已截断）' : '')) +
+                : ' · 取用 ' + (st.info.scope === 'staged' ? '暂存区' : '工作区') + ' diff ' + num(st.info.chars) + ' 字符' + (st.info.truncated ? '（超 ' + DIFF_CAP + ' 已截断）' : '')) +
               '</div>')
           } else if (p.input === 'sessionlog') {
-            parts.push('<div class="tb-banner tb-banner-info">事件 ' + st.info.events + ' · 对话 ' + st.info.chars + ' 字符' +
-              (st.info.truncated ? '（首尾采样，省略 ' + st.info.omitted + '）' : '') + '</div>')
+            const num = (v) => numOf(v)
+            parts.push('<div class="tb-banner tb-banner-info">事件 ' + num(st.info.events) + ' · 对话 ' + num(st.info.chars) + ' 字符' +
+              (st.info.truncated ? '（首尾采样，省略 ' + num(st.info.omitted) + '）' : '') + '</div>')
           }
         }
       }
@@ -5116,9 +5417,11 @@ return {
           parts.push('<div class="tb-card" style="gap:6px"><div class="tb-sec"><span class="tb-sec-label">问题 · ' + fmtClock(res.t) + '</span>' +
             '<div style="font-size:12.5px;white-space:pre-wrap;word-break:break-word">' + esc(res.q) + '</div></div></div>')
           for (const it of res.items) {
+            const ms = numOf(it.ms)
+            const outN = Number(it.out)
             parts.push('<div class="tb-card">' +
               '<div class="tb-card-head"><span class="tb-key">' + esc(it.route) + '</span>' +
-              '<span class="tb-note">' + it.ms + 'ms' + (it.out != null ? ' · 输出 ' + it.out + ' tok' : '') + '</span></div>' +
+              '<span class="tb-note">' + ms + 'ms' + (it.out != null && Number.isFinite(outN) ? ' · 输出 ' + outN + ' tok' : '') + '</span></div>' +
               (it.err
                 ? '<div class="tb-banner tb-banner-error">' + esc(it.err) + '</div>'
                 : '<pre class="tb-code">' + esc(it.a || '（空回复）') + '</pre>') +
@@ -5198,14 +5501,18 @@ return {
           } else {
             const items = await Promise.all(st.picked.map((r) => askOne(st.q.trim(), r, ws)))
             lastResults = { q: st.q.trim(), t: Date.now(), items }
-            const saved = await readJsonStore(ctx, storeRel(p), ws.root, [])
-            const rounds = [{
+            const newRound = {
               q: lastResults.q, t: lastResults.t,
               items: items.map((it) => ({ route: it.route, a: String(it.a || '').slice(0, 4000), err: it.err, ms: it.ms, out: it.out })),
-            }].concat(Array.isArray(saved) ? saved : []).slice(0, p.cap)
-            st.history = rounds
-            const persisted = await writeJsonStore(ctx, storeRel(p), rounds, ws.root, ws.session)
-            st.notice = persisted ? null : '⚠ 对比记录未能写入 ' + storeRel(p)
+            }
+            // 落盘走串行链：并发 send 各自「读磁盘→追加本轮→覆写」，不再互相整文件覆盖丢轮次
+            st.history = await enqueueCompareSave(async () => {
+              const saved = await readJsonStore(ctx, storeRel(p), ws.root, [])
+              const rounds = [newRound].concat(Array.isArray(saved) ? saved : []).slice(0, p.cap)
+              const persisted = await writeJsonStore(ctx, storeRel(p), rounds, ws.root, ws.session)
+              st.notice = persisted ? null : '⚠ 对比记录未能写入 ' + storeRel(p)
+              return rounds
+            }).catch(() => st.history)
           }
         } else {
           const inp = await collectInput(p, st, ws, session)
@@ -5451,9 +5758,14 @@ return {
         if (!sid) return { ok: true, html: '<div class="jr-tabpanel tb-root"><div class="tb-notice">未找到当前会话</div></div>', state: st }
 
         // 查询历史：最近 8 条（去重置顶）落盘工作区，点芯片即重搜
+        // 持久化失败必须在面板出警告（PLUGIN-DEV 契约），不许静默丢历史
+        const persistRecent = async () => {
+          const saved = await writeJsonStore(ctx, REL_STORE, st.recent, ws.root, ws.session)
+          st.notice = saved ? '' : '搜索历史写入工作区失败（目录不可写？）——本次记录仅保留在当前面板'
+        }
         const remember = async (q) => {
           st.recent = [q].concat(st.recent.filter((x) => x !== q)).slice(0, 8)
-          await writeJsonStore(ctx, REL_STORE, st.recent, ws.root, ws.session)
+          await persistRecent()
         }
         const runSearch = async () => {
           const page = await sq.searchEvents({ sessionId: sid, query: st.q.trim(), limit: 50 })
@@ -5472,7 +5784,7 @@ return {
           await runSearch()
         } else if (action === 'clear-recent') {
           st.recent = []
-          await writeJsonStore(ctx, REL_STORE, [], ws.root, ws.session)
+          await persistRecent()
         } else if (action === 'open' && el.seq) {
           const n = Number(el.seq)
           st.open = st.open === n ? null : n
@@ -5501,6 +5813,7 @@ return {
         '<input class="tb-input" data-field="q" placeholder="在当前会话里搜索（消息 / 工具调用 / 结果）" value="' + esc(st.q || '') + '" />' +
         '<button type="button" class="tb-btn tb-btn-primary" data-action="query">搜索</button>' +
       '</div>')
+      if (st.notice) parts.push('<div class="tb-banner tb-banner-error">' + esc(st.notice) + '</div>')
       if (st.recent.length) {
         parts.push('<div class="tb-chips">' +
           st.recent.map((q) => '<button type="button" class="tb-chip" data-action="research" data-q="' + esc(q) + '" title="点击重搜">' + esc(q.length > 20 ? q.slice(0, 19) + '…' : q) + '</button>').join('') +
@@ -5659,10 +5972,12 @@ return {
   inject: ['fs', 'subprocess', 'timer'],
   apply(ctx) {
     const pad2 = (n) => (n < 10 ? '0' : '') + n
-    const fmtTime = (t) => { const d = new Date(t); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds()) }
-    const fmtDay = (t) => { const d = new Date(t); return (d.getMonth() + 1) + '/' + d.getDate() }
-    const fmtTok = (n) => n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(n)
-    const fmtMs = (ms) => ms >= 10000 ? (ms / 1000).toFixed(1) + 's' : ms + 'ms'
+    // 数值槽位先归一再拼 HTML（记录可来自磁盘 JSON/手改文件，防御深度；Date 收非法值也只显示 1970 不出 NaN）
+    const num = (v) => { const x = Number(v); return Number.isFinite(x) ? x : 0 }
+    const fmtTime = (t) => { const d = new Date(num(t)); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds()) }
+    const fmtDay = (t) => { const d = new Date(num(t)); return (d.getMonth() + 1) + '/' + d.getDate() }
+    const fmtTok = (n) => { n = num(n); return n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(n) }
+    const fmtMs = (ms) => { ms = num(ms); return ms >= 10000 ? (ms / 1000).toFixed(1) + 's' : ms + 'ms' }
 
     const build = (list) => {
       const byTool = {}
@@ -5753,7 +6068,9 @@ return {
         st.notice = null
       } else if (action === 'clear-confirm') {
         st.confirmClear = false
-        const persisted = await writeJsonStore(ctx, AI_USAGE_REL, [], ws.root, ws.session)
+        // 与 chat track 的追加走同一把 per-root 写锁（enqueueAiUsageWrite，shared/host.js），
+        // 防止清空写入 [] 后被在途追加的旧快照（old.concat([rec])）复活
+        const persisted = await enqueueAiUsageWrite(ws.root, () => writeJsonStore(ctx, AI_USAGE_REL, [], ws.root, ws.session))
         st.notice = persisted ? '台账已清空' : '⚠ 未能写入 ' + AI_USAGE_REL + '，清空仅在内存生效'
       } else {
         // '' / reload：重读磁盘（其他 AI 工具可能刚追加了记录）
@@ -5904,18 +6221,25 @@ return {
       if (!subprocess) return { ok: false, error: 'subprocess 服务不可用' }
       const p = providerOf(pid)
       try {
-        const handle = subprocess.spawn({
+        // 外层看门狗 30s：wall-clock 到点主动 terminate()（内层 https timeout:20000+destroy 是应用层读超时，保持不动；
+        // DNS 卡死/连接挂起不经过它）。注意 graceMs 只是「退出后 SIGTERM→SIGKILL 升级窗口」，不是运行超时。
+        const handle = withDeadline(ctx, subprocess.spawn({
           argv: ['node', '-e', scriptFor(p.id, p.keyName, p.credName)],
           cwd: wsRoot,
           stdio: { stdin: 'ignore', stdout: { maxBytes: 64 * 1024 }, stderr: { maxBytes: 16 * 1024 } },
           graceMs: 30000,
-        })
+        }), 30000)
         const outcome = await handle.done
-        const stdout = handle.collected.stdout.readFrom(0).text
+        const so = handle.collected.stdout.readFrom(0)
         if (outcome.exitCode !== 0) {
           return { ok: false, error: handle.collected.stderr.readFrom(0).text.slice(0, 300) || '子进程失败' }
         }
-        return JSON.parse(stdout)
+        // lossy：stdout 超 64KB 上限被截尾，JSON 大概率已残缺——给出明确错误而不是晦涩的 SyntaxError
+        if (so.lossy) {
+          try { return Object.assign(JSON.parse(so.text), { truncated: true }) } catch (e) {}
+          return { ok: false, error: '查询输出超过上限（64KB）已截尾，结果不完整', truncated: true }
+        }
+        return JSON.parse(so.text)
       } catch (e) { return { ok: false, error: String((e && e.message) || e) } }
     }
 
@@ -5978,6 +6302,7 @@ return {
       else if (d && Array.isArray(d.balances) && d.balances.length) badge = fmtNum(d.balances[0].total)
       const parts = []
       parts.push('<div class="jr-tabpanel tb-root" data-tab-badge="' + esc(badge) + '">')
+      if (st.truncated) parts.push('<div class="tb-banner tb-banner-info">输出超过上限已截尾</div>')
       // 提供商选择芯片 + 刷新
       parts.push('<div class="tb-row">' +
         PROVIDERS.map((pv) => '<button type="button" class="tb-chip' + (pv.id === p.id ? ' tb-chip-on' : '') + '" data-action="pick" data-v="' + pv.id + '">' + esc(pv.label) + '</button>').join('') +
@@ -6012,7 +6337,7 @@ return {
 
     const handler = async ({ action, fields, state, root, session }) => {
       const ws = resolveWorkspace(ctx, root, session)
-      const st = (state && typeof state === 'object' && state) ? state : { loading: false, error: null, data: null, at: null, provider: 'kimi' }
+      const st = (state && typeof state === 'object' && state) ? state : { loading: false, error: null, data: null, at: null, provider: 'kimi', truncated: false }
       if (!providerOf(st.provider).id || PROVIDERS.every((p) => p.id !== st.provider)) st.provider = 'kimi'
       const el = fields && fields.__el ? fields.__el : {}
 
@@ -6030,9 +6355,11 @@ return {
         if (r && r.ok) {
           st.data = r.data
           st.error = null
+          st.truncated = !!r.truncated // 输出截尾标志 → 面板顶部提示条
           try { st.at = new Date().toTimeString().slice(0, 8) } catch (e) { st.at = '' }
         } else {
           st.error = (r && r.error) || '查询失败'
+          st.truncated = false
         }
       }
       return { ok: true, html: render(st), state: st }
@@ -6072,40 +6399,67 @@ return {
     const log = (line) => { logLines.push(fmtClock(Date.now()) + ' ' + line); if (logLines.length > 40) logLines.shift() }
 
     // ---- 命令队列 + 结果配对 ----
+    // 多 GUI 表面（多标签页/桌面+浏览器）都会长轮询 selfview/pull。单 FIFO 无差别派发会让
+    // 「A 页建的 refMap、B 页来执行」→ ref 失效；点击落在用户看不见的表面毫无反应。
+    // 因此命令带表面亲和：优先派给「最近成功执行」的表面；截图类优先「截屏流所在」表面；
+    // 表面消失（无该 cid 的 waiter）时回落 FIFO。clientId 由 Client 半以 sessionStorage 提供。
     let seq = 0
-    const queue = []      // 待取命令
-    const waiters = []    // 挂起的 pull：[resolve]
-    const pending = {}    // id -> resolve（工具调用等结果）
+    const queue = []      // 待取命令 { cmd, dead, prefer }（dead=已超时作废，出队即弃）
+    const waiters = []    // 挂起的 pull：{ cid, resolve(item) }
+    const pending = {}    // id -> { resolve, item }（工具调用等结果）
+    const liveCmds = new Map() // id -> item（超时作废标记用）
+    const seenClients = new Set() // 出现过的表面 id（>1 时快照附多表面提示）
+    let preferredCid = ''  // 最近一次成功执行命令的表面
+    let streamCid = ''     // 截屏流所在表面（push state stream=true 时更新）
 
-    const pushCmd = (cmd) => {
-      if (waiters.length) waiters.shift()(cmd)
-      else queue.push(cmd)
+    const pushCmd = (cmd, prefer) => {
+      const item = { cmd: cleanCmd(cmd), dead: false, prefer: prefer || '', cid: '' }
+      liveCmds.set(item.cmd.id, item)
+      if (waiters.length) {
+        let idx = item.prefer ? waiters.findIndex((w) => w.cid === item.prefer) : -1
+        if (idx < 0 && preferredCid) idx = waiters.findIndex((w) => w.cid === preferredCid)
+        const w = (idx >= 0 ? waiters.splice(idx, 1)[0] : waiters.shift())
+        w.resolve(item)
+      } else queue.push(item)
+      return item
     }
     // RPC 返回必须是无损 JSON：剥掉 undefined 字段（如未传的 selector/maxLines），否则 cloneJson 拒收整条命令
     const cleanCmd = (o) => { const r = {}; for (const k of Object.keys(o)) if (o[k] !== undefined) r[k] = o[k]; return r }
-    const sendToClient = (cmd, timeoutMs) => new Promise((resolve) => {
+    const sendToClient = (cmd, timeoutMs, opts) => new Promise((resolve) => {
       const id = 'c' + (++seq)
+      const item = pushCmd(Object.assign({ id }, cmd), opts && opts.stream ? (streamCid || preferredCid) : preferredCid)
       const timer = ctx.timeout(() => {
+        // 审计 M12：超时只回错误不回收命令的话，Client 重连后第一个 pull 会取出并执行
+        // 这条「已报失败」的陈旧点击/填充——必须就地作废（还在队列里则出队时被跳过）
+        item.dead = true
+        liveCmds.delete(id)
         if (pending[id]) {
           delete pending[id]
-          resolve({ ok: false, error: 'Client 无响应（' + Math.round((timeoutMs || 12000) / 1000) + 's 超时）——界面插件的 Client 半在运行吗？浏览器标签页开着吗？' })
+          resolve({ ok: false, error: 'Client 无响应（' + Math.round((timeoutMs || 12000) / 1000) + 's 超时），命令已作废' })
         }
       }, timeoutMs || 12000)
-      pending[id] = (res) => { try { timer() } catch (e) {} delete pending[id]; resolve(res) }
-      pushCmd(cleanCmd(Object.assign({ id }, cmd)))
+      pending[id] = { resolve: (res) => { try { timer() } catch (e) {} delete pending[id]; liveCmds.delete(id); if (res && res.ok && item.cid) preferredCid = item.cid; resolve(res) } }
     })
 
-    ctx.effect(() => harness.handle('selfview/pull', async () => {
+    ctx.effect(() => harness.handle('selfview/pull', async (args) => {
       clientSeenAt = Date.now()
-      if (queue.length) return queue.shift()
+      const cid = args && typeof args.clientId === 'string' ? args.clientId : ''
+      if (cid) seenClients.add(cid)
+      // 出队跳过已作废命令（审计 M12）：超时的点击/填充绝不复活执行
+      while (queue.length) {
+        const item = queue.shift()
+        if (item.dead) { liveCmds.delete(item.cmd.id); continue }
+        item.cid = cid
+        return item.cmd
+      }
       return await new Promise((resolve) => {
         const timer = ctx.timeout(() => {
-          const i = waiters.indexOf(wrapped)
+          const i = waiters.findIndex((w) => w.resolve === wrapped)
           if (i >= 0) waiters.splice(i, 1)
           resolve({ cmd: 'none' }) // 25s 心跳空转，Client 立刻重新 pull
         }, 25000)
-        const wrapped = (cmd) => { try { timer() } catch (e) {} resolve(cmd) }
-        waiters.push(wrapped)
+        const wrapped = (item) => { try { timer() } catch (e) {} item.cid = cid; resolve(item.cmd) }
+        waiters.push({ cid, resolve: wrapped })
       })
     }))
 
@@ -6113,8 +6467,11 @@ return {
       clientSeenAt = Date.now()
       const id = args && typeof args.id === 'string' ? args.id : ''
       const res = args && args.res && typeof args.res === 'object' ? args.res : { ok: false, error: '空结果' }
-      const r = pending[id]
-      if (r) r(res)
+      const entry = pending[id]
+      if (entry) {
+        if (res.ok && entry.item && entry.item.cid) preferredCid = entry.item.cid
+        entry.resolve(res)
+      } else if (liveCmds.has(id)) liveCmds.delete(id) // 陈旧结果（命令已超时作废）：静默丢弃
       // 截图结果顺带更新面板缩略图元信息（全量 b64 不进闭包——结果体可能 MB 级，用完即弃）
       if (res && res.ok && res.thumbB64) {
         lastThumb = { dataUrl: 'data:image/jpeg;base64,' + res.thumbB64, w: res.w || 0, h: res.h || 0, at: Date.now() }
@@ -6126,11 +6483,17 @@ return {
     ctx.effect(() => harness.handle('selfview/push', async (args) => {
       clientSeenAt = Date.now()
       if (!args || typeof args !== 'object') return { ok: true }
+      const cid = typeof args.clientId === 'string' ? args.clientId : ''
+      if (cid) seenClients.add(cid)
       if (args.kind === 'state') {
         streamOn = Boolean(args.stream)
+        if (streamOn && cid) streamCid = cid // 授权流在哪台表面，ui_capture 就优先派给哪台（审计 E2）
         if (typeof args.note === 'string' && args.note) log(args.note)
       } else if (args.kind === 'thumb' && typeof args.thumbB64 === 'string') {
-        lastThumb = { dataUrl: 'data:image/jpeg;base64,' + args.thumbB64, w: args.w || 0, h: args.h || 0, at: Date.now() }
+        // 入口白名单（审计 L20）：base64 字形校验 + 尺寸上限，异常数据不入 lastThumb
+        if (/^[A-Za-z0-9+/=]+$/.test(args.thumbB64) && args.thumbB64.length <= 2 * 1024 * 1024) {
+          lastThumb = { dataUrl: 'data:image/jpeg;base64,' + args.thumbB64, w: Number(args.w) || 0, h: Number(args.h) || 0, at: Date.now() }
+        }
       } else if (args.kind === 'log' && typeof args.line === 'string') {
         log(args.line)
       }
@@ -6139,9 +6502,9 @@ return {
 
     // 停止时：唤醒全部挂起 pull / 工具等待者，Client 侧长轮询自行退出
     ctx.effect(() => () => {
-      while (waiters.length) waiters.shift()({ cmd: 'stop' })
-      for (const k of Object.keys(pending)) pending[k]({ ok: false, error: '界面插件已停止' })
-      for (const k of Object.keys(pending)) delete pending[k]
+      while (waiters.length) { const w = waiters.shift(); try { w.resolve({ cmd: 'stop' }) } catch (e) {} }
+      for (const k of Object.keys(pending)) { try { pending[k].resolve({ ok: false, error: '界面插件已停止' }) } catch (e) {} delete pending[k] }
+      liveCmds.clear()
     })
 
     // ---- 截图落盘（stdin 批写二进制） ----
@@ -6156,14 +6519,16 @@ return {
       const sub = ctx.get('subprocess')
       if (!sub) return { ok: false, error: 'subprocess 服务不可用' }
       try {
+        // 同一子进程内顺手做保留清理（审计 L22）：全尺寸 JPEG 每张数百 KB~数 MB，
+        // 无限累积会吃满磁盘——只保留最新 20 张，清理失败静默不影响主流程
         const handle = sub.spawn({
-          argv: ['node', '-e', "let d='';process.stdin.on('data',(c)=>d+=c).on('end',()=>{const fs=require('fs');fs.mkdirSync(require('path').dirname(process.argv[1]),{recursive:true});fs.writeFileSync(process.argv[1],Buffer.from(d,'base64'))})", file],
+          argv: ['node', '-e', "let d='';process.stdin.on('data',(c)=>d+=c).on('end',()=>{const fs=require('fs'),path=require('path');try{fs.mkdirSync(path.dirname(process.argv[1]),{recursive:true});fs.writeFileSync(process.argv[1],Buffer.from(d,'base64'))}catch(e){process.exit(3)}try{const dir=path.dirname(process.argv[1]);const list=fs.readdirSync(dir).filter((f)=>/^shot-\\d+\\.jpg$/.test(f)).map((f)=>({f,t:fs.statSync(path.join(dir,f)).mtimeMs})).sort((a,b)=>b.t-a.t);for(const x of list.slice(20)){try{fs.unlinkSync(path.join(dir,x.f))}catch(e2){}}}catch(e){})", file],
           stdio: { stdin: { data: b64 }, stdout: { maxBytes: 512 }, stderr: { maxBytes: 2048 } },
           graceMs: 20000,
         })
         await handle.done
         lastShotPath = file
-        log('截图已保存 ' + file)
+        log('截图已保存 ' + file + '（目录仅保留最近 20 张）')
         return { ok: true, path: file }
       } catch (e) {
         return { ok: false, error: '写文件失败: ' + String((e && e.message) || e) }
@@ -6188,14 +6553,18 @@ return {
       parameters: {
         selector: { type: 'string', description: '可选 CSS 选择器，只看该子树（默认整个页面）' },
         maxLines: { type: 'number', description: '最大行数（默认 300）' },
+        maxDepth: { type: 'number', description: '最大遍历深度（默认 48，范围 14-160；深层元素漏掉时调大）' },
       },
       output: objOut,
       timeoutMs: 20000,
       isConcurrencySafe: () => true,
       execute: async (args) => {
-        const res = await sendToClient({ cmd: 'snapshot', selector: args && args.selector, maxLines: args && args.maxLines }, 12000)
+        const res = await sendToClient({ cmd: 'snapshot', selector: args && args.selector, maxLines: args && args.maxLines, maxDepth: args && args.maxDepth }, 12000)
         if (!res.ok) return { text: '快照失败：' + (res.error || '未知错误') }
-        return { text: res.text || '（空页面）' }
+        let text = res.text || '（空页面）'
+        // 审计 E2：多表面并存时 refs 会跨表面失效——让模型知道该环境风险
+        if (seenClients.size > 1) text += '\n注意：检测到 ' + seenClients.size + ' 个界面表面同时连接（多标签页/多窗口）。refs 只在产生它的表面有效，操作可能被其他表面抢走——建议只保留一个 GUI 窗口。'
+        return { text }
       },
     })
 
@@ -6207,7 +6576,9 @@ return {
       timeoutMs: 30000,
       isConcurrencySafe: () => true,
       execute: async () => {
-        const res = await sendToClient({ cmd: 'capture' }, 15000)
+        // 截图优先派给「截屏流所在」的表面（审计 E2）：授权流绑定在授权它的那个页面上，
+        // 命令落到别的表面只会收到 no-stream 误报
+        const res = await sendToClient({ cmd: 'capture' }, 15000, { stream: true })
         if (!res.ok) {
           if (res.error === 'no-stream') return { text: '截图失败：截屏未开启。请用户在 工具箱 →「界面」Tab 点一次「开启截屏」按钮完成浏览器授权（只需一次，之后流保持复用）。' }
           return { text: '截图失败：' + (res.error || '未知错误') }
@@ -6297,8 +6668,13 @@ return {
         '</div>')
       if (st.notice) parts.push('<div class="tb-banner tb-banner-info">' + esc(st.notice) + '</div>')
       if (lastThumb) {
-        parts.push('<div class="tb-preview"><div class="tb-preview-head"><span class="tb-preview-name">最近截图 ' + lastThumb.w + '×' + lastThumb.h + ' · ' + fmtClock(lastThumb.at) + '</span></div>' +
-          '<img class="tb-preview-img" src="' + lastThumb.dataUrl + '" alt="最近截图缩略图" /></div>')
+        // 渲染侧白名单（审计 L20）：dataUrl 必须是 jpeg data URL 字形，w/h 数字归一——
+        // 同函数其余字段均过 esc()，唯独 img src 此前裸拼，属防御不一致
+        const srcOk = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(String(lastThumb.dataUrl || ''))
+        const tw = Number(lastThumb.w) || 0
+        const th = Number(lastThumb.h) || 0
+        parts.push('<div class="tb-preview"><div class="tb-preview-head"><span class="tb-preview-name">最近截图 ' + tw + '×' + th + ' · ' + fmtClock(lastThumb.at) + '</span></div>' +
+          (srcOk ? '<img class="tb-preview-img" src="' + lastThumb.dataUrl + '" alt="最近截图缩略图" />' : '<div class="tb-note">缩略图数据异常，已跳过渲染</div>') + '</div>')
       }
       if (logLines.length) {
         parts.push('<div class="tb-sec"><span class="tb-sec-label">操作日志（最近 ' + logLines.length + ' 条）</span><pre class="tb-code">' + esc(logLines.slice().reverse().join('\n')) + '</pre></div>')

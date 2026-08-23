@@ -226,12 +226,14 @@ return {
       on: (() => { try { return localStorage.getItem(PANEL_HIDE_KEY) !== '0' } catch (e) { return true } })(),
       headless: new Set(),
     }
-    styles.insert([
+    // styles.insert 返回 disposer——必须挂 ctx.effect，否则插件停止/重跑后旧样式残留，
+    // 重跑一次叠一份（PLUGIN-DEV.md 规则4；主题插件同款约束）
+    ctx.effect(() => styles.insert([
       'li[data-cordis-row][data-tb-hide~="' + PANEL_HIDE_TOKEN + '"]{display:none!important}',
       '[data-cordis-panel] section[data-tb-hide~="' + PANEL_HIDE_TOKEN + '"]{display:none!important}',
       'button[data-cordis-badge] span[data-tb-count]{font-size:0!important}',
       'button[data-cordis-badge] span[data-tb-count]::after{content:attr(data-tb-count);font-size:12px;line-height:16px}',
-    ].join(''))
+    ].join('')))
     function applyPanelHide() {
       if (typeof document === 'undefined' || !document.body) return
       const rows = document.querySelectorAll('li[data-cordis-row]')
@@ -292,7 +294,13 @@ return {
         attributeFilter: ['data-cordis-awaiting', 'data-cordis-row', 'data-cordis-badge'],
       })
       ctx.effect(() => () => mo.disconnect())
-      const phIv = setInterval(() => { if (panelHide.on) refreshPanelHide() }, 4000)
+      // 兜底轮询降频 + 页面隐藏时跳过：refreshPanelHide 每次都拉 runner.inventory()+manifestMap，
+      // 页面不可见时纯属空转；MutationObserver 已覆盖面板 DOM 变化的主路径，这里只兜漏网
+      const phIv = setInterval(() => {
+        if (!panelHide.on) return
+        try { if (typeof document !== 'undefined' && document.hidden) return } catch (e) {}
+        refreshPanelHide()
+      }, 10000)
       ctx.effect(() => () => clearInterval(phIv))
       refreshPanelHide()
       applyPanelHide()
@@ -686,18 +694,19 @@ return {
     ].join('\n')
     // 编译 bundle 的主 UI 样式以独立 scope 包裹，避免不同 bundle/版本的 .tb-*、.jr-* 互相覆盖。
     // 动态模式保持历史全局样式；导航按钮位于 scope 外，编译模式另补值级选择器。
-    styles.insert(RT.bundleId === 'dynamic'
+    // disposer 挂 ctx.effect：插件停止/重跑不回收会每次叠加一份 ~30KB 样式表（同 :100 处理）
+    ctx.effect(() => styles.insert(RT.bundleId === 'dynamic'
       ? toolboxCss
-      : '@scope ([data-dsh-toolbox-scope="' + RT.domValue() + '"]) {\n' + toolboxCss + '\n}')
+      : '@scope ([data-dsh-toolbox-scope="' + RT.domValue() + '"]) {\n' + toolboxCss + '\n}'))
     if (RT.bundleId !== 'dynamic') {
       const nav = '[data-dsh-toolbox-entry="' + RT.domValue() + '"]'
-      styles.insert([
+      ctx.effect(() => styles.insert([
         nav + '{width:100%;height:32px;color:var(--dsw-alias-label-secondary);cursor:pointer;white-space:nowrap;background:0 0;border:none;border-radius:8px;align-items:center;gap:8px;padding:0 12px;font-size:13px;display:flex;font-family:inherit;box-sizing:border-box}',
         nav + ':hover{background:var(--dsw-specific-sidebar-nav-item-hover,var(--dsw-alias-bg-layer-2,#31323b));color:var(--dsw-alias-label-primary)}',
         nav + '[data-active]{background:var(--dsw-specific-sidebar-nav-item-active,var(--dsw-alias-bg-layer-2,#31323b));color:var(--dsw-alias-label-primary);font-weight:600}',
         '[data-dsh-frame][data-sidebar-collapsed] ' + nav + '{justify-content:center;width:100%;padding:0}',
         '[data-dsh-frame][data-sidebar-collapsed] ' + nav + ' .tb-nav-label{display:none}',
-      ].join('\n'))
+      ].join('\n')))
     }
 
     let open = false
@@ -1639,17 +1648,19 @@ return {
               setCopied(null)
             }
           } else {
-            unlock() // 失败未重渲染：恢复 select 可用
             setError((res && res.error) || '面板加载失败')
             retryOnce(toolId)
           }
         } catch (e) {
           if (seqRef.current[toolId] === seq) {
-            unlock() // 异常未重渲染：恢复 select 可用
             setError('面板请求异常: ' + String((e && e.message) || e))
             retryOnce(toolId)
           }
         } finally {
+          // 解锁统一放 finally（幂等）：过期响应早退、失败、异常路径都要恢复面板内 select——
+          // 原先「过期 return 跳过 unlock」+「后发请求锁不到已禁用的 select」组合会让控件
+          // 永久禁用至下次成功动作。成功路径锁的是即将被 innerHTML 替换的旧节点，无害。
+          unlock()
           if (seqRef.current[toolId] === seq) setBusyTool((cur) => (cur === toolId ? null : cur))
         }
       }
@@ -1732,6 +1743,7 @@ return {
             session: currentSessionId || undefined,
           })
           if (r && !r.ok) setError(r.error || '插件操作失败')
+          else if (r && r.warning) setRebuildLines(['⚠ ' + String(r.warning)]) // 启停已生效但启停记忆写盘失败：不静默
         } catch (e) {
           setError('插件操作异常: ' + String((e && e.message) || e))
         }
@@ -1776,6 +1788,7 @@ return {
           if (!r) lines.push('批量操作无响应')
           else {
             if (r.error) lines.push('✗ ' + r.error)
+            if (r.warning) lines.push('⚠ ' + String(r.warning))
             if (Array.isArray(r.done) && r.done.length) lines.push((enable ? '已启动: ' : '已停止: ') + r.done.join('、'))
             if (Array.isArray(r.skippedClient) && r.skippedClient.length) lines.push('跳过（含 Client 半，需到 Cordis 面板）: ' + r.skippedClient.join('、'))
             if (Array.isArray(r.failed) && r.failed.length) lines.push('失败: ' + r.failed.join('；'))
@@ -2732,12 +2745,21 @@ return {
     let refMap = new Map() // 'e12' -> Element（最近一次快照）
 
     const sleep = (ms) => new Promise((r) => ctx.timeout(r, ms))
-    const pushState = (note) => host.call('selfview/push', { kind: 'state', stream: Boolean(stream && stream.active), note: note || '' }).catch(() => {})
+    // ---------- 表面标识（审计 E2）----------
+    // 多个 GUI 表面（多标签页 / 桌面应用 + 浏览器）同时长轮询时，单 FIFO 命令队列会被任意
+    // 表面抢走：ui_snapshot 的 refMap 在 A 页建立、ui_click 落到 B 页必然「ref 不存在」。
+    // sessionStorage 天然按标签页隔离 —— 每个表面一个稳定 id，pull/push 都带上，Host 据此做亲和路由。
+    let clientId = ''
+    try {
+      clientId = sessionStorage.getItem('dsh-selfview-cid') || ''
+      if (!clientId) { clientId = 'c' + Math.random().toString(36).slice(2, 10); sessionStorage.setItem('dsh-selfview-cid', clientId) }
+    } catch (e) { clientId = 'c' + Math.random().toString(36).slice(2, 10) }
+    const pushState = (note) => host.call('selfview/push', { kind: 'state', stream: Boolean(stream && stream.active), note: note || '', clientId }).catch(() => {})
     const pushThumb = () => {
       if (!lastFrame) return
-      host.call('selfview/push', { kind: 'thumb', thumbB64: lastFrame.thumbB64, w: lastFrame.w, h: lastFrame.h }).catch(() => {})
+      host.call('selfview/push', { kind: 'thumb', thumbB64: lastFrame.thumbB64, w: lastFrame.w, h: lastFrame.h, clientId }).catch(() => {})
     }
-    const pushLog = (line) => host.call('selfview/push', { kind: 'log', line }).catch(() => {})
+    const pushLog = (line) => host.call('selfview/push', { kind: 'log', line, clientId }).catch(() => {})
 
     // ---------- 截屏 ----------
     async function enableStream() {
@@ -2764,7 +2786,16 @@ return {
       video = document.createElement('video')
       video.muted = true
       video.srcObject = s
-      await video.play()
+      // play 失败（自动播放策略等）必须先停轨复位再抛错——否则 stream 已激活、UI 显示「共享中」，
+      // 提示却说授权失败，状态自相矛盾且后续 capture 能走通（审计 L23）
+      try {
+        await video.play()
+      } catch (e) {
+        try { for (const t of s.getTracks()) t.stop() } catch (e2) {}
+        stream = null
+        video = null
+        throw e
+      }
       pushState('截屏共享已开启')
       return { ok: true }
     }
@@ -2844,6 +2875,10 @@ return {
     function doSnapshot(opts) {
       refMap = new Map()
       const maxLines = Math.max(20, Math.min(800, (opts && opts.maxLines) || 300))
+      // 深度上限（审计 E1）：旧默认 14 在真实 DSH 界面上会把绝大多数交互元素挡在树外
+      // （全页扫描几乎全盲，实测只剩 1 个元素）；放宽到 48 并允许 opts.maxDepth 调整。
+      // isVisible 为假的子树整体剪枝，深度放开不会带来失控开销。
+      const maxDepth = Math.max(14, Math.min(160, (opts && opts.maxDepth) || 48))
       let root = document.body
       if (opts && opts.selector) {
         root = document.querySelector(opts.selector)
@@ -2854,7 +2889,7 @@ return {
       let truncated = false
       const walk = (el, depth) => {
         if (lines.length >= maxLines) { truncated = true; return }
-        if (depth > 14 || !el || !el.tagName) return
+        if (depth > maxDepth || !el || !el.tagName) return
         const tag = el.tagName
         if (/^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE|SVG|PATH|NOSCRIPT)$/.test(tag)) return
         if (!isVisible(el)) return
@@ -2876,7 +2911,7 @@ return {
         for (const c of el.children) walk(c, childDepth + (interesting ? 0 : 1))
       }
       walk(root, 0)
-      const head = '页面: ' + (document.title || '(无标题)') + ' @ ' + location.href + '\n可见可交互元素 ' + n + ' 个' + (truncated ? '（已达 ' + maxLines + ' 行上限，截断；用 selector 缩范围）' : '') + '：'
+      const head = '页面: ' + (document.title || '(无标题)') + ' @ ' + location.href + '\n可见可交互元素 ' + n + ' 个' + (truncated ? '（已达 ' + maxLines + ' 行上限，截断；用 selector 缩范围或调大 maxLines/maxDepth）' : '') + '：'
       return { ok: true, text: head + '\n' + lines.join('\n'), count: n }
     }
 
@@ -2945,6 +2980,8 @@ return {
             el.dispatchEvent(new Event('change', { bubbles: true }))
           } else if (tag === 'SELECT') {
             el.value = text
+            // 赋值不命中任何 option 时 value 静默不变——必须显式失败，否则模型以为下拉已设置（审计 L21）
+            if (el.value !== String(text)) return { ok: false, error: '没有匹配的选项: ' + String(text).slice(0, 60) }
             el.dispatchEvent(new Event('change', { bubbles: true }))
           } else if (el.hasAttribute('contenteditable')) {
             el.textContent = text
@@ -3079,9 +3116,16 @@ return {
         if (m.__selfviewSync) m.__selfviewSync()
       }
     }
+    // 节流（审计 L24）：流式输出期间 mutation 极高频，每次回调全页 querySelectorAll 纯空扫；
+    // 500ms trailing 合并，面板挂载点出现后最迟半秒内补上按钮条
+    let moTimer = null
     const observer = new MutationObserver(() => {
-      const mounts = document.querySelectorAll('[data-selfview-mount]')
-      for (const m of mounts) ensureBar(m)
+      if (moTimer) return
+      moTimer = ctx.timeout(() => {
+        moTimer = null
+        const mounts = document.querySelectorAll('[data-selfview-mount]')
+        for (const m of mounts) ensureBar(m)
+      }, 500)
     })
     observer.observe(document.body, { childList: true, subtree: true })
     refreshBars() // 首扫：面板可能先于本半渲染（插件重启而抽屉开着），MutationObserver 只管之后的变更
@@ -3090,7 +3134,7 @@ return {
     ;(async () => {
       while (!stopped) {
         let cmd = null
-        try { cmd = await host.call('selfview/pull') } catch (e) { await sleep(2000); continue }
+        try { cmd = await host.call('selfview/pull', { clientId }) } catch (e) { await sleep(2000); continue }
         if (stopped) break
         if (!cmd || cmd.cmd === 'none') continue
         if (cmd.cmd === 'stop') break

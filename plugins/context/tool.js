@@ -16,9 +16,16 @@ return {
       const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim()
       return t.length > max ? t.slice(0, max - 1) + '…' : t
     }
+    // 文本提取：text/reasoning 直接取 text；tool-result 块下钻内层 content 取文本
+    // （工具结果条目否则恒显「非文本」但 token 照算——列表与详情共用本函数，口径一致）
     const textOf = (blocks) => {
       if (!Array.isArray(blocks)) return ''
-      return blocks.map((b) => (b && (b.type === 'text' || b.type === 'reasoning') ? b.text : '')).filter(Boolean).join('\n')
+      return blocks.map((b) => {
+        if (!b) return ''
+        if (b.type === 'text' || b.type === 'reasoning') return b.text || ''
+        if (b.type === 'tool-result' || b.type === 'tool_result' || b.toolCallId != null) return textOf(b.content)
+        return ''
+      }).filter(Boolean).join('\n')
     }
     const fmtTok = (n) => n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(n)
     const CAP = 12000

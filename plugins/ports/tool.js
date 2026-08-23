@@ -38,6 +38,8 @@ return {
 
     const runNode = async (script, argv1) => {
       if (!subprocess) return { ok: false, error: 'subprocess 服务不可用' }
+      // 两处路径（列表脚本经 stdin / taskkill 经 node -e）都走同一个 spawn：统一包 15s wall-clock 看门狗，
+      // 到点主动 terminate()。注意 graceMs 只是「退出后 SIGTERM→SIGKILL 升级窗口」，不是运行超时。
       const spec = {
         argv: argv1 == null ? ['node', '-'] : ['node', '-e', script, String(argv1)],
         stdio: argv1 == null
@@ -45,23 +47,24 @@ return {
           : { stdin: 'ignore', stdout: { maxBytes: 1024 }, stderr: { maxBytes: 64 * 1024 } },
         graceMs: 30000,
       }
-      const handle = subprocess.spawn(spec)
+      const handle = withDeadline(ctx, subprocess.spawn(spec), 15000)
       const outcome = await handle.done
-      const stdout = handle.collected.stdout.readFrom(0).text
-      const stderr = handle.collected.stderr.readFrom(0).text
-      if (outcome.exitCode !== 0) return { ok: false, error: (stderr || stdout).slice(0, 500) }
-      return { ok: true, stdout }
+      const so = handle.collected.stdout.readFrom(0)
+      const se = handle.collected.stderr.readFrom(0)
+      const truncated = !!(so.lossy || se.lossy) // lossy = 输出超过 maxBytes 被截尾，记给调用方提示
+      if (outcome.exitCode !== 0) return { ok: false, error: (se.text || so.text).slice(0, 500), truncated }
+      return { ok: true, stdout: so.text, truncated }
     }
 
     const loadRows = async () => {
       const res = await runNode(LIST_SCRIPT)
-      if (!res.ok) return { error: res.error, rows: [] }
+      if (!res.ok) return { error: res.error, rows: [], truncated: !!res.truncated }
       try {
         const parsed = JSON.parse(res.stdout.trim() || '[]')
         const rows = Array.isArray(parsed) ? parsed : [parsed]
-        return { rows: rows.filter((r) => r && typeof r.port === 'number') }
+        return { rows: rows.filter((r) => r && typeof r.port === 'number'), truncated: !!res.truncated }
       } catch (e) {
-        return { error: '解析失败: ' + res.stdout.slice(0, 300), rows: [] }
+        return { error: '解析失败' + (res.truncated ? '（输出超过上限已截尾）' : '') + ': ' + res.stdout.slice(0, 300), rows: [], truncated: !!res.truncated }
       }
     }
 
@@ -78,6 +81,7 @@ return {
         '<button type="button" class="tb-btn tb-btn-primary" data-action="refresh">刷新</button>' +
       '</div>')
       if (st.error) parts.push('<div class="tb-banner tb-banner-error">' + esc(st.error) + '</div>')
+      if (st.truncated) parts.push('<div class="tb-banner tb-banner-info">输出超过上限已截尾</div>')
       if (st.info) parts.push('<div class="tb-banner tb-banner-info">' + esc(st.info) + '</div>')
       parts.push('<div class="tb-list-head"><span class="tb-list-title">监听端口<span class="tb-count">' + rows.length + '</span></span>' +
         '<span class="tb-note">共 ' + (st.rows || []).length + ' 条</span></div>')
@@ -104,14 +108,15 @@ return {
     }
 
     const handler = async ({ action, fields, state }) => {
-      const st = (state && typeof state === 'object' && state) ? state : { rows: null, q: '', arm: null, error: null, info: null }
+      const st = (state && typeof state === 'object' && state) ? state : { rows: null, q: '', arm: null, error: null, info: null, truncated: false }
       const el = fields && fields.__el ? fields.__el : {}
       if (typeof fields.q === 'string') st.q = fields.q
-      st.error = null; st.info = null
+      st.error = null; st.info = null; st.truncated = false
 
       if (action === '' || action === 'refresh') {
         const r = await loadRows()
         st.rows = r.rows; st.error = r.error || null; st.arm = null
+        st.truncated = !!r.truncated // 输出截尾标志 → 面板提示条（kill 后重载同理）
       } else if (action === 'kill' && el.pid && /^\d+$/.test(String(el.pid))) {
         st.arm = String(el.pid)
       } else if (action === 'kill-cancel') {
@@ -124,6 +129,7 @@ return {
           st.info = '已结束进程 PID ' + pid
           const r = await loadRows()
           st.rows = r.rows; st.error = r.error || null
+          st.truncated = !!r.truncated
         } else {
           st.error = '结束失败: ' + res.error
         }

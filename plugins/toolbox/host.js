@@ -126,7 +126,13 @@ return {
       for (const c of rootCands) if (!registry.has(c)) return c
       return rootCands[0] || null
     })()
-    if (myRoot) registry.attach(myRoot)
+    if (myRoot) {
+      registry.attach(myRoot)
+      // 框架停止/更新时撤销 attach：注册表是进程级全局服务（跨 fiber 共享），框架死后
+      // 残留的幽灵根会让 bootstrap 的「同仓库已有实例」判定与 myRoot 仲裁（has() 占位检查）
+      // 永久失真——停止后自举再也恢复不了、多仓库重启可能抢到别的框架的根。
+      ctx.effect(() => () => { try { registry.detach(myRoot) } catch (e) {} })
+    }
 
     // findManifest(base?)：base 给定时只探测该路径（resolveRoot 用）；省略时全局探测，返回第一个命中。
     // 委托 Artifact Provider：动态=磁盘探测；编译=匹配已 attach 的 workspace root。
@@ -143,9 +149,17 @@ return {
       }
       return myRoot || null
     }
+    // 调用方是否显式传了 cwd/root（严格语义）：显式路径解析不到时绝不把 null 送进 registry——
+    // 否则 registry 的 `root || lastRoot` 兜底会把请求落到最后 attach 的仓库（跨仓库串数据：
+    // 无工具箱工作区显示上一仓库工具、面板动作以 root=undefined 执行错仓工具）。
+    const hasExplicitRoot = (args) => Boolean(args && (((typeof args.cwd === 'string') && args.cwd) || ((typeof args.root === 'string') && args.root)))
+    const ROOT_UNMOUNTED_ERR = '当前工作区未挂载工具箱'
 
     ctx.effect(() => harness.handle(RT.rpc('tools'), async (args) => {
+      const strict = hasExplicitRoot(args)
       const root = await resolveRoot(args)
+      // 显式 cwd 解析不到 → 空态（client 据此显示「未检测到 dsh-dynamic-toolbox」，不渲染任何 Tab）
+      if (strict && !root) return { ok: true, root: null, tools: [] }
       return { ok: true, root, tools: registry.tools(root) }
     }))
 
@@ -264,7 +278,9 @@ return {
     ctx.effect(() => harness.handle(RT.rpc('plugins'), async (args) => {
       if (!runner) return { ok: false, error: 'dynamicCordisRunner 服务不可用' }
       const sid = sessionOf(args)
+      const strict = hasExplicitRoot(args)
       const root = await resolveRoot(args)
+      if (strict && !root) return { ok: false, error: ROOT_UNMOUNTED_ERR }
       const rows = []
       const byName = await manifestMap(root)
       for (const r of runner.inventory()) {
@@ -299,7 +315,9 @@ return {
       if (!runner) return { ok: false, error: '插件运行器服务不可用' }
       const sid = sessionOf(args)
       const agent = agentFor(sid)
+      const strict = hasExplicitRoot(args)
       const root = await resolveRoot(args)
+      if (strict && !root) return { ok: false, error: ROOT_UNMOUNTED_ERR }
       const pluginId = args && typeof args.pluginId === 'string' ? args.pluginId : ''
       if (!pluginId) return { ok: false, error: '缺少 pluginId' }
       const byName = await manifestMap(root)
@@ -318,14 +336,24 @@ return {
         const pkg = pkgOf(row)
         if (!pkg) return { ok: false, error: pluginId + ' 没有可运行的 Package' }
         const res = await runInBuild(root, () => runner.run(ownerAgent, pluginId, pkg, 'run'))
-        if (res && res.ok) { await persistToggle(pluginId, true, root); return { ok: true, running: true } }
+        if (res && res.ok) {
+          const out = { ok: true, running: true }
+          const warn = await persistToggle(pluginId, true, root)
+          if (warn) out.warning = warn
+          return out
+        }
         return { ok: false, error: (res && (res.message || res.reason)) || '启动失败' }
       }
       if (!canStopFromPanel) {
         return { ok: false, error: '当前 DSH 缺少 runner.stopFromPanel 接口，无法停止插件（启动不受影响）' }
       }
       const res = await runner.stopFromPanel(ownerAgent, pluginId)
-      if (res && res.ok) { await persistToggle(pluginId, false, root); return { ok: true, running: false } }
+      if (res && res.ok) {
+        const out = { ok: true, running: false }
+        const warn = await persistToggle(pluginId, false, root)
+        if (warn) out.warning = warn
+        return out
+      }
       return { ok: false, error: (res && (res.message || res.reason)) || '停止失败' }
     }))
 
@@ -343,6 +371,17 @@ return {
       if (ok) manifestCacheByRoot.delete(root)
       return ok
     }
+    // 启停记忆读改写按 root 串行化：toggle/toggle-all/set-default 都是「读整份 → 改单键 → 整体回写」，
+    // 并发执行时后写会用旧快照覆盖前写（丢一条 enabled 记录）。同 root 的配置事务排队执行，
+    // 跨 root 互不阻塞；前序事务失败不阻塞后续。
+    const cfgChains = new Map() // root -> 尾 Promise
+    const withConfigLock = (root, fn) => {
+      const key = String(root || '')
+      const prev = cfgChains.get(key) || Promise.resolve()
+      const run = prev.then(fn, fn)
+      cfgChains.set(key, run.catch(() => {}))
+      return run
+    }
     // 动态 pluginId → 清单条目 id：按当前 Package 名匹配指定仓库 plugins.json 条目名
     // （匹配不到返回 null，不落盘）。按 root 路由——多仓库并存时各写各的启停记忆。
     const manifestEntryIdOf = async (pluginId, root) => {
@@ -358,30 +397,38 @@ return {
       const entry = found.manifest.plugins.find((e) => e && e.name === pkgName)
       return entry ? { entryId: entry.id, root: found.root } : null
     }
-    const persistToggle = async (pluginId, enabled, root) => {
+    // 返回 null = 已持久化（或无需持久化）；字符串 = 写盘失败告警——调用方必须把它放进响应的
+    // warning 字段（开关本身已生效，持久化结果不许静默：插件.md §7 红线）。
+    const persistToggle = (pluginId, enabled, root) => withConfigLock(root, async () => {
       try {
         const hit = await manifestEntryIdOf(pluginId, root)
-        if (!hit) return
+        if (!hit) return null
         const cfg = await readConfig(hit.root)
         let at = null
         try { at = new Date().toISOString() } catch (e) {}
         cfg.plugins[hit.entryId] = { enabled: Boolean(enabled), at }
-        await writeConfig(hit.root, cfg)
-      } catch (e) {}
-    }
+        const ok = await writeConfig(hit.root, cfg)
+        return ok ? null : '启停记忆写盘失败（本次开关已生效，但「重启后」默认可能与界面不一致）'
+      } catch (e) { return '启停记忆写入异常: ' + String((e && e.message) || e) }
+    })
 
     // 只改「下次重建默认启停」（启停记忆），不动当前运行态——管理视图「重启后」pill 的点击链路
     ctx.effect(() => harness.handle(RT.rpc('plugin-set-default'), async (args) => {
+      const strict = hasExplicitRoot(args)
       const root = await resolveRoot(args)
+      if (strict && !root) return { ok: false, error: ROOT_UNMOUNTED_ERR }
       const pluginId = args && typeof args.pluginId === 'string' ? args.pluginId : ''
       if (!pluginId) return { ok: false, error: '缺少 pluginId' }
       const hit = await manifestEntryIdOf(pluginId, root)
       if (!hit) return { ok: false, error: '插件不在 plugins.json 清单内，无法写启停记忆' }
-      const cfg = await readConfig(hit.root)
-      let at = null
-      try { at = new Date().toISOString() } catch (e) {}
-      cfg.plugins[hit.entryId] = { enabled: Boolean(args && args.enabled), at }
-      const written = await writeConfig(hit.root, cfg)
+      // 读改写整体进配置事务（与 toggle/toggle-all 互斥，防丢更新）
+      const written = await withConfigLock(hit.root, async () => {
+        const cfg = await readConfig(hit.root)
+        let at = null
+        try { at = new Date().toISOString() } catch (e) {}
+        cfg.plugins[hit.entryId] = { enabled: Boolean(args && args.enabled), at }
+        return writeConfig(hit.root, cfg)
+      })
       if (!written) return { ok: false, error: '启停记忆写盘失败' }
       return { ok: true, entryId: hit.entryId, enabled: Boolean(args && args.enabled) }
     }))
@@ -392,7 +439,9 @@ return {
       if (!runner) return { ok: false, error: '插件运行器服务不可用' }
       const sid = sessionOf(args)
       const agent = agentFor(sid)
+      const strict = hasExplicitRoot(args)
       const root = await resolveRoot(args)
+      if (strict && !root) return { ok: false, error: ROOT_UNMOUNTED_ERR }
       const pluginId = args && typeof args.pluginId === 'string' ? args.pluginId : ''
       if (!pluginId) return { ok: false, error: '缺少 pluginId' }
       const byName = await manifestMap(root)
@@ -404,7 +453,12 @@ return {
       const pkg = pkgOf(row)
       if (!pkg) return { ok: false, error: pluginId + ' 没有可运行的 Package' }
       const res = await runInBuild(root, () => runner.run(agentFor(row.agentId), pluginId, pkg, 'run'))
-      if (res && res.ok) { await persistToggle(pluginId, true, root); return { ok: true, running: true } }
+      if (res && res.ok) {
+        const out = { ok: true, running: true }
+        const warn = await persistToggle(pluginId, true, root)
+        if (warn) out.warning = warn
+        return out
+      }
       return { ok: false, error: (res && (res.message || res.reason)) || '重跑失败' }
     }))
 
@@ -413,60 +467,73 @@ return {
       if (!runner) return { ok: false, error: '插件运行器服务不可用' }
       const sid = sessionOf(args)
       const agent = agentFor(sid)
+      const strict = hasExplicitRoot(args)
       const root = await resolveRoot(args)
+      if (strict && !root) return { ok: false, error: ROOT_UNMOUNTED_ERR }
       const enable = Boolean(args && args.enable)
       if (!enable && !canStopFromPanel) {
         return { ok: false, error: '当前 DSH 缺少 runner.stopFromPanel 接口，无法批量停止（启动不受影响）' }
       }
-      // 清单映射 + 配置（各取一次，循环内复用）
-      const entryIdByName = {}
-      let cfg = null
-      let cfgRoot = null
-      try {
-        const found = await findManifest(root || undefined)
-        if (found && found.manifest && Array.isArray(found.manifest.plugins)) {
-          cfgRoot = found.root
-          cfg = await readConfig(cfgRoot)
-          for (const e of found.manifest.plugins) if (e && typeof e.name === 'string') entryIdByName[e.name] = e.id
-        }
-      } catch (e) {}
-      const done = []
-      const failed = []
-      const skippedClient = []
-      for (const r of runner.inventory()) {
-        if (!isRepoRow(r, entryIdByName, root, sid)) continue
-        if (r.packages.some((p) => p.hasClientHalf)) { skippedClient.push(r.pluginId); continue }
-        const current = r.packages.find((p) => p.packageId === (r.currentPackageId || r.nextPackageId))
-          || r.packages[r.packages.length - 1]
-        const name = (current && current.name) || ''
-        // 按行归属会话取 agent（自举插件挂宿主垫片会话，调用方会话 agent 过不了 owned()）
-        const rowAgent = agentFor(r.agentId)
-        if (enable) {
-          if (r.activeRun) { done.push(r.pluginId + '（已在运行）') }
-          else {
-            const pkg = pkgOf(r)
-            if (!pkg) { failed.push(r.pluginId + ': 没有可运行的 Package'); continue }
-            const res = await runInBuild(root, () => runner.run(rowAgent, r.pluginId, pkg, 'run'))
-            if (res && res.ok) done.push(r.pluginId)
-            else { failed.push(r.pluginId + ': ' + ((res && (res.message || res.reason)) || '启动失败')); continue }
+      // 整批一个配置事务（withConfigLock 与单行 toggle/set-default 互斥）：
+      // 清单映射与配置各取一次、循环内复用、最后一次写盘——防并发读改写丢记录。
+      // 写盘失败不回滚已生效的启停（状态面与记忆面解耦），以 warning 字段上报。
+      const out = await withConfigLock(root, async () => {
+        const entryIdByName = {}
+        let cfg = null
+        let cfgRoot = null
+        try {
+          const found = await findManifest(root || undefined)
+          if (found && found.manifest && Array.isArray(found.manifest.plugins)) {
+            cfgRoot = found.root
+            cfg = await readConfig(cfgRoot)
+            for (const e of found.manifest.plugins) if (e && typeof e.name === 'string') entryIdByName[e.name] = e.id
           }
-        } else {
-          if (!r.activeRun) { done.push(r.pluginId + '（本已停止）') }
-          else {
-            const res = await runner.stopFromPanel(rowAgent, r.pluginId)
-            if (res && res.ok) done.push(r.pluginId)
-            else { failed.push(r.pluginId + ': ' + ((res && (res.message || res.reason)) || '停止失败')); continue }
+        } catch (e) {}
+        const done = []
+        const failed = []
+        const skippedClient = []
+        for (const r of runner.inventory()) {
+          if (!isRepoRow(r, entryIdByName, root, sid)) continue
+          if (r.packages.some((p) => p.hasClientHalf)) { skippedClient.push(r.pluginId); continue }
+          const current = r.packages.find((p) => p.packageId === (r.currentPackageId || r.nextPackageId))
+            || r.packages[r.packages.length - 1]
+          const name = (current && current.name) || ''
+          // 按行归属会话取 agent（自举插件挂宿主垫片会话，调用方会话 agent 过不了 owned()）
+          const rowAgent = agentFor(r.agentId)
+          if (enable) {
+            if (r.activeRun) { done.push(r.pluginId + '（已在运行）') }
+            else {
+              const pkg = pkgOf(r)
+              if (!pkg) { failed.push(r.pluginId + ': 没有可运行的 Package'); continue }
+              const res = await runInBuild(root, () => runner.run(rowAgent, r.pluginId, pkg, 'run'))
+              if (res && res.ok) done.push(r.pluginId)
+              else { failed.push(r.pluginId + ': ' + ((res && (res.message || res.reason)) || '启动失败')); continue }
+            }
+          } else {
+            if (!r.activeRun) { done.push(r.pluginId + '（本已停止）') }
+            else {
+              const res = await runner.stopFromPanel(rowAgent, r.pluginId)
+              if (res && res.ok) done.push(r.pluginId)
+              else { failed.push(r.pluginId + ': ' + ((res && (res.message || res.reason)) || '停止失败')); continue }
+            }
+          }
+          const eid = entryIdByName[name]
+          if (cfg && eid) {
+            let at = null
+            try { at = new Date().toISOString() } catch (e) {}
+            cfg.plugins[eid] = { enabled: enable, at }
           }
         }
-        const eid = entryIdByName[name]
-        if (cfg && eid) {
-          let at = null
-          try { at = new Date().toISOString() } catch (e) {}
-          cfg.plugins[eid] = { enabled: enable, at }
+        let warning = null
+        if (cfg && cfgRoot) {
+          const okWrite = await writeConfig(cfgRoot, cfg)
+          if (!okWrite) warning = '启停记忆写盘失败（本批开关已生效，但「重启后」默认可能与界面不一致）'
         }
-      }
-      if (cfg && cfgRoot) await writeConfig(cfgRoot, cfg)
-      return { ok: failed.length === 0, done, failed, skippedClient }
+        return { done, failed, skippedClient, warning }
+      })
+      const result = { ok: out.failed.length === 0, done: out.done, failed: out.failed, skippedClient: out.skippedClient }
+      if (out.warning) result.warning = out.warning
+      return result
     }))
 
     // 批量重跑：对当前运行中的 Host-only 插件逐个 run（桩重读磁盘 impl）——
@@ -476,7 +543,9 @@ return {
       if (!runner) return { ok: false, error: '插件运行器服务不可用' }
       const sid = sessionOf(args)
       const agent = agentFor(sid)
+      const strict = hasExplicitRoot(args)
       const root = await resolveRoot(args)
+      if (strict && !root) return { ok: false, error: ROOT_UNMOUNTED_ERR }
       const byName = await manifestMap(root)
       const done = []
       const failed = []
@@ -514,14 +583,9 @@ return {
       const manifestRoot = found.root
       const config = await readConfig(manifestRoot)
       const cfgPlugins = (config && config.plugins) || {}
-      const existingNames = new Set()
       // 幂等按「本仓库宿主/本仓库会话」的行判定（评审 H4 修复）：isRepoRow 只按清单名匹配，
       // 两仓库同名工具会互相误判已定义——必须限定 agentId（本仓库宿主 id 或本次构建 sid）
       const hostOfRoot = hostIdOf(manifestRoot)
-      for (const r of runner.inventory()) {
-        if (r.agentId !== sid && r.agentId !== hostOfRoot) continue
-        for (const p of r.packages) if (p && p.name) existingNames.add(p.name)
-      }
       const defined = []
       const started = []
       const skipped = []
@@ -530,8 +594,15 @@ return {
       const approvalPending = [] // approval 条目：run 非阻塞发起 → 批准卡弹出，用户点一次即启动（授权不跨进程，这是浏览器代码执行的安全闸门）
       const entries = manifest.plugins.slice().sort((a, b) => (a.order || 0) - (b.order || 0))
       // 整段持锁：串行 define+run 期间 buildRoot 固定 = manifestRoot，工具注册不会归错 root；
-      // 与其他仓库的并行自举/手动启停互斥（同一把注册表锁）
+      // 与其他仓库的并行自举/手动启停互斥（同一把注册表锁）。
+      // 幂等快照（existingNames）必须在锁内采集（审计 M11）：两个并发重建若都在锁外拿旧快照，
+      // 会先后持锁重复 define 同一批插件——锁内现读 inventory，后到者看到先到者刚定义的行即跳过。
       await registry.runInBuild(manifestRoot, async () => {
+        const existingNames = new Set()
+        for (const r of runner.inventory()) {
+          if (r.agentId !== sid && r.agentId !== hostOfRoot) continue
+          for (const p of r.packages) if (p && p.name) existingNames.add(p.name)
+        }
         for (const entry of entries) {
           if (entry.id === 'toolbox') { skipped.push('toolbox（框架自身）'); continue }
           if (existingNames.has(entry.name)) { skipped.push(entry.id); continue }
@@ -561,8 +632,11 @@ return {
     }
 
     ctx.effect(() => harness.handle(RT.rpc('rebuild'), async (args) => {
+      const strict = hasExplicitRoot(args)
+      const root = await resolveRoot(args)
+      if (strict && !root) return { ok: false, error: ROOT_UNMOUNTED_ERR }
       const sid = sessionOf(args)
-      return doRebuild(sid, await resolveRoot(args))
+      return doRebuild(sid, root)
     }))
 
     // AI 用量台账聚合（管理视图总行）：读 .dsh-dynamic-toolbox/toolbox-ai-usage.json，按工具聚合 次数/输出token/失败
@@ -572,7 +646,8 @@ return {
       try {
         const found = await findManifest(myRoot)
         if (!found) return { ok: true, tools: [], totals: null }
-        const t = await fs.resolve('.dsh-dynamic-toolbox/toolbox-ai-usage.json', { cwd: found.root })
+        // 台账路径与写方（shared/host.js mapDataRel）同源：跟随 RT.dataDir，不再硬编码默认目录名
+        const t = await fs.resolve(RT.dataDir + '/toolbox-ai-usage.json', { cwd: found.root })
         if (!await fs.stat(t)) return { ok: true, tools: [], totals: null }
         const parsed = JSON.parse(await fs.readText(t))
         const list = Array.isArray(parsed) ? parsed : []
@@ -829,7 +904,11 @@ return {
     }))
 
     ctx.effect(() => harness.handle(RT.rpc('panel'), async (args) => {
+      const strict = hasExplicitRoot(args)
       const root = await resolveRoot(args)
+      // 显式 cwd 解析不到 → 明确错误（绝不把 null 送进 registry：那会以 root=undefined
+      // 执行 lastRoot 仓库的工具——跨仓库串数据）
+      if (strict && !root) return { ok: false, error: ROOT_UNMOUNTED_ERR }
       return registry.panel(root, args)
     }))
   },

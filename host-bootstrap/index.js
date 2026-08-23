@@ -11,8 +11,9 @@
 
 const MARKER = 'plugins.json' // 仓库标记（与桩/findManifest 同约定）
 const PAYLOAD = 'plugins/toolbox/payload.json' // 框架 define 参数（完整 JSON）
-const MEMORY = '.dsh-dynamic-toolbox/toolbox-plugins.json' // 启停记忆
-const PREF = '.dsh-dynamic-toolbox/toolbox-bootstrap.json' // 自举偏好（never=完全不自举；AI 手动重建询问也会写它）
+const DEFAULT_DATA_DIR = '.dsh-dynamic-toolbox' // 默认数据目录名（可被 <root>/toolbox.config.json 的 dataDir 覆盖）
+const MEMORY_FILE = 'toolbox-plugins.json' // 启停记忆（相对数据目录）
+const PREF_FILE = 'toolbox-bootstrap.json' // 自举偏好（never=完全不自举；AI 手动重建询问也会写它）
 
 export const name = 'dsh-toolbox-bootstrap'
 
@@ -140,9 +141,13 @@ async function bootstrap(ctx, agent) {
 }
 
 async function bootstrapOnce(ctx, agent, runner, fs, root) {
+  // 数据目录名：跟随 <root>/toolbox.config.json 的 dataDir（与写方 shared/host.js mapDataRel
+  // 同一约定），读不到配置用默认——自定义目录下启停记忆/偏好才不会静默失联。
+  const dataDir = await dataDirOf(fs, root)
+
   // 启停记忆：用户上次把框架停掉 → 尊重，本轮不自举
   try {
-    const mt = await fs.resolve(MEMORY, { cwd: root })
+    const mt = await fs.resolve(dataDir + '/' + MEMORY_FILE, { cwd: root })
     if (await fs.stat(mt)) {
       const mem = JSON.parse(await fs.readText(mt))
       const rec = mem && mem.plugins && mem.plugins.toolbox
@@ -150,24 +155,32 @@ async function bootstrapOnce(ctx, agent, runner, fs, root) {
     }
   } catch (e) {}
 
-  // 注册表级幂等（v6.3 multiplex）：toolboxRegistry 是进程级全局服务（第一份 provide），
-  // 但注册表按 root 分键——同仓库已有框架实例 → 跳过本会话自举（复用）；异仓库 → 照常自举
-  // （各仓库各挂一份，互不冲突）。根未知时跳过更安全。
+  // 幂等：读框架 define 参数（注册表判定与 define 都要用）
+  let payload
+  try {
+    payload = JSON.parse(await fs.readText(await fs.resolve(PAYLOAD, { cwd: root })))
+  } catch (e) { return }
+
+  // 注册表级幂等（v6.3 multiplex + 幽灵根修复）：toolboxRegistry 按仓库分键，但「表存在」≠
+  // 「框架在跑」——工具插件 register 会懒建表、框架停止后残留或懒重建的空表同样占位，
+  // 单看 has(root) 会把死表当活框架、永久跳过自举。必须同时满足 inventory 里存在「该框架名」
+  // 的插件行（任意会话定义的都算）才复用跳过；异仓库照常自举（各仓库各挂一份）。
   const reg = ctx.get('toolboxRegistry')
   if (reg) {
     let sameRoot = false
-    try { sameRoot = typeof reg.has === 'function' ? reg.has(root) : Boolean(reg.roots && reg.roots().indexOf(root) >= 0) } catch (e) {}
+    try {
+      const regHas = typeof reg.has === 'function'
+        ? reg.has(root)
+        : Boolean(reg.roots && reg.roots().indexOf(root) >= 0)
+      const frameworkRow = regHas && runner.inventory().some((row) =>
+        row && Array.isArray(row.packages) && row.packages.some((p) => p && p.name === payload.name))
+      sameRoot = Boolean(frameworkRow)
+    } catch (e) {}
     if (sameRoot) {
       console.log('[toolbox-bootstrap] 检测到已运行的工具箱框架（' + root + '），本会话跳过自举（同仓库复用）')
       return
     }
   }
-
-  // 幂等：本仓库（宿主）已定义同名框架插件（含被停掉的）→ 跳过，启停交给抽屉/Cordis 面板
-  let payload
-  try {
-    payload = JSON.parse(await fs.readText(await fs.resolve(PAYLOAD, { cwd: root })))
-  } catch (e) { return }
 
   // 自举宿主会话：define/run 归属一个固定宿主 id（每仓库一个，稳定跨会话；进程重启后随 agents/Dynamic
   // 插件一起消失，由本插件在下一次会话启动时重建）。宿主以「垫片 agent」注册进 agents 服务——
@@ -278,10 +291,23 @@ async function ensureHostAgent(ctx, hostId, root) {
 
 async function readPref(fs, root) {
   try {
-    const t = await fs.resolve(PREF, { cwd: root })
+    const t = await fs.resolve(await dataDirOf(fs, root) + '/' + PREF_FILE, { cwd: root })
     if (await fs.stat(t)) return JSON.parse(await fs.readText(t))
   } catch (e) {}
   return null
+}
+
+// 数据目录名：直下 toolbox.config.json 的 dataDir 字段优先（trim 尾分隔符），否则默认值。
+// 与 shared/host.js 的 repoDataDir 同约定；本静态插件读不到共享层，保留独立最小实现。
+async function dataDirOf(fs, root) {
+  try {
+    const t = await fs.resolve('toolbox.config.json', { cwd: root })
+    if (await fs.stat(t)) {
+      const cfg = JSON.parse(await fs.readText(t))
+      if (cfg && typeof cfg.dataDir === 'string' && cfg.dataDir) return cfg.dataDir.replace(/[\\/]+$/, '')
+    }
+  } catch (e) {}
+  return DEFAULT_DATA_DIR
 }
 
 async function findRepo(fs, cwd) {

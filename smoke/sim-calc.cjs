@@ -7,26 +7,61 @@ const crypto = require('crypto')
 const ROOT = path.resolve(__dirname, '..')
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8')
 
+// mock subprocess：复刻两类子进程语义——gen（crypto 生成）与 regex（真 RegExp 执行 stdin spec）。
+// 新协议（与生产一致）：脚本经 argv -e 注入、spec 走 stdio.stdin.data JSON；env.GEN_REQ 为旧协议兜底。
+const runRegexSpec = (spec) => {
+  const out = { ok: true, matches: [], error: null, truncated: false, count: 0, replaced: null }
+  try {
+    const CAP = 200
+    const re = new RegExp(spec.pattern, (spec.flags || []).join(''))
+    if (spec.op === 'replace') {
+      let count = 0
+      if (re.global) { const cnt = new RegExp(spec.pattern, (spec.flags || []).join('')); let m
+        while ((m = cnt.exec(spec.text)) !== null) { count++; if (m[0] === '') cnt.lastIndex++; if (count >= 100000) break } }
+      else count = re.test(spec.text) ? 1 : 0
+      out.count = count
+      out.replaced = String(spec.text).replace(re, spec.replacement == null ? '' : String(spec.replacement))
+    } else {
+      let m
+      if (re.global) { while ((m = re.exec(spec.text)) !== null) {
+        if (out.matches.length >= CAP) { out.truncated = true; break }
+        out.matches.push({ i: m.index, text: m[0], groups: m.slice(1) })
+        if (m[0] === '') re.lastIndex++
+      } } else { const mm = re.exec(spec.text); if (mm) out.matches.push({ i: mm.index, text: mm[0], groups: mm.slice(1) }) }
+    }
+  } catch (e) { out.ok = false; out.error = String((e && e.message) || e); out.matches = []; out.count = 0; out.replaced = null }
+  return out
+}
+const runGenSpec = (spec) => {
+  const out = { ok: true, items: [] }
+  if (spec.kind === 'uuid') {
+    const n = Math.max(1, Math.min(Number(spec.n) || 1, 200))
+    for (let i = 0; i < n; i++) out.items.push(crypto.randomUUID())
+  } else if (spec.kind === 'rand') {
+    const sets = { hex: '0123456789abcdef', b64url: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_', alnum: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789', num: '0123456789', easy: 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789' }
+    const cs = sets[spec.charset] || sets.alnum
+    const len = Math.max(1, Math.min(Number(spec.len) || 16, 4096))
+    const n = Math.max(1, Math.min(Number(spec.n) || 1, 50))
+    for (let k = 0; k < n; k++) { let s = ''; for (let i = 0; i < len; i++) s += cs[crypto.randomInt(0, cs.length)]; out.items.push(s) }
+  } else if (spec.kind === 'hash') {
+    const algo = ['md5', 'sha1', 'sha256', 'sha512'].indexOf(spec.algo) >= 0 ? spec.algo : 'sha256'
+    out.items.push(crypto.createHash(algo).update(String(spec.text == null ? '' : spec.text), 'utf8').digest('hex'))
+  } else { out.ok = false; out.error = 'unknown kind' }
+  return out
+}
 const subprocess = {
-  spawn({ env }) {
-    const spec = JSON.parse((env && env.GEN_REQ) || '{}')
-    const out = { ok: true, items: [] }
-    if (spec.kind === 'uuid') {
-      const n = Math.max(1, Math.min(Number(spec.n) || 1, 200))
-      for (let i = 0; i < n; i++) out.items.push(crypto.randomUUID())
-    } else if (spec.kind === 'rand') {
-      const sets = { hex: '0123456789abcdef', b64url: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_', alnum: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789', num: '0123456789', easy: 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789' }
-      const cs = sets[spec.charset] || sets.alnum
-      const len = Math.max(1, Math.min(Number(spec.len) || 16, 4096))
-      const n = Math.max(1, Math.min(Number(spec.n) || 1, 50))
-      for (let k = 0; k < n; k++) { let s = ''; for (let i = 0; i < len; i++) s += cs[crypto.randomInt(0, cs.length)]; out.items.push(s) }
-    } else if (spec.kind === 'hash') {
-      const algo = ['md5', 'sha1', 'sha256', 'sha512'].indexOf(spec.algo) >= 0 ? spec.algo : 'sha256'
-      out.items.push(crypto.createHash(algo).update(String(spec.text == null ? '' : spec.text), 'utf8').digest('hex'))
-    } else { out.ok = false; out.error = 'unknown kind' }
+  spawn({ argv, env, stdio }) {
+    // 新协议：stdin.data 是 spec JSON；旧 env.GEN_REQ 兜底保留
+    let spec = null
+    const data = stdio && stdio.stdin && stdio.stdin.data
+    if (typeof data === 'string' && data.charAt(0) === '{') { try { spec = JSON.parse(data) } catch (e) {} }
+    if (!spec && env && env.GEN_REQ) { try { spec = JSON.parse(env.GEN_REQ) } catch (e) {} }
+    const scriptSrc = Array.isArray(argv) ? argv.map(String).join('\n') : ''
+    const isRegex = scriptSrc.indexOf('spec.op') >= 0
+    const out = isRegex ? runRegexSpec(spec || {}) : runGenSpec(spec || {})
     return {
       done: Promise.resolve({ exitCode: 0 }),
-      collected: { stdout: { readFrom: () => ({ text: JSON.stringify(out) }) }, stderr: { readFrom: () => ({ text: '' }) } },
+      collected: { stdout: { readFrom: () => ({ text: JSON.stringify(out), lossy: false }) }, stderr: { readFrom: () => ({ text: '' }) } },
     }
   },
 }

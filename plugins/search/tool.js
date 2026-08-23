@@ -62,9 +62,14 @@ return {
         if (!sid) return { ok: true, html: '<div class="jr-tabpanel tb-root"><div class="tb-notice">未找到当前会话</div></div>', state: st }
 
         // 查询历史：最近 8 条（去重置顶）落盘工作区，点芯片即重搜
+        // 持久化失败必须在面板出警告（PLUGIN-DEV 契约），不许静默丢历史
+        const persistRecent = async () => {
+          const saved = await writeJsonStore(ctx, REL_STORE, st.recent, ws.root, ws.session)
+          st.notice = saved ? '' : '搜索历史写入工作区失败（目录不可写？）——本次记录仅保留在当前面板'
+        }
         const remember = async (q) => {
           st.recent = [q].concat(st.recent.filter((x) => x !== q)).slice(0, 8)
-          await writeJsonStore(ctx, REL_STORE, st.recent, ws.root, ws.session)
+          await persistRecent()
         }
         const runSearch = async () => {
           const page = await sq.searchEvents({ sessionId: sid, query: st.q.trim(), limit: 50 })
@@ -83,7 +88,7 @@ return {
           await runSearch()
         } else if (action === 'clear-recent') {
           st.recent = []
-          await writeJsonStore(ctx, REL_STORE, [], ws.root, ws.session)
+          await persistRecent()
         } else if (action === 'open' && el.seq) {
           const n = Number(el.seq)
           st.open = st.open === n ? null : n
@@ -112,6 +117,7 @@ return {
         '<input class="tb-input" data-field="q" placeholder="在当前会话里搜索（消息 / 工具调用 / 结果）" value="' + esc(st.q || '') + '" />' +
         '<button type="button" class="tb-btn tb-btn-primary" data-action="query">搜索</button>' +
       '</div>')
+      if (st.notice) parts.push('<div class="tb-banner tb-banner-error">' + esc(st.notice) + '</div>')
       if (st.recent.length) {
         parts.push('<div class="tb-chips">' +
           st.recent.map((q) => '<button type="button" class="tb-chip" data-action="research" data-q="' + esc(q) + '" title="点击重搜">' + esc(q.length > 20 ? q.slice(0, 19) + '…' : q) + '</button>').join('') +

@@ -121,7 +121,9 @@ export const PLUGINS = Object.freeze([
   { key: 'aiassist', idPrefix: 'aias', order: 14, platform: 'host-only', approval: false, autoStart: true,
     name: 'AI 助手（问答/翻译/优化/评审/提交信息/摘要/对比 7 合一）',
     purpose: 'Host-only：原 ask/translate/promptopt/review/commitmsg/aisummary/compare 七个 AI 工具合一的单 Tab「AI 助手」，PRESETS 表 + 通用 handler，preset 芯片切换（含 compare 多模型并发 mode），切换 prompt/system 即切换用途；沿用原 toolbox-*.json 落盘文件与台账 tool 键（历史与用量无缝连续）',
-    inject: ['fs', 'llm', 'agentDefaultModel', 'timer'], hostFiles: ['plugins/aiassist/tool.js'],
+    // llm/agentDefaultModel 走 ctx.get 可选获取（makeLlmHelper 自带 available:false 降级）——
+    // 不进 inject：硬依赖会让无 LLM 部署下整个 Tab 消失，连历史都看不到（审计 L10）
+    inject: ['fs', 'timer'], hostFiles: ['plugins/aiassist/tool.js'],
     note: '整合自 ask/translate/promptopt/review/commitmsg/aisummary/compare；大本体（git diff/日志采样/对比结果）留闭包不进 state；消耗真实 API 额度',
     bundle: { selectable: true, defaultLabel: 'AI 助手', aliases: ['aiassist'], dependencies: [], conflicts: [], scope: 'workspace' } },
   { key: 'tools', idPrefix: 'tools', order: 15, platform: 'host-only', approval: false, autoStart: true,

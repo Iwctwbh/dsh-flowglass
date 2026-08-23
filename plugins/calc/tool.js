@@ -58,47 +58,46 @@ return {
       ['中文段', '[\\u4e00-\\u9fa5]+', '混合 English 与 中文连续 段落'],
       ['IPv4', '\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b', '127.0.0.1 与 10.0.0.256'],
     ]
-    const regexRun = (pattern, flags, text) => {
-      if (!pattern) return { matches: [], error: null, truncated: false }
-      let re
-      try { re = new RegExp(pattern, flags.join('')) } catch (e) { return { matches: [], error: String(e.message || e), truncated: false } }
-      const matches = []
-      let truncated = false
-      if (re.global) {
-        let m
-        while ((m = re.exec(text)) !== null) {
-          if (matches.length >= REGEX_CAP) { truncated = true; break }
-          matches.push({ i: m.index, text: m[0], groups: m.slice(1) })
-          if (m[0] === '') re.lastIndex++
-        }
-      } else {
-        const m = re.exec(text)
-        if (m) matches.push({ i: m.index, text: m[0], groups: m.slice(1) })
-      }
-      return { matches, error: null, truncated }
+    // 正则执行迁入 node 子进程（审计 M2）：用户正则在主进程内同步 exec 时，灾难性回溯
+    // （如 (a+)+$ 配长文本）会冻结整个 DSH 事件循环；REGEX_CAP 只限匹配条数、限不住回溯时间。
+    // 脚本为静态模板（无用户输入插值），spec 经 stdin 传入（文本可 MB 级，避开 env 32K），
+    // 父侧 withDeadline 3s 看门狗兜底——超时即 terminate，面板提示「已中止」。
+    const REGEX_SCRIPT = [
+      "const fs = require('fs')",
+      "const spec = JSON.parse(fs.readFileSync(0, 'utf8'))",
+      "const out = { ok: true, matches: [], error: null, truncated: false, count: 0, replaced: null }",
+      "try {",
+      "  const CAP = 200",
+      "  const re = new RegExp(spec.pattern, (spec.flags || []).join(''))",
+      "  if (spec.op === 'replace') {",
+      "    let count = 0",
+      "    if (re.global) { const cnt = new RegExp(spec.pattern, (spec.flags || []).join('')); let m",
+      "      while ((m = cnt.exec(spec.text)) !== null) { count++; if (m[0] === '') cnt.lastIndex++; if (count >= 100000) break } }",
+      "    else count = re.test(spec.text) ? 1 : 0",
+      "    out.count = count",
+      "    out.replaced = String(spec.text).replace(re, spec.replacement == null ? '' : String(spec.replacement))",
+      "  } else {",
+      "    let m",
+      "    if (re.global) { while ((m = re.exec(spec.text)) !== null) {",
+      "      if (out.matches.length >= CAP) { out.truncated = true; break }",
+      "      out.matches.push({ i: m.index, text: m[0], groups: m.slice(1) })",
+      "      if (m[0] === '') re.lastIndex++",
+      "    } } else { const mm = re.exec(spec.text); if (mm) out.matches.push({ i: mm.index, text: mm[0], groups: mm.slice(1) }) }",
+      "  }",
+      "} catch (e) { out.ok = false; out.error = String((e && e.message) || e); out.matches = []; out.truncated = false; out.count = 0; out.replaced = null }",
+      "process.stdout.write(JSON.stringify(out))",
+    ].join('\n')
+    const runRegexChild = async (op, pattern, flags, text, replacement, wsRoot) => {
+      const r = await runChildJson(REGEX_SCRIPT, { op, pattern, flags: flags || ['g'], text: String(text == null ? '' : text), replacement }, wsRoot, 3000)
+      if (r.ok === false) return op === 'replace' ? { out: '', count: 0, error: r.error } : { matches: [], error: r.error, truncated: false }
+      return op === 'replace'
+        ? { out: r.replaced == null ? '' : r.replaced, count: r.count || 0, error: r.error }
+        : { matches: r.matches || [], error: r.error, truncated: !!r.truncated }
     }
-    const regexReplace = (pattern, flags, text, replacement) => {
-      if (!pattern) return { out: '', count: 0, error: null }
-      let re
-      try { re = new RegExp(pattern, flags.join('')) } catch (e) { return { out: '', count: 0, error: String(e.message || e) } }
-      let count = 0
-      if (re.global) {
-        try {
-          const cnt = new RegExp(pattern, flags.join(''))
-          let m
-          while ((m = cnt.exec(text)) !== null) {
-            count++
-            if (m[0] === '') cnt.lastIndex++
-            if (count >= 100000) break
-          }
-        } catch (e) {}
-      } else {
-        count = re.test(text) ? 1 : 0
-      }
-      let out = ''
-      try { out = text.replace(re, replacement) } catch (e) { return { out: '', count, error: String(e.message || e) } }
-      return { out, count, error: null }
-    }
+    // 结果缓存（闭包，同 lastCron 先例）：渲染只画缓存，不再每次 render 现算——
+    // key 是参数签名，输入变化后旧结果不展示，须重新点「测试」
+    let lastRegex = null
+    const regexSigOf = (r) => JSON.stringify([r.mode === 'replace' ? 'replace' : 'match', r.pattern || '', (r.flags || []).slice().sort(), r.text || '', r.replacement || ''])
 
     // ================= 子模式 cron：Cron 表达式 =================
     // 派生结果（字段明细含 Set / 未来时刻数组）留闭包——Set 不可 JSON 序列化，
@@ -305,8 +304,10 @@ return {
     const TD_TXT_CLS = { ' ': '', '+': 'tb-tx-done', '-': 'tb-tx-danger' }
 
     // ================= 子模式 gen：生成器 =================
+    // 脚本经 argv -e 注入（静态模板 ~1.6KB，远低于 32K 命令行上限），spec 走 stdin——
+    // 不再走 env：哈希输入文本可到 MB 级，Windows 环境块总长 32K 字符会莫名 spawn 失败（审计 L5）
     const GEN_SCRIPT = [
-      "const spec = JSON.parse(process.env.GEN_REQ || '{}')",
+      "const spec = JSON.parse(require('fs').readFileSync(0, 'utf8'))",
       "const c = require('crypto')",
       "const out = { ok: true, items: [] }",
       "try {",
@@ -326,22 +327,28 @@ return {
       "} catch (e) { out.ok = false; out.error = String((e && e.message) || e) }",
       "process.stdout.write(JSON.stringify(out))",
     ].join('\n')
-    const runGen = async (spec, wsRoot) => {
+    const runChildJson = async (script, spec, wsRoot, deadlineMs) => {
       if (!subprocess) return { ok: false, error: 'subprocess 服务不可用' }
       try {
-        const handle = subprocess.spawn({
-          argv: ['node', '-'],
+        // withDeadline：graceMs 不是运行时长上限，挂死子进程必须由看门狗 terminate（审计 M3）
+        const handle = withDeadline(ctx, subprocess.spawn({
+          argv: ['node', '-e', script],
           cwd: wsRoot,
-          stdio: { stdin: { data: GEN_SCRIPT }, stdout: { maxBytes: 1024 * 1024 }, stderr: { maxBytes: 64 * 1024 } },
-          graceMs: 30000,
-          env: { GEN_REQ: JSON.stringify(spec) },
-        })
+          stdio: { stdin: { data: JSON.stringify(spec) }, stdout: { maxBytes: 1024 * 1024 }, stderr: { maxBytes: 64 * 1024 } },
+          graceMs: 5000,
+        }), deadlineMs)
+        const t0 = Date.now()
         const outcome = await handle.done
-        const stdout = handle.collected.stdout.readFrom(0).text
-        if (outcome.exitCode !== 0) return { ok: false, error: handle.collected.stderr.readFrom(0).text.slice(0, 300) || '子进程失败' }
-        return JSON.parse(stdout)
+        const stdout = handle.collected.stdout.readFrom(0)
+        if (outcome.exitCode !== 0) {
+          const timedOut = deadlineMs && (Date.now() - t0) >= (deadlineMs - 300)
+          return { ok: false, error: timedOut ? ('执行超时已中止（' + Math.round(deadlineMs / 1000) + 's 看门狗）') : (handle.collected.stderr.readFrom(0).text.slice(0, 300) || '子进程失败') }
+        }
+        if (stdout.lossy) return { ok: false, error: '输出超过收集上限，已丢弃' }
+        return JSON.parse(stdout.text)
       } catch (e) { return { ok: false, error: String((e && e.message) || e) } }
     }
+    const runGen = (spec, wsRoot) => runChildJson(GEN_SCRIPT, spec, wsRoot, 30000)
     const GEN_CHARSETS = [['alnum', '字母数字'], ['hex', 'hex'], ['b64url', 'base64url'], ['num', '纯数字'], ['easy', '易读（无 0O1lI）']]
     const GEN_ALGOS = [['md5', 'MD5'], ['sha1', 'SHA-1'], ['sha256', 'SHA-256'], ['sha512', 'SHA-512']]
     const GEN_NS = [1, 5, 10, 50]
@@ -388,8 +395,11 @@ return {
 
     const renderRegex = (r) => {
       const mode = r.mode === 'replace' ? 'replace' : 'match'
-      const m = mode === 'match' ? regexRun(r.pattern, r.flags || ['g'], r.text || '') : null
-      const rp = mode === 'replace' ? regexReplace(r.pattern, r.flags || ['g'], r.text || '', r.replacement || '') : null
+      // 只画闭包缓存：签名匹配才展示（输入已变化则提示重新执行），渲染路径零正则计算
+      const sig = regexSigOf(r)
+      const m = mode === 'match' && lastRegex && lastRegex.key === sig && lastRegex.res.matches ? lastRegex.res : null
+      const rp = mode === 'replace' && lastRegex && lastRegex.key === sig && lastRegex.res.count != null ? lastRegex.res : null
+      const stale = r.pattern && !(lastRegex && lastRegex.key === sig)
       const parts = []
       parts.push('<div class="tb-chips">' +
         '<button type="button" class="tb-chip' + (mode === 'match' ? ' tb-chip-on' : '') + '" data-action="mode" data-v="match">匹配</button>' +
@@ -411,6 +421,9 @@ return {
       }
       parts.push('<div class="tb-sec"><span class="tb-sec-label">测试文本</span>' +
         '<textarea class="tb-textarea" data-field="text" placeholder="在此粘贴待匹配的文本">' + esc(r.text || '') + '</textarea></div>')
+      if (stale) {
+        parts.push('<div class="tb-banner tb-banner-info">参数已变化——点「测试」执行（正则在子进程内运行，3s 超时自动中止，防灾难性回溯冻结主进程）</div>')
+      }
       const err = m ? m.error : (rp ? rp.error : null)
       if (err) {
         parts.push('<div class="tb-banner tb-banner-error">正则无效：' + esc(err) + '</div>')
@@ -612,8 +625,14 @@ return {
           const preset = REGEX_PRESETS.find(([, p]) => p === el.p)
           if (!r.text && preset && preset[2]) r.text = preset[2]
         }
+        if (action === 'test' || action === 'preset') {
+          // 「测试」/点预设：正则进子进程执行（3s 看门狗），结果进闭包缓存供渲染
+          const op = r.mode === 'replace' ? 'replace' : 'match'
+          const res = await runRegexChild(op, r.pattern, r.flags || ['g'], r.text || '', r.replacement || '', ws.root)
+          lastRegex = { key: regexSigOf(r), res }
+        }
         if (action === 'copy-out') {
-          const rp = regexReplace(r.pattern, r.flags || ['g'], r.text || '', r.replacement || '')
+          const rp = await runRegexChild('replace', r.pattern, r.flags || ['g'], r.text || '', r.replacement || '', ws.root)
           if (!rp.error) copy = rp.out
         }
       } else if (st.sub === 'cron') {

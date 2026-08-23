@@ -130,18 +130,25 @@ return {
       if (!subprocess) return { ok: false, error: 'subprocess 服务不可用' }
       const p = providerOf(pid)
       try {
-        const handle = subprocess.spawn({
+        // 外层看门狗 30s：wall-clock 到点主动 terminate()（内层 https timeout:20000+destroy 是应用层读超时，保持不动；
+        // DNS 卡死/连接挂起不经过它）。注意 graceMs 只是「退出后 SIGTERM→SIGKILL 升级窗口」，不是运行超时。
+        const handle = withDeadline(ctx, subprocess.spawn({
           argv: ['node', '-e', scriptFor(p.id, p.keyName, p.credName)],
           cwd: wsRoot,
           stdio: { stdin: 'ignore', stdout: { maxBytes: 64 * 1024 }, stderr: { maxBytes: 16 * 1024 } },
           graceMs: 30000,
-        })
+        }), 30000)
         const outcome = await handle.done
-        const stdout = handle.collected.stdout.readFrom(0).text
+        const so = handle.collected.stdout.readFrom(0)
         if (outcome.exitCode !== 0) {
           return { ok: false, error: handle.collected.stderr.readFrom(0).text.slice(0, 300) || '子进程失败' }
         }
-        return JSON.parse(stdout)
+        // lossy：stdout 超 64KB 上限被截尾，JSON 大概率已残缺——给出明确错误而不是晦涩的 SyntaxError
+        if (so.lossy) {
+          try { return Object.assign(JSON.parse(so.text), { truncated: true }) } catch (e) {}
+          return { ok: false, error: '查询输出超过上限（64KB）已截尾，结果不完整', truncated: true }
+        }
+        return JSON.parse(so.text)
       } catch (e) { return { ok: false, error: String((e && e.message) || e) } }
     }
 
@@ -204,6 +211,7 @@ return {
       else if (d && Array.isArray(d.balances) && d.balances.length) badge = fmtNum(d.balances[0].total)
       const parts = []
       parts.push('<div class="jr-tabpanel tb-root" data-tab-badge="' + esc(badge) + '">')
+      if (st.truncated) parts.push('<div class="tb-banner tb-banner-info">输出超过上限已截尾</div>')
       // 提供商选择芯片 + 刷新
       parts.push('<div class="tb-row">' +
         PROVIDERS.map((pv) => '<button type="button" class="tb-chip' + (pv.id === p.id ? ' tb-chip-on' : '') + '" data-action="pick" data-v="' + pv.id + '">' + esc(pv.label) + '</button>').join('') +
@@ -238,7 +246,7 @@ return {
 
     const handler = async ({ action, fields, state, root, session }) => {
       const ws = resolveWorkspace(ctx, root, session)
-      const st = (state && typeof state === 'object' && state) ? state : { loading: false, error: null, data: null, at: null, provider: 'kimi' }
+      const st = (state && typeof state === 'object' && state) ? state : { loading: false, error: null, data: null, at: null, provider: 'kimi', truncated: false }
       if (!providerOf(st.provider).id || PROVIDERS.every((p) => p.id !== st.provider)) st.provider = 'kimi'
       const el = fields && fields.__el ? fields.__el : {}
 
@@ -256,9 +264,11 @@ return {
         if (r && r.ok) {
           st.data = r.data
           st.error = null
+          st.truncated = !!r.truncated // 输出截尾标志 → 面板顶部提示条
           try { st.at = new Date().toTimeString().slice(0, 8) } catch (e) { st.at = '' }
         } else {
           st.error = (r && r.error) || '查询失败'
+          st.truncated = false
         }
       }
       return { ok: true, html: render(st), state: st }

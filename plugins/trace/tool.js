@@ -11,12 +11,18 @@ return {
     const sq = ctx.get('sessionQuery')
 
     // ---- 性能：事件模型缓存（shared-host 的 readLog 负责事件缓存，这里缓存 build 结果） ----
-    const readLog = sq ? makeSessionLogReader(ctx, sq) : null
+    // 按会话各建读取器（同 flow）：单读取器在多会话切换时互踢缓存，
+    // 持久化会话每次切回都会退化为 readSession 全量重读
+    const readers = {}
+    const readLogFor = async (sid) => {
+      if (!readers[sid]) readers[sid] = makeSessionLogReader(ctx, sq)
+      return readers[sid](sid)
+    }
     let modelCache = null   // { sid, count, model, header }
     let recentCache = []    // 会话下拉选项缓存（refresh/pick/首次 才重取）
 
     const getModel = async (sid) => {
-      const r = await readLog(sid)
+      const r = await readLogFor(sid)
       if (!modelCache || modelCache.sid !== sid || modelCache.count !== r.count) {
         await loadManifestTools()
         modelCache = { sid, count: r.count, model: build(r.events), header: r.header }
@@ -88,6 +94,7 @@ return {
     const pad2 = (n) => (n < 10 ? '0' : '') + n
     const fmtTime = (t) => {
       const d = new Date(t)
+      if (isNaN(d.getTime())) return '' // 注入类事件可能缺 time 字段，防空值渲染出 NaN:NaN:NaN（同 flow）
       return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds())
     }
     const fmtDur = (ms) => ms == null ? '' : (ms < 1000 ? ms + 'ms' : (ms / 1000).toFixed(1) + 's')
@@ -99,6 +106,16 @@ return {
     const textOf = (blocks) => {
       if (!Array.isArray(blocks)) return ''
       return blocks.map((b) => (b && b.type === 'text' ? b.text : '')).filter(Boolean).join('\n')
+    }
+    // 结果消息 → 输出文本：遍历所有 content 块取第一段非空文本（同 flow 口径；
+    // 首块为空占位/前置说明、或多块结果时也能取到正文）
+    const resultTextOf = (msg) => {
+      if (!msg || !Array.isArray(msg.content)) return ''
+      let text = ''
+      for (const block of msg.content) {
+        if (!text && block) { const t = textOf(block.content); if (t) text = t }
+      }
+      return text
     }
 
     // ---- 日志 → 时间线条目 + 统计 ----
@@ -125,10 +142,18 @@ return {
           if (d.callId != null) byCallId[String(d.callId)] = it
         } else if (ev.type === 'tool/result') {
           const m = d.message || {}
-          const block = Array.isArray(m.content) ? m.content[0] : null
-          const callId = block && block.toolCallId != null ? String(block.toolCallId) : null
-          const text = block ? textOf(block.content) : ''
-          const failed = !!(d.error || (block && block.isError))
+          // 遍历 content 找第一个带 toolCallId 的块（首块非 tool-result 时也能配上对，同 flow）
+          let callId = null
+          let callBlock = null
+          if (Array.isArray(m.content)) {
+            for (const block of m.content) {
+              if (callId == null && block && block.toolCallId != null) { callId = String(block.toolCallId); callBlock = block; break }
+            }
+          }
+          const text = resultTextOf(m)
+          // isError 必须取自「配对到的那个 tool-result 块」：首块是空占位/前置说明、
+          // 失败标记落在后续块时，只看 content[0] 会把真实失败误标成成功
+          const failed = !!(d.error || (callBlock && callBlock.isError))
           if (failed) stats.errors++
           const it = callId ? byCallId[callId] : null
           if (it) {
@@ -226,9 +251,7 @@ return {
         if (!it || it.resSeq == null) return null
         const rev = model.bySeq[it.resSeq]
         const rm = rev && rev.data && rev.data.message
-        const block = rm && Array.isArray(rm.content) ? rm.content[0] : null
-        const text = block ? textOf(block.content) : ''
-        return text || null
+        return resultTextOf(rm) || null
       }
       const m = ev.type === 'assistant/message' ? (d.message || {}) : d
       return textOf(m.content) || null
@@ -255,8 +278,7 @@ return {
         if (it && it.resSeq != null) {
           const rev = model.bySeq[it.resSeq]
           const rm = rev && rev.data && rev.data.message
-          const block = rm && Array.isArray(rm.content) ? rm.content[0] : null
-          const text = block ? textOf(block.content) : ''
+          const text = resultTextOf(rm)
           const err = rev && rev.data && rev.data.error
           out = (err ? '[error] ' + esc(err.name || '') + ' ' + esc(err.code || '') + '\n\n' : '') +
             esc(text.length > 12000 ? text.slice(0, 12000) + '\n…（截断，共 ' + text.length + ' 字符）' : text)
@@ -265,7 +287,7 @@ return {
         }
         return '<div class="tb-preview">' + head +
           '<div class="tb-sec"><span class="tb-sec-label">输入 · ' + esc(String(d.name || '')) + '（T' + d.turn + '·S' + d.step + '）</span>' +
-          '<pre class="tb-code">' + esc(input) + '</pre></div>' +
+          '<pre class="tb-code">' + esc(input.length > 12000 ? input.slice(0, 12000) + '\n…（截断，共 ' + input.length + ' 字符）' : input) + '</pre></div>' +
           '<div class="tb-sec"><span class="tb-sec-label">输出</span>' +
           '<pre class="tb-code">' + out + '</pre></div></div>'
       }

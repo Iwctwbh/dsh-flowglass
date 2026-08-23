@@ -59,6 +59,26 @@ const base = (process.env.JIRA_BASE_URL || '').replace(/\\/+$/, '');
 const email = process.env.JIRA_EMAIL || '';
 const token = process.env.JIRA_TOKEN || '';
 const auth = 'Basic ' + Buffer.from(email + ':' + token).toString('base64');
+// 流式落盘（审计 M7）：content-length 缺失（chunked）/虚报时不能依赖预检——
+// 边下边累计字节数，超 20MB 立即断流、销毁半成品并抛错，杜绝整包 arrayBuffer 入内存
+const LIMIT = 20 * 1024 * 1024;
+async function streamTo(res, outPath) {
+  let total = 0;
+  const ws = fs.createWriteStream(outPath);
+  try {
+    for await (const chunk of res.body) {
+      total += chunk.length;
+      if (total > LIMIT) throw new Error('attachment too large (>20MB, streamed)');
+      if (!ws.write(chunk)) await new Promise((r) => ws.once('drain', r));
+    }
+    await new Promise((resolve, reject) => ws.end((err) => (err ? reject(err) : resolve())));
+    return total;
+  } catch (e) {
+    ws.destroy();
+    try { fs.unlinkSync(outPath) } catch (e2) {}
+    throw e;
+  }
+}
 (async () => {
   try {
     const url = process.env.JIRA_ATTACH_URL || '';
@@ -73,18 +93,19 @@ const auth = 'Basic ' + Buffer.from(email + ':' + token).toString('base64');
     const out = path.join(dir, safe);
     const res = await fetch(url, { headers: { Authorization: auth }, signal: AbortSignal.timeout(120000) });
     if (!res.ok) { console.log('ERR|HTTP ' + res.status); return; }
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length > 20 * 1024 * 1024) { console.log('ERR|attachment too large'); return; }
-    fs.writeFileSync(out, buf);
+    // content-length 预检仅作快速路径（可信时省一次建文件）；真实边界由 streamTo 流式保证
+    const cl = Number(res.headers.get('content-length') || 0);
+    if (cl > LIMIT) { console.log('ERR|attachment too large'); return; }
+    const total = await streamTo(res, out);
     console.log('OK|' + out);
-    console.log('LEN|' + buf.length);
-    if (buf.length <= 5 * 1024 * 1024) console.log('B64|' + buf.toString('base64'));
+    console.log('LEN|' + total);
+    if (total <= 5 * 1024 * 1024) console.log('B64|' + fs.readFileSync(out).toString('base64'));
   } catch (e) { console.log('ERR|' + String((e && e.message) || e)); }
 })()
 `
 
-// 一键归档脚本：读 .dsh-dynamic-toolbox/jira-issue-in.json（fetchAndArchive 先落盘，规避 Windows 环境变量长度限制），
-// 创建 Jira-Issue/{key}/ → 下载全部附件（覆盖同名）→ 写 issue.md（模板参考 prompt/Jira.md）→ 写 issue.json 机读副本
+// 一键归档脚本：读 <dataDir>/jira-issue-in-<唯一后缀>.json（archiveIssue 先落盘，规避 Windows 环境变量长度限制；
+// 唯一后缀防并发动作互相覆盖错档），创建 Jira-Issue/{key}/ → 下载全部附件（覆盖同名）→ 写 issue.md（模板参考 prompt/Jira.md）→ 写 issue.json 机读副本
 const ARCHIVE_SCRIPT = `
 const fs = require('fs');
 const path = require('path');
@@ -94,6 +115,25 @@ const token = process.env.JIRA_TOKEN || '';
 const auth = 'Basic ' + Buffer.from(email + ':' + token).toString('base64');
 const cell = (v) => String(v == null || v === '' ? '—' : v).split('|').join('｜').split('\\r\\n').join(' ').split('\\n').join(' ');
 const fmtSz = (n) => (n == null || isNaN(Number(n)) ? '—' : n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
+// 流式落盘（审计 M7）：同 ATTACH_SCRIPT——content-length 缺失/虚报时边下边累计，超 20MB 断流删残件
+const LIMIT = 20 * 1024 * 1024;
+async function streamTo(res, outPath) {
+  let total = 0;
+  const ws = fs.createWriteStream(outPath);
+  try {
+    for await (const chunk of res.body) {
+      total += chunk.length;
+      if (total > LIMIT) throw new Error('附件超过 20MB 上限（流式检测）');
+      if (!ws.write(chunk)) await new Promise((r) => ws.once('drain', r));
+    }
+    await new Promise((resolve, reject) => ws.end((err) => (err ? reject(err) : resolve())));
+    return total;
+  } catch (e) {
+    ws.destroy();
+    try { fs.unlinkSync(outPath) } catch (e2) {}
+    throw e;
+  }
+}
 (async () => {
   const out = { ok: false, dir: '', archivedAt: '', files: [], errors: [] };
   try {
@@ -114,10 +154,11 @@ const fmtSz = (n) => (n == null || isNaN(Number(n)) ? '—' : n < 1024 ? n + ' B
         if (!url.startsWith(base)) throw new Error('附件地址不被允许');
         const res = await fetch(url, { headers: { Authorization: auth }, signal: AbortSignal.timeout(120000) });
         if (!res.ok) throw new Error('HTTP ' + res.status);
-        const buf = Buffer.from(await res.arrayBuffer());
-        if (buf.length > 20 * 1024 * 1024) throw new Error('附件超过 20MB 上限');
-        fs.writeFileSync(path.join(dir, fname), buf);
-        rec.size = buf.length;
+        // content-length 预检仅快速路径；真实边界由 streamTo 流式保证（审计 M7）
+        const cl = Number(res.headers.get('content-length') || 0);
+        if (cl > LIMIT) throw new Error('附件超过 20MB 上限');
+        const outPath = path.join(dir, fname);
+        rec.size = await streamTo(res, outPath);
         rec.downloaded = true;
       } catch (e) { rec.error = String((e && e.message) || e); out.errors.push((a.filename || fname) + ': ' + rec.error); }
       out.files.push(rec);
@@ -179,7 +220,8 @@ const path = require('path');
 `
 
 const REL_DATA_DIR = '.dsh-dynamic-toolbox'
-const REL_WATCH_FILE = '.dsh-dynamic-toolbox\\jira-watch.json'
+// 相对路径统一正斜杠：反斜杠在 POSIX 上会成为字面文件名字符（与数据目录分裂）
+const REL_WATCH_FILE = '.dsh-dynamic-toolbox/jira-watch.json'
 const REL_ARCHIVE_DIR = pluginDataDir('jira') // .dsh-dynamic-toolbox/data/jira（shared 约定：内容产物目录）
 
 return {
@@ -204,14 +246,14 @@ return {
       if (rootArg && /^([A-Za-z]:[\\/]|\/)/.test(rootArg)) {
         return { root: rootArg.replace(/[\\/]+$/, ''), session: null }
       }
+      // 弱兜底：取 sessions.list()[0]（list 最新在前，即最新会话）——仅在无 sessionId 且 rootArg
+      // 非绝对路径时触达。旧实现遍历取「最后一个」会命中最旧会话、落错工作区，已废弃。
+      // 注：此层兜底与 shared/host.js 的 resolveWorkspace 存在语义差异，待后续统一到共享实现。
       if (sessionsSvc) {
         try {
-          let hit = null
-          for (const s of sessionsSvc.list()) {
-            const cwd = s && s.header && s.header.cwd
-            if (typeof cwd === 'string' && cwd) hit = s
-          }
-          if (hit) return { root: hit.header.cwd.replace(/[\\/]+$/, ''), session: hit }
+          const first = sessionsSvc.list()[0]
+          const cwd = first && first.header && first.header.cwd
+          if (first && typeof cwd === 'string' && cwd) return { root: cwd.replace(/[\\/]+$/, ''), session: first }
         } catch (e) {}
       }
       const sp = ctx.get('sandboxPolicy')
@@ -293,6 +335,7 @@ return {
         cwd: wsRoot,
         stdio: {
           stdin: { data: script },
+          // 注意：≤5MB 附件回传 base64 约 6.7MB，已贴近此 8MB 上限；调大预览阈值前先同步放大 maxBytes
           stdout: { maxBytes: 8 * 1024 * 1024 },
           stderr: { maxBytes: 256 * 1024 },
         },
@@ -329,14 +372,26 @@ return {
 
     const readJsonFile = async (rel, wsRoot) => {
       if (!fsService) return []
+      let target = null
       try {
-        const target = await resolveDataPath(ctx, rel, wsRoot)
-        if (!target) return []
-        const info = await fsService.stat(target)
-        if (!info) return []
-        const parsed = JSON.parse(await fsService.readText(target))
-        return Array.isArray(parsed) ? parsed : []
+        target = await resolveDataPath(ctx, rel, wsRoot)
+        if (!target || !await fsService.stat(target)) return []
       } catch (e) { return [] }
+      let raw = null
+      try { raw = await fsService.readText(target) } catch (e) { return [] }
+      try {
+        const parsed = JSON.parse(raw)
+        return Array.isArray(parsed) ? parsed : []
+      } catch (e) {
+        // 解析失败：原文隔离备份（best-effort），阻断「损坏→显示空→下次写入覆盖销毁」链条；
+        // 显式 workspace-write@仓库根，避免缺省策略回落宿主进程 cwd 被 FS_SANDBOX_DENIED
+        try {
+          const qBase = await storeBase(ctx, wsRoot)
+          await fsService.writeText(target + '.corrupt-' + Date.now(), String(raw == null ? '' : raw), undefined, undefined, { mode: 'workspace-write', workspaceRoot: qBase })
+          console.warn('jira/readJsonFile: JSON 解析失败，原文已隔离备份 (' + rel + ')')
+        } catch (e2) {}
+        return []
+      }
     }
     const writeJsonFile = async (rel, data, ws) => {
       if (!fsService) return false
@@ -355,6 +410,20 @@ return {
         console.error('jira/records 持久化失败:', String((e && e.message) || e))
         return false
       }
+    }
+    // 归档临时文件善后：fs 服务无删除 API，尽力用空内容覆写（文件内含完整工单本体的敏感副本）。
+    // 正常路径下 ARCHIVE_SCRIPT 读入后已自行 unlink，这里只兜底「子进程未跑起/早退」的残留；
+    // best-effort，失败静默（只影响残留，不影响功能）。
+    const scrubTempFile = async (rel, ws) => {
+      if (!fsService) return
+      try {
+        const target = await resolveDataPath(ctx, rel, ws.root)
+        if (!target || !await fsService.stat(target)) return
+        const sp = ctx.get('sandboxPolicy')
+        const base = await storeBase(ctx, ws.root)
+        const policy = sp && ws.session ? sp.resolve({ session: ws.session }) : { mode: 'workspace-write', workspaceRoot: base }
+        await fsService.writeText(target, '', undefined, undefined, policy)
+      } catch (e) {}
     }
 
 
@@ -427,14 +496,16 @@ return {
     }
 
     // ---- 归档（prompt/Jira.md 规范）：Jira-Issue/{key}/ = issue.md + issue.json + 全部附件 ----
-    // issue.json 是面板离线查看的机读副本；issue.md 是人类可读摘要（字段表+描述+附件清单）
+    // issue.json 是面板离线查看的机读副本；issue.md 是人类可读摘要（字段表+描述+附件清单）。
+    // 临时输入文件带唯一后缀：即便入口串行化被绕过，也不会出现「A 的子进程读到 B 的工单」的错档覆盖。
     const archiveIssue = async (issue, ws) => {
-      const inRel = '.dsh-dynamic-toolbox\\jira-issue-in.json'
+      const inRel = REL_DATA_DIR + '/jira-issue-in-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.json'
       if (!await writeJsonFile(inRel, issue, ws)) return { ok: false, error: '临时文件写入失败' }
       const env = await baseEnv()
       env.JIRA_ISSUE_FILE = await dataPathAbs(ctx, inRel, ws.root)
       env.JIRA_ARCHIVE_ROOT = await dataPathAbs(ctx, pluginDataDir('jira'), ws.root) // 绝对路径：归档落仓库根
       const res = await runNode(ARCHIVE_SCRIPT, env, ws.root)
+      await scrubTempFile(inRel, ws) // 尽力清理残留（正常路径子进程已 unlink，stat 不中即跳过）
       if (!res.ok) return { ok: false, error: res.error }
       try { return JSON.parse(res.stdout) } catch (e) { return { ok: false, error: '归档结果解析失败' } }
     }
@@ -617,9 +688,18 @@ return {
       return '<div class="jr-tabpanel tb-root tb-pane"><div class="tb-pane-head">' + parts.join('') + '</div><div class="tb-pane-body tb-pane-col">' + body + '</div></div>'
     }
 
-    const handler = async ({ action, fields, state, root, session }) => {
-      const ws = resolveWs(root, session)
-      if (!ws.root) return { ok: false, error: '无法确定工作区根', html: '' }
+    // per-root 动作串行链：Client 壳的请求序号防护只丢弃过期响应，Host 侧动作仍会并发执行；
+    // 入口统一排队后，「共享临时文件错档 / 记录读-改-写竞态 / 双击重复查询」从根上消失。
+    // render(st, busy) 的 busy 死参数暂不重构（按钮 disabled 维持现状，竞态已由本锁消除）。
+    const _actionChains = {}
+    const serializedAction = (rootKey, fn) => {
+      const key = String(rootKey || '?')
+      const prev = _actionChains[key] || Promise.resolve()
+      const run = prev.then(fn, fn) // 前序失败不阻塞后续；fn 自带 try/catch 契约
+      _actionChains[key] = run.then(() => undefined, () => undefined)
+      return run
+    }
+    const handleAction = async (ws, { action, fields, state }) => {
       const st = (state && typeof state === 'object' && state) ? state : { input: '', records: [], error: null, info: null, credOpen: false, credInfo: null }
       // state 迁移：issue/preview 本体已挪闭包（旧 state 可能还挂着 description/base64 大字段）
       delete st.issue; delete st.preview
@@ -796,6 +876,12 @@ return {
       } catch (e) {
         return { ok: false, error: String((e && e.message) || e), html: '' }
       }
+    }
+    const handler = ({ action, fields, state, root, session }) => {
+      const ws = resolveWs(root, session)
+      if (!ws.root) return Promise.resolve({ ok: false, error: '无法确定工作区根', html: '' })
+      // ws 在排队前解析一次并传入执行体，保证锁键与实际读写的工作区一致
+      return serializedAction(ws.root, () => handleAction(ws, { action, fields, state }))
     }
 
     const runRecords = async (action, rec, ws, key) => {

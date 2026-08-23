@@ -8,10 +8,12 @@ return {
   inject: ['fs', 'subprocess', 'timer'],
   apply(ctx) {
     const pad2 = (n) => (n < 10 ? '0' : '') + n
-    const fmtTime = (t) => { const d = new Date(t); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds()) }
-    const fmtDay = (t) => { const d = new Date(t); return (d.getMonth() + 1) + '/' + d.getDate() }
-    const fmtTok = (n) => n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(n)
-    const fmtMs = (ms) => ms >= 10000 ? (ms / 1000).toFixed(1) + 's' : ms + 'ms'
+    // 数值槽位先归一再拼 HTML（记录可来自磁盘 JSON/手改文件，防御深度；Date 收非法值也只显示 1970 不出 NaN）
+    const num = (v) => { const x = Number(v); return Number.isFinite(x) ? x : 0 }
+    const fmtTime = (t) => { const d = new Date(num(t)); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds()) }
+    const fmtDay = (t) => { const d = new Date(num(t)); return (d.getMonth() + 1) + '/' + d.getDate() }
+    const fmtTok = (n) => { n = num(n); return n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(n) }
+    const fmtMs = (ms) => { ms = num(ms); return ms >= 10000 ? (ms / 1000).toFixed(1) + 's' : ms + 'ms' }
 
     const build = (list) => {
       const byTool = {}
@@ -102,7 +104,9 @@ return {
         st.notice = null
       } else if (action === 'clear-confirm') {
         st.confirmClear = false
-        const persisted = await writeJsonStore(ctx, AI_USAGE_REL, [], ws.root, ws.session)
+        // 与 chat track 的追加走同一把 per-root 写锁（enqueueAiUsageWrite，shared/host.js），
+        // 防止清空写入 [] 后被在途追加的旧快照（old.concat([rec])）复活
+        const persisted = await enqueueAiUsageWrite(ws.root, () => writeJsonStore(ctx, AI_USAGE_REL, [], ws.root, ws.session))
         st.notice = persisted ? '台账已清空' : '⚠ 未能写入 ' + AI_USAGE_REL + '，清空仅在内存生效'
       } else {
         // '' / reload：重读磁盘（其他 AI 工具可能刚追加了记录）

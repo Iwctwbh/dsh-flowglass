@@ -1,4 +1,4 @@
-// http 工具仿真：mock subprocess 模拟 runNode 子进程（解析 env.HTTP_REQ 返回罐装响应）。
+// http 工具仿真：mock subprocess 模拟 runNode 子进程（解析 stdin spec JSON 返回罐装响应）。
 // 核心断言：响应本体不进 state（轻量化重构）；res-tab/copy-res/rerun 闭包链路完整。
 const fs = require('fs')
 const path = require('path')
@@ -7,11 +7,15 @@ const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8')
 
 const BIG_BODY = JSON.stringify({ hello: 'world', pad: 'x'.repeat(100 * 1024) }) // ~100KB 响应体
 const subprocess = {
-  spawn({ argv, env }) {
-    const spec = JSON.parse((env && env.HTTP_REQ) || '{}')
+  spawn({ argv, env, stdio }) {
+    // 新协议：脚本走 argv -e，spec 走 stdio.stdin.data；旧 env.HTTP_REQ 兜底
+    let spec = null
+    const data = stdio && stdio.stdin && stdio.stdin.data
+    if (typeof data === 'string' && data.charAt(0) === '{') { try { spec = JSON.parse(data) } catch (e) {} }
+    if (!spec && env && env.HTTP_REQ) { try { spec = JSON.parse(env.HTTP_REQ) } catch (e) {} }
     const payload = JSON.stringify({
       ok: true, status: 200, statusText: 'OK',
-      headers: { 'content-type': 'application/json', 'x-req-url': spec.url || '' },
+      headers: { 'content-type': 'application/json', 'x-req-url': (spec && spec.url) || '' },
       body: BIG_BODY, bytes: BIG_BODY.length, truncated: false, ms: 12,
     })
     return {

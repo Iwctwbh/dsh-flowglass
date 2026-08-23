@@ -10,6 +10,7 @@ return {
   apply(ctx) {
     const subprocess = ctx.get('subprocess')
     let lastDiff = null // { text, name, note } diff 本体（闭包持有，不进 state；重跑即清空回列表/详情）
+    let outTruncated = false // 本轮动作任一 git 输出超 maxBytes 被 lossy 截尾 → 面板顶部提示条（每轮动作开头重置）
 
     const resolveWs = (rootArg) => {
       if (rootArg && /^([A-Za-z]:[\\/]|\/)/.test(rootArg)) {
@@ -31,16 +32,21 @@ return {
     const runGit = async (args, root) => {
       if (!subprocess) return { ok: false, error: 'subprocess 服务不可用' }
       try {
-        const handle = subprocess.spawn({
+        // 看门狗 60s：wall-clock 到点主动 terminate()，防 git 凭证 GUI 弹窗等场景永久挂起。
+        // 注意 graceMs 只是「退出后 SIGTERM→SIGKILL 升级窗口 + 管道排空延迟」，不是运行超时——
+        // 别把它当 60s 上限理解，真正的时长上限由 withDeadline 提供（裸 await handle.done 会无限等）。
+        const handle = withDeadline(ctx, subprocess.spawn({
           argv: ['git', ...args],
           cwd: root,
           stdio: { stdin: 'ignore', stdout: { maxBytes: 16 * 1024 * 1024 }, stderr: { maxBytes: 256 * 1024 } },
           graceMs: 60000,
-        })
+        }), 60000)
         const outcome = await handle.done
-        const stdout = handle.collected.stdout.readFrom(0).text
-        const stderr = handle.collected.stderr.readFrom(0).text
-        return { ok: outcome.exitCode === 0, code: outcome.exitCode, out: stdout, err: stderr }
+        const so = handle.collected.stdout.readFrom(0)
+        const se = handle.collected.stderr.readFrom(0)
+        // lossy 标志：读取偏移滑出内存尾部窗口 = 输出超过 maxBytes 被截尾；解析前记录，渲染时提示
+        if (so.lossy || se.lossy) outTruncated = true
+        return { ok: outcome.exitCode === 0, code: outcome.exitCode, out: so.text, err: se.text }
       } catch (e) {
         return { ok: false, error: String((e && e.message) || e) }
       }
@@ -115,20 +121,39 @@ return {
       return { commits: commits.slice(0, limit), hasMore: commits.length > limit, error: null }
     }
 
+    // --numstat 加 -z 的解析：字段以 TAB 分隔、记录以 NUL（\0）结尾。实测（git 2.x windows）记录形态：
+    //   普通文件：`add\tdel\tpath\0`
+    //   改名/复制：`add\tdel\t\0oldpath\0newpath\0`——第二个 TAB 后是「空路径槽」，随后两段先 old 后 new
+    //     （对应非 -z 的复合形式 `12\t3\told/{a => b}/c.txt`：旧解析把整串当 path，点击后 pathspec 对不上 → diff 静默为空）
+    // 注意与直觉相反的点是顺序（先 old 后 new）和空槽：解析按位置消费，不猜内容形态
+    const parseNumstatZ = (body) => {
+      const files = []
+      const REC_RE = /^(\d+|-)\t(\d+|-)\t(.*)$/ // 记录头形态：两个数字字段 + 路径（改名记录的路径位是空串）
+      const recs = String(body || '').split('\0')
+      for (let i = 0; i < recs.length; i++) {
+        const m = recs[i].match(REC_RE)
+        if (!m) continue
+        if (m[3] !== '') {
+          files.push({ path: m[3], additions: m[1] === '-' ? null : Number(m[1]), deletions: m[2] === '-' ? null : Number(m[2]) })
+          continue
+        }
+        // 改名/复制记录：紧随的两段依次是 oldpath（跳过）、newpath（采用），按位置消费
+        const newPath = recs[i + 2]
+        i += 2
+        if (newPath) files.push({ path: newPath, additions: m[1] === '-' ? null : Number(m[1]), deletions: m[2] === '-' ? null : Number(m[2]) })
+      }
+      return files
+    }
+
     const loadCommit = async (root, hash) => {
       if (!/^[0-9a-fA-F]{7,40}$/.test(hash)) return { error: '非法的 commit hash' }
-      const r = await runGit(['show', '--numstat', '--format=%x1e%H%x1f%an%x1f%aI%x1f%s%x1f%b%x1e', hash], root)
+      const r = await runGit(['show', '--numstat', '-z', '--format=%x1e%H%x1f%an%x1f%aI%x1f%s%x1f%b%x1e', hash], root)
       if (!r.ok) return { error: firstLine(r.err) || 'git show failed' }
       const parts = (r.out || '').split('\x1e')
       const head = parts[1] || ''
-      const body = (parts[2] || '').replace(/^\s+/, '')
-      const files = []
-      for (const line of body.split(/\r?\n/)) {
-        if (!line) continue
-        const m = line.match(/^(\d+|-)\t(\d+|-)\t(.*)$/)
-        if (!m) continue
-        files.push({ path: m[3], additions: m[1] === '-' ? null : Number(m[1]), deletions: m[2] === '-' ? null : Number(m[2]) })
-      }
+      // -z 下 format 与第一条记录之间是「提交分隔 NUL + 空行」（\0\n），一并剥掉再切记录
+      const body = (parts[2] || '').replace(/^[\0\s]+/, '')
+      const files = parseNumstatZ(body)
       const hp = head.split('\x1f')
       return { commit: { hash: hp[0] || '', short: (hp[0] || '').slice(0, 7), author: hp[1] || '', date: hp[2] || '', subject: hp[3] || '', message: hp.slice(4).join('\x1f').trim(), files } }
     }
@@ -244,6 +269,7 @@ return {
     const handler = async ({ action, fields, state, root }) => {
       const wsRoot = resolveWs(root)
       if (!wsRoot) return { ok: false, error: '无法确定工作区根', html: '' }
+      outTruncated = false // 每轮动作重新累计截尾标志（只提示当前动作的输出状态）
       const st = (state && typeof state === 'object' && state) ? state : {
         view: 'list', branch: null, staged: 0, unstaged: 0, untracked: 0,
         ahead: null, behind: null, files: [], commits: [], hasMore: false, offset: 0,
@@ -292,6 +318,7 @@ return {
           lastDiff = null
         }
         const html = (st.error ? '<div class="tb-banner tb-banner-error">' + esc(st.error) + '</div>' : '') +
+          (outTruncated ? '<div class="tb-banner tb-banner-info">输出超过上限已截尾</div>' : '') +
           (st.view === 'diff' && lastDiff ? renderDiff(st) : (st.view === 'detail' && st.detail ? renderDetail(st) : renderList(st)))
         const next = { ...st }
         delete next.error

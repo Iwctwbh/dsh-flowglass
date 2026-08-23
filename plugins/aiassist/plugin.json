@@ -6,8 +6,6 @@
   "platform": "host-only",
   "inject": [
     "fs",
-    "llm",
-    "agentDefaultModel",
     "timer"
   ],
   "impl": [

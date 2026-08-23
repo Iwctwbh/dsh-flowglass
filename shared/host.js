@@ -243,12 +243,28 @@ const readJsonStore = async (ctx, rel, wsRoot, fallback) => {
   const fsService = ctx.get('fs')
   const base = await storeBase(ctx, wsRoot)
   if (!fsService || !base) return fallback
+  let target = null
   try {
-    const target = await fsService.resolve(await mapDataRel(ctx, rel), { cwd: base })
+    target = await fsService.resolve(await mapDataRel(ctx, rel), { cwd: base })
     if (!await fsService.stat(target)) return fallback
-    const parsed = JSON.parse(await fsService.readText(target))
-    return parsed == null ? fallback : parsed
-  } catch (e) { return fallback }
+  } catch (e) { return fallback } // resolve/stat IO 失败：不动原文件，按缺省处理
+  let raw = null
+  try { raw = await fsService.readText(target) } catch (e) { return fallback }
+  let parsed
+  try {
+    parsed = JSON.parse(raw)
+  } catch (e) {
+    // 解析失败（半截写/手工改坏）：先把原文隔离为 .corrupt-<时间戳> 备份再返回 fallback，
+    // 阻断「损坏 → 显示空 → 下次成功写入覆盖销毁现场」的静默丢历史链条（best-effort）
+    try {
+      await fsService.writeText(target + '.corrupt-' + Date.now(), String(raw == null ? '' : raw), undefined, undefined, { mode: 'workspace-write', workspaceRoot: base })
+      console.warn('readJsonStore: JSON 解析失败，原文已隔离备份 (' + rel + ')')
+    } catch (e2) {
+      console.warn('readJsonStore: JSON 解析失败且隔离备份未成功 (' + rel + ')')
+    }
+    return fallback
+  }
+  return parsed == null ? fallback : parsed
 }
 const writeJsonStore = async (ctx, rel, data, wsRoot, session) => {
   const fsService = ctx.get('fs')
@@ -291,6 +307,18 @@ const resolveWorkspace = (ctx, rootArg, sessionId) => {
 //   ai.routeRow(st, route, note)       // provider/model 双下拉 HTML（provider 切换走 data-action-onchange="route"）
 // 注意：system 并入首条 user 消息文本（GenerateOptions 的 system 角色 source 契约未公开，此形态与 ask 一致、最稳）。
 const AI_USAGE_REL = '.dsh-dynamic-toolbox/toolbox-ai-usage.json'
+// ===== 用量台账写锁：per-root promise 链串行化所有对 toolbox-ai-usage.json 的读-改-写 =====
+// 背景：chat 的 track 是响应后异步追加，compare 多模型并发时多个 RMW 同帧起跑会互相整文件覆盖丢记录；
+// 「清空台账」也必须经同一把锁，避免清空写入 [] 后被在途追加的旧快照复活。fn 内部自行容错。
+const _aiUsageWriteChains = new Map()
+const enqueueAiUsageWrite = (root, fn) => {
+  const key = String(root || '?')
+  const prev = _aiUsageWriteChains.get(key) || Promise.resolve()
+  const run = prev.then(fn, fn) // 前序失败不阻塞后续
+  // 链上只存「已消化异常」的 promise，保证队列永不带毒；调用方拿 run 自行处理结果
+  _aiUsageWriteChains.set(key, run.then(() => undefined, () => undefined))
+  return run
+}
 const makeLlmHelper = (ctx) => {
   const llm = ctx.get('llm')
   const adm = ctx.get('agentDefaultModel')
@@ -367,13 +395,16 @@ const makeLlmHelper = (ctx) => {
     } finally {
       if (cancel) { try { cancel() } catch (e) {} }
     }
-    // 用量台账：异步落盘（ensureStoreDir 会起子进程，绝不能阻塞响应）
+    // 用量台账：异步落盘（ensureStoreDir 会起子进程，绝不能阻塞响应）；
+    // 经 per-root 写锁 enqueueAiUsageWrite 串行化，与并发调用/「清空台账」互斥，消除读-改-写丢更新
     if (track && track.root) {
       const rec = { t: t0, tool: String(track.tool || '?'), out: result.out != null ? result.out : null, ms: result.ms || 0, ok: !result.err }
       ;(async () => {
         try {
-          const cur = await readJsonStore(ctx, AI_USAGE_REL, track.root, [])
-          await writeJsonStore(ctx, AI_USAGE_REL, (Array.isArray(cur) ? cur : []).concat([rec]).slice(-100), track.root, track.session)
+          await enqueueAiUsageWrite(track.root, async () => {
+            const cur = await readJsonStore(ctx, AI_USAGE_REL, track.root, [])
+            await writeJsonStore(ctx, AI_USAGE_REL, (Array.isArray(cur) ? cur : []).concat([rec]).slice(-100), track.root, track.session)
+          })
         } catch (e) {}
       })()
     }
@@ -436,4 +467,24 @@ const findManifest = async (ctx) => {
     if (await fs.stat(t)) return { manifest: JSON.parse(await fs.readText(t)), root }
   } catch (e) {}
   return null
+}
+
+// ===== 子进程 wall-clock 看门狗 =====
+// spawn 的 graceMs 只是「退出后 SIGTERM→SIGKILL 升级窗口 + 管道排空延迟」，不是运行时长上限；
+// 裸 await handle.done 遇到 git 凭证 GUI 弹窗/网络盘锁文件会永久挂起。withDeadline 在 ms 到点时
+// 主动 terminate()，done settle（含被杀后的非零退出）后清计时器。用法：
+//   const h = withDeadline(ctx, sub.spawn({...}), 60000)
+//   const outcome = await h.done
+// 超时路径 outcome 为被终止的非零结果；调用方照常读 collected，必要时按 exitCode 区分提示。
+const withDeadline = (ctx, handle, ms) => {
+  let cancel = null
+  try {
+    cancel = ctx.timeout(() => {
+      try { handle.terminate() } catch (e) {}
+    }, ms)
+  } catch (e) { /* timer 服务不可用：退化为无看门狗（与旧行为一致） */ }
+  if (cancel && handle && handle.done && typeof handle.done.then === 'function') {
+    handle.done.then(() => { try { cancel() } catch (e) {} }, () => { try { cancel() } catch (e) {} })
+  }
+  return handle
 }

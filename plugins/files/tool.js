@@ -7,24 +7,55 @@ return {
   apply(ctx) {
     const fsService = ctx.get('fs')
 
+    // 路径规范化与包含判断：Windows 盘符/UNC 大小写不敏感折叠（与宿主 id 同算法），POSIX 保持原样
+    const normRoot = (p) => String(p || '').replace(/[\\/]+$/, '')
+    const canonPath = (p) => {
+      let s = String(p || '').replace(/\\/g, '/').replace(/\/+$/, '')
+      if (/^[a-zA-Z]:/.test(s) || s.indexOf('//') === 0) s = s.toLowerCase()
+      return s
+    }
+    const isUnder = (child, base) => {
+      const c = canonPath(child)
+      const b = canonPath(base)
+      return c === b || c.startsWith(b + '/')
+    }
+
     const resolveWs = (rootArg) => {
-      if (rootArg && /^([A-Za-z]:[\\/]|\/)/.test(rootArg)) {
-        return { root: rootArg.replace(/[\\/]+$/, ''), session: null }
-      }
       const sessionsSvc = ctx.get('sessions')
+      let hit = null
+      const sessionCwds = []
       if (sessionsSvc) {
         try {
-          let hit = null
           for (const s of sessionsSvc.list()) {
             const cwd = s && s.header && s.header.cwd
-            if (typeof cwd === 'string' && cwd) hit = s
+            if (typeof cwd === 'string' && cwd) {
+              if (!hit) hit = s // 取第一个有 cwd 的会话（list 最新在前；旧行为取最后一个=最旧，属审计 L8 同款缺陷）
+              sessionCwds.push(cwd.replace(/[\\/]+$/, ''))
+            }
           }
-          if (hit) return { root: hit.header.cwd.replace(/[\\/]+$/, ''), session: hit }
         } catch (e) {}
       }
       const sp = ctx.get('sandboxPolicy')
-      const root = sp && typeof sp.workspaceRoot === 'string' ? sp.workspaceRoot.replace(/[\\/]+$/, '') : ''
-      return { root, session: null }
+      const policyRoot = sp && typeof sp.workspaceRoot === 'string' ? sp.workspaceRoot.replace(/[\\/]+$/, '') : ''
+      // 显式绝对路径围栏：仅当落在会话 cwd / 策略工作区之内才采信（覆盖仓库 clone 为子目录、
+      // 框架传入子目录仓库根的场景）；其余一律拒绝回落默认解析——面板协议字段客户端可控，
+      // 裸收任意绝对路径等于把浏览工具变成盘外目录枚举/文本读取原语（审计 M1）。
+      if (rootArg && /^([A-Za-z]:[\\/]|\/|\\\\)/.test(rootArg)) {
+        const allowed = policyRoot ? sessionCwds.concat([policyRoot]) : sessionCwds
+        if (allowed.some((b) => isUnder(rootArg, b))) return { root: normRoot(rootArg), session: null }
+        return { root: '', session: null }
+      }
+      if (hit) return { root: hit.header.cwd.replace(/[\\/]+$/, ''), session: hit }
+      return { root: policyRoot, session: null }
+    }
+
+    // 相对路径围栏：拒绝空值/绝对形式/盘符/UNC/任何 .. 段。树节点路径虽由 Host 渲染产生，
+    // 但 state 每次动作从客户端回传、可被篡改，不能当作边界依据（审计 M1 第二层）。
+    const safeRel = (p) => {
+      const s = String(p == null ? '' : p)
+      if (!s || /^([A-Za-z]:[\\/]|\/|\\\\)/.test(s)) return null
+      if (s.split(/[\\/]+/).some((seg) => seg === '..')) return null
+      return s
     }
 
     const sortEntries = (entries) => entries
@@ -83,14 +114,20 @@ return {
       return rows.join('\n')
     }
 
-    // 文本预览：常见代码/文本扩展名才读；其余（图片/二进制/压缩包）提示不支持
+    // 文本预览：常见代码/文本扩展名才读；其余（图片/二进制/压缩包）提示不支持。
+    // 先查大小再读（L4）：readText 无上限，点一个几百 MB 的日志会全量进主进程再丢弃。
     const PREVIEW_CAP = 16 * 1024
+    const PREVIEW_MAX_BYTES = 2 * 1024 * 1024
     const TEXT_EXTS = /^(txt|md|markdown|json|jsonc|js|mjs|cjs|ts|tsx|jsx|css|html?|xml|ya?ml|toml|ini|env|sh|ps1|bat|cmd|py|java|go|rs|c|h|cpp|hpp|cs|sql|vue|svelte|log|csv|gitignore|gitattributes|editorconfig|lock|rc)$/
     const previewFile = async (rel, wsRoot) => {
       const ext = String(rel.split('.').pop() || '').toLowerCase()
       if (!TEXT_EXTS.test(ext)) return { error: '该类型（.' + ext + '）暂不支持文本预览' }
       const target = await fsService.resolve(rel, { cwd: wsRoot })
-      if (!await fsService.stat(target)) return { error: '文件不存在: ' + rel }
+      const meta = await fsService.stat(target)
+      if (!meta) return { error: '文件不存在: ' + rel }
+      if (typeof meta.size === 'number' && meta.size > PREVIEW_MAX_BYTES) {
+        return { error: '文件过大（约 ' + Math.max(1, Math.round(meta.size / 1024 / 1024)) + 'MB），文本预览上限 2MB' }
+      }
       const text = await fsService.readText(target)
       return { text: text.length > PREVIEW_CAP ? text.slice(0, PREVIEW_CAP) : text, truncated: text.length > PREVIEW_CAP, total: text.length }
     }
@@ -102,7 +139,8 @@ return {
       try {
         const elPath = fields.__el && fields.__el.path ? fields.__el.path : fields.path
         if (action === 'expand' && elPath) {
-          const p = String(elPath)
+          const p = safeRel(elPath)
+          if (!p) return { ok: false, error: '非法路径: ' + String(elPath), html: '' }
           const willOpen = !(st.expanded || {})[p]
           st.expanded = { ...(st.expanded || {}), [p]: willOpen }
           st.dirs = st.dirs || {}
@@ -111,7 +149,8 @@ return {
             st.dirs[p] = sortEntries(await fsService.listDir(target))
           }
         } else if (action === 'preview' && elPath) {
-          const p = String(elPath)
+          const p = safeRel(elPath)
+          if (!p) return { ok: false, error: '非法路径: ' + String(elPath), html: '' }
           // state 只记路径（本体每次动作重读，保持 state 轻量）；再点同一文件 = 收起
           st.preview = st.preview && st.preview.path === p ? null : { path: p }
         } else if (action === 'close-preview') {
@@ -127,7 +166,8 @@ return {
         let previewHtml = ''
         if (st.preview && st.preview.path) {
           try {
-            const r = await previewFile(st.preview.path, ws.root)
+            const pv = safeRel(st.preview.path)
+            const r = pv ? await previewFile(pv, ws.root) : { error: '非法路径: ' + String(st.preview.path) }
             previewHtml = r.error
               ? '<div class="tb-banner tb-banner-info">' + esc(st.preview.path + '：' + r.error) + '</div>'
               : '<div class="tb-preview"><div class="tb-preview-head">' +
