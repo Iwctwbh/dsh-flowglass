@@ -542,7 +542,15 @@ return {
       // 钻取态：查看的不是面板所属会话 → 头部给「← 返回」+ 层级标注（crumbs 栈深度）
       const drilled = !!(st.home && sid !== st.home)
       const depth = drilled && Array.isArray(st.crumbs) ? st.crumbs.length : 0
-      const help = '中列是用户/助手主线，右列是工具调用（输入 ▶ / 输出 ◀），左列是子代理分支。点击卡片查看完整内容；悬停助手卡可从该节点创建 Harness 分支。画布默认可拖动框选，左下可新建仅所选内容的会话草稿或带入已有会话；Zoom 支持缩放与 Zen 原生全屏。点击子代理卡进入实时子流镜，“子代理跟随”开启时 Harness 同步切换；滚到顶部会每次自动加载更早 60 个节点。'
+      const help = [
+        '• 中列是用户/助手主线，右列是工具调用（输入 ▶ / 输出 ◀），左列是子代理分支。',
+        '• 点击卡片查看完整内容。',
+        '• 悬停助手卡可从该节点创建 Harness 分支。',
+        '• 画布默认可拖动框选，左下可新建仅所选内容的会话草稿或带入已有会话。',
+        '• Zoom 支持缩放与 Zen 原生全屏。',
+        '• 点击子代理卡进入实时子流镜，“子代理跟随”开启时 Harness 同步切换。',
+        '• 滚到顶部会每次自动加载更早 60 个节点。',
+      ].join('\n')
       parts.push('<div class="tb-row">' +
         (drilled ? '<button type="button" class="tb-btn tb-btn-sm" data-action="fback" title="返回上一级流程图">← 返回</button>' : '') +
         '<span class="tb-sec-label">' + (drilled ? '子代理流镜' : '实时流镜') + '</span>' +

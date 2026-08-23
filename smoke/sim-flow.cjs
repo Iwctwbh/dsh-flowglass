@@ -94,7 +94,8 @@ const check = (label, cond, detail) => {
   let r = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-main' })
   check('打开 → 渲染主干', r.html.indexOf('实时流镜') >= 0)
   check('大段常驻说明改为刷新右侧 info 浮层', r.html.indexOf('class="fl-info"') >= 0 && r.html.indexOf('class="fl-info-pop"') >= 0
-    && r.html.indexOf('Zoom 支持缩放与 Zen 原生全屏') >= 0 && r.html.indexOf('泳道：中列主干') < 0)
+    && r.html.indexOf('• 中列是用户/助手主线') >= 0 && r.html.indexOf('• Zoom 支持缩放与 Zen 原生全屏') >= 0
+    && r.html.indexOf('泳道：中列主干') < 0)
   check('自动刷新声明 data-autorefresh=2000', r.html.indexOf('data-autorefresh="2000"') >= 0)
   check('用户/助手消息节点', r.html.indexOf('帮我看下这个目录') >= 0 && r.html.indexOf('好的，我先并行读文件') >= 0)
   check('已完成助手主线卡提供 Harness 分支按钮', r.html.indexOf('data-flow-branch') >= 0 && r.html.indexOf('在新对话中分支') >= 0)
