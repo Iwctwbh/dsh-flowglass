@@ -281,7 +281,7 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     check('源码保留 80px 历史预加载，不再渲染顶部 loading 浮层', src.indexOf('> 80') >= 0
       && src.indexOf('tb-flow-older-loading') < 0 && src.indexOf('setFlowOlderLoading') < 0)
     check('CSS/源码含 Flowglass 浮动 Zoom、默认框选、悬停分支和左下会话操作条', css.indexOf('.tb-flow-zoom-float') >= 0
-      && css.indexOf('.tb-flow-selection-bar') >= 0 && css.indexOf('.fl-marquee{') >= 0
+      && css.indexOf('.tb-flow-selection-bar') >= 0 && css.indexOf('.tb-flow-bring-popup') >= 0 && css.indexOf('.fl-marquee{') >= 0
       && src.indexOf('flowSelectMode') < 0 && src.indexOf('branchFlowAt') >= 0 && src.indexOf('sendSelectedFlow') >= 0)
     check('CSS 含隐藏行与计数覆盖规则', css.indexOf('li[data-cordis-row][data-tb-hide~="1"]{display:none!important}') >= 0
       && css.indexOf('button[data-cordis-badge] span[data-tb-count]::after') >= 0)

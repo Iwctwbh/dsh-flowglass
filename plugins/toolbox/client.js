@@ -281,13 +281,22 @@ return {
       '.tb-jump-latest{position:absolute;right:16px;bottom:14px;z-index:7;display:inline-flex;align-items:center;height:28px;padding:0 13px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2,#454650);background:var(--dsw-alias-bg-overlay,#1e1f24);color:var(--tb-accent-text,#7fa7f0);font-size:12px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.3);font-family:inherit;animation:jrDrawerUp .16s ease-out}',
       '.tb-jump-latest:hover{border-color:var(--tb-accent-border,rgba(91,141,239,.45));background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b))}',
       '.tb-flow-zoom-float,.tb-flow-selection-bar{position:absolute;left:16px;bottom:14px;z-index:8;display:flex;align-items:center;gap:7px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:999px;background:var(--dsw-alias-bg-overlay,#1e1f24);box-shadow:0 4px 14px rgba(0,0,0,.3)}',
-      '.tb-flow-zoom-float{padding:3px 5px}',
-      '.tb-flow-selection-bar{max-width:calc(100% - 32px);padding:6px 8px;flex-wrap:wrap;border-radius:9px}',
+      '.tb-flow-zoom-float{padding:3px 5px;opacity:.42;transition:opacity .15s}',
+      '.tb-flow-zoom-float:hover,.tb-flow-zoom-float:focus-within{opacity:1}',
+      '.tb-flow-selection-bar{padding:5px 6px}',
       '.tb-flow-zoom{display:inline-flex;align-items:center;gap:2px}',
       '.tb-flow-zoom-btn{width:25px;height:24px;border:none;border-radius:5px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));cursor:pointer;font-family:inherit}',
       '.tb-flow-zoom-btn:hover{background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b));color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
       '.tb-flow-zoom-value{min-width:43px;text-align:center;font-size:11px;font-variant-numeric:tabular-nums;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6))}',
       '.tb-flow-select-btn{height:24px;padding:0 9px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:6px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));font-size:11px;cursor:pointer;font-family:inherit}',
+      '.tb-flow-icon-btn{position:relative;width:29px;height:29px;display:inline-flex;align-items:center;justify-content:center;border:none;border-radius:999px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));cursor:pointer;padding:0}',
+      '.tb-flow-icon-btn:hover{background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b));color:var(--tb-active-text,#7fa7f0)}',
+      '.tb-flow-icon-btn:disabled{opacity:.4;cursor:default}',
+      '.tb-flow-selection-count{min-width:22px;height:22px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;border-radius:999px;background:var(--tb-accent-bg,rgba(91,141,239,.12));color:var(--tb-active-text,#7fa7f0);font-size:10px;font-weight:700;font-variant-numeric:tabular-nums}',
+      '.tb-flow-bring-popup{position:absolute;left:16px;bottom:56px;z-index:9;width:min(320px,calc(100% - 32px));display:flex;flex-direction:column;gap:9px;padding:10px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:9px;background:var(--dsw-alias-bg-overlay,#1e1f24);box-shadow:0 8px 24px rgba(0,0,0,.35);animation:jrDrawerUp .14s ease-out}',
+      '.tb-flow-popup-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
+      '.tb-flow-popup-head>span{flex:1}',
+      '.tb-flow-popup-actions{display:flex;justify-content:flex-end;gap:7px}',
       '.tb-flow-session-select{height:25px;max-width:180px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:6px;background:var(--tb-input-bg,var(--dsw-alias-bg-layer-1,#26272e));color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4));font-size:11px;padding:0 6px;font-family:inherit}',
       '.tb-flow-toolbar-note{font-size:11px;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px}',
       // ---- 画中画（Document PiP）：主抽屉 DOM 的实时镜像窗口（脱离 WebUI 框体） ----
@@ -912,6 +921,7 @@ return {
       })
       const [flowSelectedSeqs, setFlowSelectedSeqs] = React.useState([])
       const [flowTargetSession, setFlowTargetSession] = React.useState('')
+      const [flowBringPopup, setFlowBringPopup] = React.useState(false)
       const [flowUiBusy, setFlowUiBusy] = React.useState(false)
       const [flowUiNotice, setFlowUiNotice] = React.useState('')
       const [managing, setManaging] = React.useState(false)
@@ -1551,12 +1561,14 @@ return {
 
       React.useEffect(() => {
         setFlowSelectedSeqs([])
+        setFlowBringPopup(false)
         setFlowUiNotice('')
       }, [currentSessionId])
 
       React.useEffect(() => {
         if (active === 'flow') return
         setFlowSelectedSeqs([])
+        setFlowBringPopup(false)
         setFlowUiNotice('')
       }, [active])
 
@@ -1581,14 +1593,15 @@ return {
       const branchFlowAt = async (seq) => {
         const source = flowScope()
         if (!source || !Number.isFinite(Number(seq))) return
-        if (!sessionsClient || typeof sessionsClient.fork !== 'function') { setFlowUiNotice('Harness 当前版本不支持会话分支'); return }
+        if (!sessionsClient || typeof sessionsClient.fork !== 'function') { setError('Harness 当前版本不支持会话分支'); return }
         setFlowUiBusy(true); setFlowUiNotice('正在创建分支会话…')
         try {
           const childId = await sessionsClient.fork({ sessionId: source, atSeq: Number(seq), increaseTitle: true })
           sessionsClient.open(childId)
           setFlowUiNotice('已创建分支会话')
           setFlowSelectedSeqs([])
-        } catch (e) { setFlowUiNotice('分支失败: ' + String((e && e.message) || e)) }
+          setFlowBringPopup(false)
+        } catch (e) { setError('分支失败: ' + String((e && e.message) || e)) }
         finally { setFlowUiBusy(false) }
       }
 
@@ -1622,7 +1635,7 @@ return {
 
       const createSelectedFlowSession = async () => {
         if (!flowSelectedSeqs.length) return
-        if (!sessionsClient || typeof sessionsClient.create !== 'function') { setFlowUiNotice('Harness 当前版本不支持创建空白会话'); return }
+        if (!sessionsClient || typeof sessionsClient.create !== 'function') { setError('Harness 当前版本不支持创建空白会话'); return }
         setFlowUiBusy(true); setFlowUiNotice('正在用框选内容创建新会话…')
         try {
           const context = await fetchSelectedFlowContext()
@@ -1630,8 +1643,9 @@ return {
           putFlowContextIntoDraft(sessionId, context.text, false)
           sessionsClient.open(sessionId)
           setFlowSelectedSeqs([])
+          setFlowBringPopup(false)
           setFlowUiNotice('已创建只包含框选内容的新会话草稿')
-        } catch (e) { setFlowUiNotice('新建会话失败: ' + String((e && e.message) || e)) }
+        } catch (e) { setError('新建会话失败: ' + String((e && e.message) || e)) }
         finally { setFlowUiBusy(false) }
       }
 
@@ -1645,6 +1659,7 @@ return {
           putFlowContextIntoDraft(target, context.text, true)
           sessionsClient.open(target)
           setFlowSelectedSeqs([])
+          setFlowBringPopup(false)
           setFlowUiNotice('已追加到目标会话草稿')
         } catch (e) { setFlowUiNotice('带入失败: ' + String((e && e.message) || e)) }
         finally { setFlowUiBusy(false) }
@@ -1706,6 +1721,8 @@ return {
               }
             }
             setFlowSelectedSeqs([...seqs].sort((a, b) => a - b))
+            setFlowBringPopup(false)
+            setFlowUiNotice('')
             suppressFlowClickUntilRef.current = Date.now() + 120
           }
           clearDrag()
@@ -2411,8 +2428,35 @@ return {
       )
 
       const flowSelectionBar = active !== 'flow' || managing || !flowSelectedSeqs.length ? null : React.createElement('div', { className: 'tb-flow-selection-bar' },
-        React.createElement('span', { className: 'tb-flow-toolbar-note' }, '已选 ' + flowSelectedSeqs.length + ' 项'),
-        React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, title: '创建空白 Session，只把框选内容写入新会话草稿，不继承其他历史', onClick: createSelectedFlowSession }, '所选新会话'),
+        React.createElement('span', { className: 'tb-flow-selection-count', title: '已选 ' + flowSelectedSeqs.length + ' 项' }, flowSelectedSeqs.length),
+        React.createElement('button', {
+          type: 'button', className: 'tb-flow-icon-btn', disabled: flowUiBusy,
+          title: '所选新会话：只写入框选内容草稿，不继承其他历史', onClick: createSelectedFlowSession,
+        }, React.createElement('svg', { viewBox: '0 0 16 16', width: 14, height: 14, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+          React.createElement('rect', { x: 2, y: 2.5, width: 9, height: 9, rx: 2 }),
+          React.createElement('path', { d: 'M8.5 13.5h5v-5M11 11h2.5' }),
+        )),
+        React.createElement('button', {
+          type: 'button', className: 'tb-flow-icon-btn', disabled: flowUiBusy,
+          title: '带入会话', onClick: () => { setFlowBringPopup(true); setFlowUiNotice('') },
+        }, React.createElement('svg', { viewBox: '0 0 16 16', width: 14, height: 14, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+          React.createElement('path', { d: 'M2 4.5h7.5a3 3 0 0 1 3 3v4' }),
+          React.createElement('path', { d: 'M4.5 2 2 4.5 4.5 7M10 10l2.5 2.5L15 10' }),
+        )),
+        React.createElement('button', {
+          type: 'button', className: 'tb-flow-icon-btn', disabled: flowUiBusy,
+          title: '清除框选', onClick: () => { setFlowSelectedSeqs([]); setFlowBringPopup(false) },
+        }, React.createElement('svg', { viewBox: '0 0 16 16', width: 13, height: 13, fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', 'aria-hidden': true },
+          React.createElement('path', { d: 'M3.5 3.5l9 9M12.5 3.5l-9 9' }),
+        )),
+        flowUiBusy ? React.createElement('span', { className: 'tb-tab-spin' }) : null,
+      )
+
+      const flowBringDialog = active !== 'flow' || managing || !flowSelectedSeqs.length || !flowBringPopup ? null : React.createElement('div', { className: 'tb-flow-bring-popup' },
+        React.createElement('div', { className: 'tb-flow-popup-head' },
+          React.createElement('span', null, '带入会话 · ' + flowSelectedSeqs.length + ' 项'),
+          React.createElement('button', { type: 'button', className: 'tb-flow-icon-btn', title: '关闭', onClick: () => setFlowBringPopup(false) }, '×'),
+        ),
         React.createElement('select', {
           className: 'tb-flow-session-select', value: flowTargetSession,
           title: '选择要带入框选内容的会话',
@@ -2422,10 +2466,11 @@ return {
           const label = row && (row.displayTitle || row.title) ? (row.displayTitle || row.title) : id
           return React.createElement('option', { key: id, value: id }, label + ' · ' + String(id).replace(/^session-/, '').slice(0, 8))
         })),
-        React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy || !flowTargetSession, title: '追加到目标会话草稿，不自动发送', onClick: sendSelectedFlow }, '带入会话'),
-        React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, onClick: () => setFlowSelectedSeqs([]) }, '清除'),
-        flowUiBusy ? React.createElement('span', { className: 'tb-tab-spin' }) : null,
-        flowUiNotice ? React.createElement('span', { className: 'tb-flow-toolbar-note', title: flowUiNotice }, flowUiNotice) : null,
+        flowUiNotice ? React.createElement('div', { className: 'tb-flow-toolbar-note', title: flowUiNotice }, flowUiNotice) : null,
+        React.createElement('div', { className: 'tb-flow-popup-actions' },
+          React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, onClick: () => setFlowBringPopup(false) }, '取消'),
+          React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy || !flowTargetSession, title: '追加到目标会话草稿，不自动发送', onClick: sendSelectedFlow }, '带入草稿'),
+        ),
       )
 
       // 主题切换按钮：暗色下显示太阳（点击切亮），亮色下显示月亮（点击切暗）；theme 服务缺失时不渲染
@@ -2832,6 +2877,7 @@ return {
             : React.createElement('div', { className: 'tb-notice' }, '加载面板…'),
           flowZoomControl,
           flowSelectionBar,
+          flowBringDialog,
           showJumpLatest ? React.createElement('button', {
             type: 'button',
             className: 'tb-jump-latest',
