@@ -950,6 +950,7 @@ return {
       const [flowUiBusy, setFlowUiBusy] = React.useState(false)
       const [flowUiNotice, setFlowUiNotice] = React.useState('')
       const readSessionsSnapshot = () => {
+        if (RT.bundleId !== 'flow') return undefined
         try {
           const list = sessionsClient && sessionsClient.list
           return list && typeof list.getSnapshot === 'function' ? list.getSnapshot() : undefined
@@ -1277,6 +1278,7 @@ return {
       // Better Sidebar 的外部 Tab 契约只给当前 scope，不给 useSessions。
       // Drawer 直接订阅 DSH SessionRuntime.list，为工作区会话树提供完整、实时的 ids/byId。
       React.useEffect(() => {
+        if (RT.bundleId !== 'flow') return undefined
         const list = sessionsClient && sessionsClient.list
         if (!list || typeof list.getSnapshot !== 'function') return undefined
         const sync = () => setServiceSessionsSnapshot(readSessionsSnapshot())
@@ -1591,8 +1593,12 @@ return {
       const hookSession = props.useSessions((s) => (s && s.current ? String(s.current) : undefined))
       const hookFlowSessionIds = props.useSessions((s) => (s ? s.ids : undefined))
       const hookFlowSessionsById = props.useSessions((s) => (s ? s.byId : undefined))
-      const rawFlowSessionIds = hookFlowSessionIds != null ? hookFlowSessionIds : (serviceSessionsSnapshot && serviceSessionsSnapshot.ids)
-      const rawFlowSessionsById = hookFlowSessionsById != null ? hookFlowSessionsById : (serviceSessionsSnapshot && serviceSessionsSnapshot.byId)
+      const rawFlowSessionIds = hookFlowSessionIds != null
+        ? hookFlowSessionIds
+        : (RT.bundleId === 'flow' && serviceSessionsSnapshot ? serviceSessionsSnapshot.ids : undefined)
+      const rawFlowSessionsById = hookFlowSessionsById != null
+        ? hookFlowSessionsById
+        : (RT.bundleId === 'flow' && serviceSessionsSnapshot ? serviceSessionsSnapshot.byId : undefined)
       // better-sidebar 的适配快照可能只给 byId，或把 ids 保留为 Set/其他可迭代容器。
       // 业务层统一收敛成数组，绝不直接假设 ids 可迭代。
       const flowSessionIds = Array.isArray(rawFlowSessionIds)

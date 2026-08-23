@@ -47,6 +47,7 @@ const check = (label, cond, detail) => {
   check('工作区树默认收起并使用文件夹节点', client.includes('flowTreeOpen[group.cwd] ? group.sessions.map') && client.includes('tb-flow-tree-folder'))
   check('会话树兼容 Better Sidebar 的非数组 ids/byId-only 快照', client.includes('Array.from(rawFlowSessionIds)') && client.includes('Object.keys(rawFlowSessionsById)'))
   check('Better Sidebar 嵌入态从 sessionsClient.list 实时补齐完整会话树', client.includes('serviceSessionsSnapshot') && client.includes('list.subscribe(sync)'))
+  check('Better Sidebar 会话回退只在 bundleId=flow 的 Flowglass 产品启用', client.includes("if (RT.bundleId !== 'flow') return undefined") && client.includes("RT.bundleId === 'flow' && serviceSessionsSnapshot"))
 
   const defaultBuilt = buildBundle(loader, { version: '0.1.0' })
   check('空功能选择默认构建 Flowglass', defaultBuilt.ok

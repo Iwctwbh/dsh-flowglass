@@ -290,7 +290,9 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     check('会话树兼容 Array/Set/byId-only 的 Better Sidebar 快照', src.indexOf('rawFlowSessionIds[Symbol.iterator]') >= 0
       && src.indexOf('Array.from(rawFlowSessionIds)') >= 0 && src.indexOf('Object.keys(rawFlowSessionsById)') >= 0)
     check('Better Sidebar 嵌入态直接订阅 sessionsClient.list 补齐完整会话树', src.indexOf('serviceSessionsSnapshot') >= 0
-      && src.indexOf('list.subscribe(sync)') >= 0 && src.indexOf('serviceSessionsSnapshot && serviceSessionsSnapshot.ids') >= 0)
+      && src.indexOf('list.subscribe(sync)') >= 0 && src.indexOf('serviceSessionsSnapshot.ids') >= 0)
+    check('Better Sidebar 会话回退严格限定 Flowglass，完整 Toolbox 不启用', src.indexOf("if (RT.bundleId !== 'flow') return undefined") >= 0
+      && src.indexOf("RT.bundleId === 'flow' && serviceSessionsSnapshot") >= 0)
     check('框选图标栏位于 Zoom 上方，计数使用圆形描边', css.indexOf('.tb-flow-zoom-float.with-selection{bottom:14px}') >= 0
       && css.indexOf('.tb-flow-selection-bar{bottom:54px') >= 0 && css.indexOf('.tb-flow-selection-count{width:24px;height:24px;padding:0') >= 0)
     check('面板主布局只作用于 HTML 包装层，不会把左下浮层拉成竖条', css.indexOf('.tb-frame>.tb-panel-html{') >= 0
