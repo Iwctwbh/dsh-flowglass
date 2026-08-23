@@ -1796,25 +1796,33 @@ return {
         let drag = null
         const clearDrag = () => {
           if (!drag) return
-          try { drag.box.remove() } catch (e) {}
+          if (drag.box) { try { drag.box.remove() } catch (e) {} }
           drag = null
         }
         const onDown = (e) => {
           if (e.button !== 0) return
           const rect = body.getBoundingClientRect()
           if (e.clientX > rect.right - 14) return // 保留滚动条拖动
-          const box = document.createElement('div')
-          box.className = 'fl-marquee'
-          flow.appendChild(box)
           const origin = flow.getBoundingClientRect()
-          drag = { x: e.clientX, y: e.clientY, originX: origin.left, originY: origin.top, box, moved: false }
-          try { body.setPointerCapture(e.pointerId) } catch (err) {}
+          // 按下时不改 DOM、不捕获指针：保留卡片原生 click。
+          drag = { x: e.clientX, y: e.clientY, originX: origin.left, originY: origin.top, box: null, moved: false, pointerId: e.pointerId }
         }
         const onMove = (e) => {
           if (!drag) return
           const left = Math.min(drag.x, e.clientX), top = Math.min(drag.y, e.clientY)
           const width = Math.abs(e.clientX - drag.x), height = Math.abs(e.clientY - drag.y)
-          drag.moved = drag.moved || width > 3 || height > 3
+          if (!drag.moved && (width > 3 || height > 3)) {
+            const flow = panelRef.current && panelRef.current.querySelector('[data-flow]')
+            if (!flow) { clearDrag(); return }
+            const box = document.createElement('div')
+            box.className = 'fl-marquee'
+            flow.appendChild(box)
+            drag.box = box
+            drag.moved = true
+            const body = flow.querySelector('.tb-pane-body')
+            try { if (body && drag.pointerId != null) body.setPointerCapture(drag.pointerId) } catch (err) {}
+          }
+          if (!drag.moved || !drag.box) return
           if (drag.moved) e.preventDefault()
           Object.assign(drag.box.style, { left: (left - drag.originX) + 'px', top: (top - drag.originY) + 'px', width: width + 'px', height: height + 'px' })
         }
@@ -1837,7 +1845,7 @@ return {
             suppressFlowClickUntilRef.current = Date.now() + 120
           }
           clearDrag()
-          try { body.releasePointerCapture(e.pointerId) } catch (err) {}
+          try { if (d.pointerId != null) body.releasePointerCapture(d.pointerId) } catch (err) {}
         }
         body.addEventListener('pointerdown', onDown)
         body.addEventListener('pointermove', onMove)

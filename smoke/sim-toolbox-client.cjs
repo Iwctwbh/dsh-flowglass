@@ -286,6 +286,8 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
       && src.indexOf('requestFullscreen') >= 0 && src.indexOf('flowSelectMode') < 0 && src.indexOf('branchFlowAt') >= 0 && src.indexOf('sendSelectedFlow') >= 0)
     check('框选矩形使用 Flow 根局部坐标，兼容 Better Sidebar/Zen 定位包含块', css.indexOf('.fl-marquee{position:absolute') >= 0
       && src.indexOf('originX: origin.left') >= 0 && src.indexOf("left - drag.originX") >= 0 && src.indexOf("top - drag.originY") >= 0)
+    check('指针移动超过 3px 才创建选框/捕获，普通卡片 click 不被吞', src.indexOf('box: null, moved: false') >= 0
+      && src.indexOf("if (!drag.moved && (width > 3 || height > 3))") >= 0 && src.indexOf('body.setPointerCapture(drag.pointerId)') >= 0)
     check('框选图标栏复用 Zoom 透明度/按钮尺寸，工作区树默认收起并使用文件夹图标', css.indexOf('.tb-flow-zoom-float,.tb-flow-selection-bar{padding:3px 5px;opacity:.42') >= 0
       && css.indexOf('.tb-flow-icon-btn{position:relative;width:25px;height:24px') >= 0
       && src.indexOf('flowTreeOpen[group.cwd] ? group.sessions.map') >= 0 && src.indexOf("className: 'tb-flow-tree-folder'") >= 0)
