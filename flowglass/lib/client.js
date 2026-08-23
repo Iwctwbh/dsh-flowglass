@@ -647,7 +647,7 @@ return {
       '.fl-info:hover .fl-info-pop,.fl-info:focus .fl-info-pop{display:block}',
       '[data-flow-select-seq].fl-select-picked{outline:2px solid var(--tb-accent,#3f6fd9);outline-offset:2px;box-shadow:0 0 0 4px var(--tb-accent-ring,rgba(91,141,239,.16))}',
       '[data-flow-select-mode="1"] .tb-pane-body{cursor:crosshair;user-select:none}',
-      '.fl-marquee{position:fixed;z-index:30;border:1px solid var(--tb-accent,#3f6fd9);background:var(--tb-accent-ring,rgba(91,141,239,.16));pointer-events:none;border-radius:3px}',
+      '.fl-marquee{position:absolute;z-index:30;border:1px solid var(--tb-accent,#3f6fd9);background:var(--tb-accent-ring,rgba(91,141,239,.16));pointer-events:none;border-radius:3px}',
       // 选中高亮：tint 叠在实色底上（直接用半透明 accent 底会被身后主干线穿透）
       '.fl-node.fl-on{border-color:var(--tb-accent-border,rgba(91,141,239,.6));background:linear-gradient(var(--tb-accent-bg,rgba(91,141,239,.08)),var(--tb-accent-bg,rgba(91,141,239,.08))),var(--tb-input-bg,var(--dsw-alias-bg-layer-1,#26272e))}',
       '.fl-model{flex:none;font-size:10px;font-family:ui-monospace,Consolas,monospace;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));background:var(--dsw-alias-bg-base,#17181d);border-radius:3px;padding:1px 5px}',
@@ -1935,7 +1935,8 @@ return {
           const box = document.createElement('div')
           box.className = 'fl-marquee'
           flow.appendChild(box)
-          drag = { x: e.clientX, y: e.clientY, box, moved: false }
+          const origin = flow.getBoundingClientRect()
+          drag = { x: e.clientX, y: e.clientY, originX: origin.left, originY: origin.top, box, moved: false }
           try { body.setPointerCapture(e.pointerId) } catch (err) {}
         }
         const onMove = (e) => {
@@ -1944,7 +1945,7 @@ return {
           const width = Math.abs(e.clientX - drag.x), height = Math.abs(e.clientY - drag.y)
           drag.moved = drag.moved || width > 3 || height > 3
           if (drag.moved) e.preventDefault()
-          Object.assign(drag.box.style, { left: left + 'px', top: top + 'px', width: width + 'px', height: height + 'px' })
+          Object.assign(drag.box.style, { left: (left - drag.originX) + 'px', top: (top - drag.originY) + 'px', width: width + 'px', height: height + 'px' })
         }
         const onUp = (e) => {
           if (!drag) return
