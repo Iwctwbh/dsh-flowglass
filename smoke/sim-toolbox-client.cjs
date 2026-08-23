@@ -288,6 +288,17 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
       && src.indexOf('originX: origin.left') >= 0 && src.indexOf("left - drag.originX") >= 0 && src.indexOf("top - drag.originY") >= 0)
     check('指针移动超过 3px 才创建选框/捕获，普通卡片 click 不被吞', src.indexOf('box: null, moved: false') >= 0
       && src.indexOf("if (!drag.moved && (width > 3 || height > 3))") >= 0 && src.indexOf('body.setPointerCapture(drag.pointerId)') >= 0)
+    check('框选后空白处单击取消框选并收起详情侧栏，卡片/交互控件与忙碌态不受影响', (() => {
+      const at = src.indexOf('空白处单击：取消框选')
+      return at >= 0 && src.indexOf("(flowSelectedSeqs.length || flow.querySelector('.fl-rail'))") >= 0
+        && src.indexOf("!t.closest('[data-flow-select-seq]')", at) >= 0
+        && src.indexOf("!t.closest('button,a,input,select,textarea,label')", at) >= 0
+        && src.indexOf('!e.button && !flowUiBusy && (flowSelectedSeqs.length') >= 0
+        && src.indexOf('[active, html, flowSelectedSeqs, flowUiBusy]', at) >= 0
+        && src.indexOf('setFlowSelectedSeqs([])', at) >= 0 && src.indexOf('setFlowBringPopup(false)', src.indexOf('setFlowSelectedSeqs([])', at)) >= 0
+        && src.indexOf("const railX = flow.querySelector('.fl-rail-x')", at) >= 0
+        && src.indexOf("loadPanelRef.current('flow', 'fdetail', railX)", at) >= 0
+    })())
     check('框选图标栏复用 Zoom 透明度/按钮尺寸，工作区树默认收起并使用文件夹图标', css.indexOf('.tb-flow-zoom-float,.tb-flow-selection-bar{padding:3px 5px;opacity:.42') >= 0
       && css.indexOf('.tb-flow-icon-btn{position:relative;width:25px;height:24px') >= 0
       && src.indexOf('flowTreeOpen[group.cwd] ? group.sessions.map') >= 0 && src.indexOf("className: 'tb-flow-tree-folder'") >= 0)

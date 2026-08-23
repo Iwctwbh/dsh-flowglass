@@ -54,8 +54,8 @@ dsh plugin --profile web add dsh-flowglass
 不传功能参数，或显式传入 `--flow`，都会构建 `dsh-flowglass`：
 
 ```powershell
-node scripts/build-toolbox-bundle.mjs --version 0.3.0 --clean
-# 等价：node scripts/build-toolbox-bundle.mjs --flow --version 0.3.0 --clean
+node scripts/build-toolbox-bundle.mjs --version 0.4.0 --clean
+# 等价：node scripts/build-toolbox-bundle.mjs --flow --version 0.4.0 --clean
 
 node scripts/verify-bundle.mjs dist/toolbox-bundles/flow --pack
 Push-Location dist/toolbox-bundles/flow

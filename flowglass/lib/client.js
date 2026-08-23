@@ -1972,6 +1972,17 @@ return {
             setFlowBringPopup(false)
             setFlowUiNotice('')
             suppressFlowClickUntilRef.current = Date.now() + 120
+          } else if (!e.button && !flowUiBusy && (flowSelectedSeqs.length || flow.querySelector('.fl-rail'))) {
+            // 空白处单击：取消框选并关闭详情侧拉框（落在卡片或交互控件上则不干预，保留其原生行为）
+            const t = e.target
+            if (t && typeof t.closest === 'function'
+              && !t.closest('[data-flow-select-seq]')
+              && !t.closest('button,a,input,select,textarea,label')) {
+              if (flowSelectedSeqs.length) { setFlowSelectedSeqs([]); setFlowBringPopup(false) }
+              // 详情侧栏经 ✕ 同款 fdetail 切换路径收起（st.expanded === seq → null）
+              const railX = flow.querySelector('.fl-rail-x')
+              if (railX && typeof loadPanelRef.current === 'function') loadPanelRef.current('flow', 'fdetail', railX)
+            }
           }
           clearDrag()
           try { if (d.pointerId != null) body.releasePointerCapture(d.pointerId) } catch (err) {}
@@ -1984,7 +1995,7 @@ return {
           clearDrag()
           try { body.removeEventListener('pointerdown', onDown); body.removeEventListener('pointermove', onMove); body.removeEventListener('pointerup', onUp); body.removeEventListener('pointercancel', onUp) } catch (e) {}
         }
-      }, [active, html, flowSelectedSeqs])
+      }, [active, html, flowSelectedSeqs, flowUiBusy])
 
       function collectFields() {
         const fields = {}
