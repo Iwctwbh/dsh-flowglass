@@ -283,7 +283,8 @@ return {
       '.tb-flow-zoom-float,.tb-flow-selection-bar{position:absolute;left:16px;bottom:14px;z-index:8;display:flex;align-items:center;gap:7px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:999px;background:var(--dsw-alias-bg-overlay,#1e1f24);box-shadow:0 4px 14px rgba(0,0,0,.3)}',
       '.tb-flow-zoom-float{padding:3px 5px;opacity:.42;transition:opacity .15s}',
       '.tb-flow-zoom-float:hover,.tb-flow-zoom-float:focus-within{opacity:1}',
-      '.tb-flow-selection-bar{padding:5px 6px}',
+      '.tb-flow-zoom-float.with-selection{bottom:56px}',
+      '.tb-flow-selection-bar{padding:5px 6px;flex-wrap:nowrap;white-space:nowrap}',
       '.tb-flow-zoom{display:inline-flex;align-items:center;gap:2px}',
       '.tb-flow-zoom-btn{width:25px;height:24px;border:none;border-radius:5px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));cursor:pointer;font-family:inherit}',
       '.tb-flow-zoom-btn:hover{background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b));color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
@@ -293,10 +294,23 @@ return {
       '.tb-flow-icon-btn:hover{background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b));color:var(--tb-active-text,#7fa7f0)}',
       '.tb-flow-icon-btn:disabled{opacity:.4;cursor:default}',
       '.tb-flow-selection-count{min-width:22px;height:22px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;border-radius:999px;background:var(--tb-accent-bg,rgba(91,141,239,.12));color:var(--tb-active-text,#7fa7f0);font-size:10px;font-weight:700;font-variant-numeric:tabular-nums}',
-      '.tb-flow-bring-popup{position:absolute;left:16px;bottom:56px;z-index:9;width:min(320px,calc(100% - 32px));display:flex;flex-direction:column;gap:9px;padding:10px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:9px;background:var(--dsw-alias-bg-overlay,#1e1f24);box-shadow:0 8px 24px rgba(0,0,0,.35);animation:jrDrawerUp .14s ease-out}',
+      '.tb-flow-bring-popup{position:absolute;left:16px;bottom:56px;z-index:9;width:min(360px,calc(100% - 32px));display:flex;flex-direction:column;gap:9px;padding:10px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:9px;background:var(--dsw-alias-bg-overlay,#1e1f24);box-shadow:0 8px 24px rgba(0,0,0,.35);animation:jrDrawerUp .14s ease-out}',
       '.tb-flow-popup-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
       '.tb-flow-popup-head>span{flex:1}',
       '.tb-flow-popup-actions{display:flex;justify-content:flex-end;gap:7px}',
+      '.tb-flow-session-tree{display:flex;flex-direction:column;gap:8px;max-height:300px;overflow:auto;padding-right:3px}',
+      '.tb-flow-tree-group{display:flex;flex-direction:column;gap:3px}',
+      '.tb-flow-tree-workspace{display:flex;align-items:center;gap:6px;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));font-size:10.5px;font-weight:600;padding:2px 5px}',
+      '.tb-flow-tree-workspace::before{content:"";width:7px;height:7px;border-left:1px solid currentColor;border-bottom:1px solid currentColor;opacity:.7}',
+      '.tb-flow-tree-session{height:28px;display:flex;align-items:center;gap:7px;margin-left:12px;padding:0 8px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));text-align:left;cursor:pointer;font-family:inherit;font-size:11px}',
+      '.tb-flow-tree-session:hover{background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b));color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
+      '.tb-flow-tree-session.on{border-color:var(--tb-accent-border,rgba(91,141,239,.5));background:var(--tb-accent-bg,rgba(91,141,239,.10));color:var(--tb-active-text,#7fa7f0)}',
+      '.tb-flow-tree-session>span:first-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.tb-flow-tree-id{flex:none;font-family:ui-monospace,Consolas,monospace;font-size:9.5px;opacity:.72}',
+      // Zen：脱离 sidebar/drawer 几何约束占满视口，隐藏 Toolbox 外壳，Flow 自身 header 仍保留。
+      '.jr-drawer.jr-flow-zen{position:fixed!important;inset:0!important;z-index:1600!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;margin:0!important;border:none!important;border-radius:0!important;box-shadow:none!important}',
+      '.jr-flow-zen>.jr-drawer-header,.jr-flow-zen>.tb-nav{display:none!important}',
+      '.jr-flow-zen>.jr-drawer-body{flex:1;min-height:0;padding:10px!important}',
       '.tb-flow-session-select{height:25px;max-width:180px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:6px;background:var(--tb-input-bg,var(--dsw-alias-bg-layer-1,#26272e));color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4));font-size:11px;padding:0 6px;font-family:inherit}',
       '.tb-flow-toolbar-note{font-size:11px;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px}',
       // ---- 画中画（Document PiP）：主抽屉 DOM 的实时镜像窗口（脱离 WebUI 框体） ----
@@ -919,6 +933,7 @@ return {
       const [flowZoom, setFlowZoom] = React.useState(() => {
         try { const n = Number(localStorage.getItem(RT.storageKey('flow.zoom'))); return n >= 60 && n <= 150 ? n : 100 } catch (e) { return 100 }
       })
+      const [flowZen, setFlowZen] = React.useState(false)
       const [flowSelectedSeqs, setFlowSelectedSeqs] = React.useState([])
       const [flowTargetSession, setFlowTargetSession] = React.useState('')
       const [flowBringPopup, setFlowBringPopup] = React.useState(false)
@@ -1567,10 +1582,18 @@ return {
 
       React.useEffect(() => {
         if (active === 'flow') return
+        setFlowZen(false)
         setFlowSelectedSeqs([])
         setFlowBringPopup(false)
         setFlowUiNotice('')
       }, [active])
+
+      React.useEffect(() => {
+        if (!flowZen || typeof window === 'undefined') return undefined
+        const onKey = (e) => { if (e.key === 'Escape') setFlowZen(false) }
+        window.addEventListener('keydown', onKey)
+        return () => { try { window.removeEventListener('keydown', onKey) } catch (e) {} }
+      }, [flowZen])
 
       const flowScope = () => {
         const flow = panelRef.current && panelRef.current.querySelector('[data-flow][data-flow-scope]')
@@ -2419,11 +2442,37 @@ return {
 
       const curW = () => width || 520
 
-      const flowZoomControl = active !== 'flow' || managing || flowSelectedSeqs.length ? null : React.createElement('div', { className: 'tb-flow-zoom-float' },
+      const flowSessionGroups = (() => {
+        const groups = new Map()
+        for (const id of flowSessionIds) {
+          const row = flowSessionsById[id] || {}
+          const cwd = typeof row.cwd === 'string' && row.cwd ? row.cwd : '其他会话'
+          if (!groups.has(cwd)) groups.set(cwd, [])
+          groups.get(cwd).push({ id, row })
+        }
+        return [...groups.entries()].sort(([a], [b]) => {
+          if (a === currentCwd) return -1
+          if (b === currentCwd) return 1
+          return a.localeCompare(b)
+        }).map(([cwd, sessions]) => ({
+          cwd,
+          label: cwd === '其他会话' ? cwd : (cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cwd),
+          sessions,
+        }))
+      })()
+
+      const flowZoomControl = active !== 'flow' || managing || flowBringPopup ? null : React.createElement('div', { className: 'tb-flow-zoom-float' + (flowSelectedSeqs.length ? ' with-selection' : '') },
         React.createElement('div', { className: 'tb-flow-zoom', title: '缩放流镜画布，不改变 header 和滚动区尺寸' },
           React.createElement('button', { type: 'button', className: 'tb-flow-zoom-btn', disabled: flowZoom <= 60, onClick: () => stepFlowZoom(-1) }, '−'),
           React.createElement('button', { type: 'button', className: 'tb-flow-zoom-value tb-flow-zoom-btn', title: '恢复 100%', onClick: () => setFlowZoomLevel(100) }, flowZoom + '%'),
           React.createElement('button', { type: 'button', className: 'tb-flow-zoom-btn', disabled: flowZoom >= 150, onClick: () => stepFlowZoom(1) }, '+'),
+          React.createElement('button', {
+            type: 'button', className: 'tb-flow-zoom-btn', title: flowZen ? '退出 Zen 全屏（Esc）' : '进入 Zen 全屏', onClick: () => setFlowZen((v) => !v),
+          }, React.createElement('svg', { viewBox: '0 0 16 16', width: 13, height: 13, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+            flowZen
+              ? React.createElement('path', { d: 'M6 2v4H2M10 2v4h4M6 14v-4H2M10 14v-4h4' })
+              : React.createElement('path', { d: 'M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4' }),
+          )),
         ),
       )
 
@@ -2457,15 +2506,21 @@ return {
           React.createElement('span', null, '带入会话 · ' + flowSelectedSeqs.length + ' 项'),
           React.createElement('button', { type: 'button', className: 'tb-flow-icon-btn', title: '关闭', onClick: () => setFlowBringPopup(false) }, '×'),
         ),
-        React.createElement('select', {
-          className: 'tb-flow-session-select', value: flowTargetSession,
-          title: '选择要带入框选内容的会话',
-          onChange: (e) => setFlowTargetSession(e.target.value),
-        }, flowSessionIds.map((id) => {
-          const row = flowSessionsById[id]
-          const label = row && (row.displayTitle || row.title) ? (row.displayTitle || row.title) : id
-          return React.createElement('option', { key: id, value: id }, label + ' · ' + String(id).replace(/^session-/, '').slice(0, 8))
-        })),
+        React.createElement('div', { className: 'tb-flow-session-tree', role: 'tree', 'aria-label': '按工作区分组的会话' },
+          flowSessionGroups.map((group) => React.createElement('div', { className: 'tb-flow-tree-group', key: group.cwd, role: 'group' },
+            React.createElement('div', { className: 'tb-flow-tree-workspace', title: group.cwd }, group.label + ' · ' + group.sessions.length),
+            group.sessions.map(({ id, row }) => {
+              const label = row && (row.displayTitle || row.title) ? (row.displayTitle || row.title) : id
+              return React.createElement('button', {
+                type: 'button', role: 'treeitem', key: id,
+                className: 'tb-flow-tree-session' + (flowTargetSession === id ? ' on' : ''),
+                'aria-selected': flowTargetSession === id,
+                title: label + '\n' + id,
+                onClick: () => setFlowTargetSession(id),
+              }, React.createElement('span', null, label), React.createElement('span', { className: 'tb-flow-tree-id' }, String(id).replace(/^session-/, '').slice(0, 8)))
+            }),
+          )),
+        ),
         flowUiNotice ? React.createElement('div', { className: 'tb-flow-toolbar-note', title: flowUiNotice }, flowUiNotice) : null,
         React.createElement('div', { className: 'tb-flow-popup-actions' },
           React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, onClick: () => setFlowBringPopup(false) }, '取消'),
@@ -2889,9 +2944,10 @@ return {
 
       const drawerEl = React.createElement('div', {
         ref: drawerRef,
-        className: embedded
+        className: (embedded
           ? 'jr-drawer jr-drawer-embedded'
-          : 'jr-drawer' + (dockMode === 'right' ? ' jr-docked' : dockMode === 'full' ? ' jr-docked-full' : ''),
+          : 'jr-drawer' + (dockMode === 'right' ? ' jr-docked' : dockMode === 'full' ? ' jr-docked-full' : ''))
+          + (flowZen && active === 'flow' ? ' jr-flow-zen' : ''),
         // bundle root：CSS scope / 主题变量挂载点（多 bundle 共存隔离；PiP 克隆随 DOM 属性一并镜像）
         'data-dsh-toolbox-root': RT.bundleId,
         style,
