@@ -281,27 +281,32 @@ return {
       '.tb-jump-latest{position:absolute;right:16px;bottom:14px;z-index:7;display:inline-flex;align-items:center;height:28px;padding:0 13px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2,#454650);background:var(--dsw-alias-bg-overlay,#1e1f24);color:var(--tb-accent-text,#7fa7f0);font-size:12px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.3);font-family:inherit;animation:jrDrawerUp .16s ease-out}',
       '.tb-jump-latest:hover{border-color:var(--tb-accent-border,rgba(91,141,239,.45));background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b))}',
       '.tb-flow-zoom-float,.tb-flow-selection-bar{position:absolute;left:16px;bottom:14px;z-index:8;display:flex;align-items:center;gap:7px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:999px;background:var(--dsw-alias-bg-overlay,#1e1f24);box-shadow:0 4px 14px rgba(0,0,0,.3)}',
-      '.tb-flow-zoom-float{padding:3px 5px;opacity:.42;transition:opacity .15s}',
-      '.tb-flow-zoom-float:hover,.tb-flow-zoom-float:focus-within{opacity:1}',
+      '.tb-flow-zoom-float,.tb-flow-selection-bar{padding:3px 5px;opacity:.42;transition:opacity .15s}',
+      '.tb-flow-zoom-float:hover,.tb-flow-zoom-float:focus-within,.tb-flow-selection-bar:hover,.tb-flow-selection-bar:focus-within{opacity:1}',
       '.tb-flow-zoom-float.with-selection{bottom:56px}',
-      '.tb-flow-selection-bar{padding:5px 6px;flex-wrap:nowrap;white-space:nowrap}',
+      '.tb-flow-selection-bar{flex-wrap:nowrap;white-space:nowrap}',
       '.tb-flow-zoom{display:inline-flex;align-items:center;gap:2px}',
       '.tb-flow-zoom-btn{width:25px;height:24px;border:none;border-radius:5px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));cursor:pointer;font-family:inherit}',
       '.tb-flow-zoom-btn:hover{background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b));color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
       '.tb-flow-zoom-value{min-width:43px;text-align:center;font-size:11px;font-variant-numeric:tabular-nums;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6))}',
       '.tb-flow-select-btn{height:24px;padding:0 9px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:6px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));font-size:11px;cursor:pointer;font-family:inherit}',
-      '.tb-flow-icon-btn{position:relative;width:29px;height:29px;display:inline-flex;align-items:center;justify-content:center;border:none;border-radius:999px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));cursor:pointer;padding:0}',
+      '.tb-flow-icon-btn{position:relative;width:25px;height:24px;display:inline-flex;align-items:center;justify-content:center;border:none;border-radius:5px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));cursor:pointer;padding:0}',
       '.tb-flow-icon-btn:hover{background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b));color:var(--tb-active-text,#7fa7f0)}',
       '.tb-flow-icon-btn:disabled{opacity:.4;cursor:default}',
-      '.tb-flow-selection-count{min-width:22px;height:22px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;border-radius:999px;background:var(--tb-accent-bg,rgba(91,141,239,.12));color:var(--tb-active-text,#7fa7f0);font-size:10px;font-weight:700;font-variant-numeric:tabular-nums}',
+      '.tb-flow-selection-count{min-width:28px;height:24px;padding:0 5px;display:inline-flex;align-items:center;justify-content:center;border-radius:5px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));font-size:11px;font-weight:600;font-variant-numeric:tabular-nums}',
       '.tb-flow-bring-popup{position:absolute;left:16px;bottom:56px;z-index:9;width:min(360px,calc(100% - 32px));display:flex;flex-direction:column;gap:9px;padding:10px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:9px;background:var(--dsw-alias-bg-overlay,#1e1f24);box-shadow:0 8px 24px rgba(0,0,0,.35);animation:jrDrawerUp .14s ease-out}',
       '.tb-flow-popup-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
       '.tb-flow-popup-head>span{flex:1}',
       '.tb-flow-popup-actions{display:flex;justify-content:flex-end;gap:7px}',
       '.tb-flow-session-tree{display:flex;flex-direction:column;gap:8px;max-height:300px;overflow:auto;padding-right:3px}',
       '.tb-flow-tree-group{display:flex;flex-direction:column;gap:3px}',
-      '.tb-flow-tree-workspace{display:flex;align-items:center;gap:6px;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));font-size:10.5px;font-weight:600;padding:2px 5px}',
-      '.tb-flow-tree-workspace::before{content:"";width:7px;height:7px;border-left:1px solid currentColor;border-bottom:1px solid currentColor;opacity:.7}',
+      '.tb-flow-tree-workspace{width:100%;height:29px;display:flex;align-items:center;gap:7px;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));font-size:10.5px;font-weight:600;padding:0 6px;border:none;border-radius:6px;background:transparent;cursor:pointer;text-align:left;font-family:inherit}',
+      '.tb-flow-tree-workspace:hover{background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b));color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
+      '.tb-flow-tree-folder{flex:none;color:var(--tb-active-text,#7fa7f0)}',
+      '.tb-flow-tree-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.tb-flow-tree-count{flex:none;font-size:9.5px;opacity:.7}',
+      '.tb-flow-tree-chevron{flex:none;font-size:9px;transition:transform .12s;opacity:.7}',
+      '.tb-flow-tree-workspace.open .tb-flow-tree-chevron{transform:rotate(90deg)}',
       '.tb-flow-tree-session{height:28px;display:flex;align-items:center;gap:7px;margin-left:12px;padding:0 8px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));text-align:left;cursor:pointer;font-family:inherit;font-size:11px}',
       '.tb-flow-tree-session:hover{background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b));color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
       '.tb-flow-tree-session.on{border-color:var(--tb-accent-border,rgba(91,141,239,.5));background:var(--tb-accent-bg,rgba(91,141,239,.10));color:var(--tb-active-text,#7fa7f0)}',
@@ -937,6 +942,7 @@ return {
       const [flowSelectedSeqs, setFlowSelectedSeqs] = React.useState([])
       const [flowTargetSession, setFlowTargetSession] = React.useState('')
       const [flowBringPopup, setFlowBringPopup] = React.useState(false)
+      const [flowTreeOpen, setFlowTreeOpen] = React.useState({})
       const [flowUiBusy, setFlowUiBusy] = React.useState(false)
       const [flowUiNotice, setFlowUiNotice] = React.useState('')
       const [managing, setManaging] = React.useState(false)
@@ -1594,6 +1600,7 @@ return {
       React.useEffect(() => {
         setFlowSelectedSeqs([])
         setFlowBringPopup(false)
+        setFlowTreeOpen({})
         setFlowUiNotice('')
       }, [currentSessionId])
 
@@ -1602,6 +1609,7 @@ return {
         exitFlowZen()
         setFlowSelectedSeqs([])
         setFlowBringPopup(false)
+        setFlowTreeOpen({})
         setFlowUiNotice('')
       }, [active])
 
@@ -1657,6 +1665,7 @@ return {
           setFlowUiNotice('已创建分支会话')
           setFlowSelectedSeqs([])
           setFlowBringPopup(false)
+          setFlowTreeOpen({})
         } catch (e) { setError('分支失败: ' + String((e && e.message) || e)) }
         finally { setFlowUiBusy(false) }
       }
@@ -1700,6 +1709,7 @@ return {
           sessionsClient.open(sessionId)
           setFlowSelectedSeqs([])
           setFlowBringPopup(false)
+          setFlowTreeOpen({})
           setFlowUiNotice('已创建只包含框选内容的新会话草稿')
         } catch (e) { setError('新建会话失败: ' + String((e && e.message) || e)) }
         finally { setFlowUiBusy(false) }
@@ -1716,6 +1726,7 @@ return {
           sessionsClient.open(target)
           setFlowSelectedSeqs([])
           setFlowBringPopup(false)
+          setFlowTreeOpen({})
           setFlowUiNotice('已追加到目标会话草稿')
         } catch (e) { setFlowUiNotice('带入失败: ' + String((e && e.message) || e)) }
         finally { setFlowUiBusy(false) }
@@ -2520,7 +2531,7 @@ return {
         )),
         React.createElement('button', {
           type: 'button', className: 'tb-flow-icon-btn', disabled: flowUiBusy,
-          title: '带入会话', onClick: () => { setFlowBringPopup(true); setFlowUiNotice('') },
+          title: '带入会话', onClick: () => { setFlowBringPopup(true); setFlowTreeOpen({}); setFlowUiNotice('') },
         }, React.createElement('svg', { viewBox: '0 0 16 16', width: 14, height: 14, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
           React.createElement('path', { d: 'M2 4.5h7.5a3 3 0 0 1 3 3v4' }),
           React.createElement('path', { d: 'M4.5 2 2 4.5 4.5 7M10 10l2.5 2.5L15 10' }),
@@ -2541,8 +2552,20 @@ return {
         ),
         React.createElement('div', { className: 'tb-flow-session-tree', role: 'tree', 'aria-label': '按工作区分组的会话' },
           flowSessionGroups.map((group) => React.createElement('div', { className: 'tb-flow-tree-group', key: group.cwd, role: 'group' },
-            React.createElement('div', { className: 'tb-flow-tree-workspace', title: group.cwd }, group.label + ' · ' + group.sessions.length),
-            group.sessions.map(({ id, row }) => {
+            React.createElement('button', {
+              type: 'button', className: 'tb-flow-tree-workspace' + (flowTreeOpen[group.cwd] ? ' open' : ''), title: group.cwd,
+              'aria-expanded': Boolean(flowTreeOpen[group.cwd]),
+              onClick: () => setFlowTreeOpen((cur) => ({ ...cur, [group.cwd]: !cur[group.cwd] })),
+            },
+              React.createElement('svg', { className: 'tb-flow-tree-folder', viewBox: '0 0 16 16', width: 14, height: 14, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+                React.createElement('path', { d: 'M1.8 4.2h4l1.3 1.5h7.1v6.6a1.3 1.3 0 0 1-1.3 1.3H3.1a1.3 1.3 0 0 1-1.3-1.3z' }),
+                React.createElement('path', { d: 'M1.8 5.7V3.8a1.3 1.3 0 0 1 1.3-1.3h2.7l1.3 1.7h5.8a1.3 1.3 0 0 1 1.3 1.3v.2' }),
+              ),
+              React.createElement('span', { className: 'tb-flow-tree-label' }, group.label),
+              React.createElement('span', { className: 'tb-flow-tree-count' }, group.sessions.length),
+              React.createElement('span', { className: 'tb-flow-tree-chevron', 'aria-hidden': true }, '▶'),
+            ),
+            flowTreeOpen[group.cwd] ? group.sessions.map(({ id, row }) => {
               const label = row && (row.displayTitle || row.title) ? (row.displayTitle || row.title) : id
               return React.createElement('button', {
                 type: 'button', role: 'treeitem', key: id,
@@ -2551,7 +2574,7 @@ return {
                 title: label + '\n' + id,
                 onClick: () => setFlowTargetSession(id),
               }, React.createElement('span', null, label), React.createElement('span', { className: 'tb-flow-tree-id' }, String(id).replace(/^session-/, '').slice(0, 8)))
-            }),
+            }) : null,
           )),
         ),
         flowUiNotice ? React.createElement('div', { className: 'tb-flow-toolbar-note', title: flowUiNotice }, flowUiNotice) : null,

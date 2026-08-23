@@ -44,6 +44,7 @@ const check = (label, cond, detail) => {
     && client.includes('requestFullscreen') && client.includes('fullscreenchange')
     && client.includes('tb-flow-selection-bar') && client.includes('tb-flow-bring-popup') && client.includes('tb-flow-session-tree') && client.includes('fl-marquee')
     && client.includes('sessionsClient.fork') && client.includes('sessionsClient.create') && client.includes('inputActions'))
+  check('工作区树默认收起并使用文件夹节点', client.includes('flowTreeOpen[group.cwd] ? group.sessions.map') && client.includes('tb-flow-tree-folder'))
 
   const defaultBuilt = buildBundle(loader, { version: '0.1.0' })
   check('空功能选择默认构建 Flowglass', defaultBuilt.ok

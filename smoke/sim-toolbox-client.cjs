@@ -284,6 +284,9 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
       && css.indexOf('.jr-drawer.jr-flow-zen') >= 0 && css.indexOf('.tb-flow-selection-bar') >= 0
       && css.indexOf('.tb-flow-bring-popup') >= 0 && css.indexOf('.tb-flow-session-tree') >= 0 && css.indexOf('.fl-marquee{') >= 0
       && src.indexOf('requestFullscreen') >= 0 && src.indexOf('flowSelectMode') < 0 && src.indexOf('branchFlowAt') >= 0 && src.indexOf('sendSelectedFlow') >= 0)
+    check('框选图标栏复用 Zoom 透明度/按钮尺寸，工作区树默认收起并使用文件夹图标', css.indexOf('.tb-flow-zoom-float,.tb-flow-selection-bar{padding:3px 5px;opacity:.42') >= 0
+      && css.indexOf('.tb-flow-icon-btn{position:relative;width:25px;height:24px') >= 0
+      && src.indexOf('flowTreeOpen[group.cwd] ? group.sessions.map') >= 0 && src.indexOf("className: 'tb-flow-tree-folder'") >= 0)
     check('面板主布局只作用于 HTML 包装层，不会把左下浮层拉成竖条', css.indexOf('.tb-frame>.tb-panel-html{') >= 0
       && css.indexOf('.tb-frame:has(.tb-pane)>div{') < 0 && src.indexOf("className: 'tb-panel-html'") >= 0)
     check('CSS 含隐藏行与计数覆盖规则', css.indexOf('li[data-cordis-row][data-tb-hide~="1"]{display:none!important}') >= 0
