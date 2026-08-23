@@ -280,8 +280,16 @@ return {
       // 「回到最新」浮标：只控制工具面板的主 .tb-pane-body，不影响 Harness 聊天区。
       '.tb-jump-latest{position:absolute;right:16px;bottom:14px;z-index:7;display:inline-flex;align-items:center;height:28px;padding:0 13px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2,#454650);background:var(--dsw-alias-bg-overlay,#1e1f24);color:var(--tb-accent-text,#7fa7f0);font-size:12px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.3);font-family:inherit;animation:jrDrawerUp .16s ease-out}',
       '.tb-jump-latest:hover{border-color:var(--tb-accent-border,rgba(91,141,239,.45));background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b))}',
-      // Flowglass 历史加载用 Client 浮层，不放在会被 innerHTML 替换的滚动内容里。
-      '.tb-flow-older-loading{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:10;height:30px;display:inline-flex;align-items:center;gap:8px;padding:0 13px;border:1px solid var(--tb-accent-border,rgba(91,141,239,.45));border-radius:999px;background:var(--dsw-alias-bg-overlay,#1e1f24);color:var(--tb-accent-text,#7fa7f0);font-size:12px;font-weight:600;white-space:nowrap;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,.3);animation:jrDrawerUp .16s ease-out}',
+      '.tb-flow-toolbar{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:7px;padding:7px 9px;border:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));border-radius:8px;background:var(--tb-input-bg,var(--dsw-alias-bg-layer-1,#26272e))}',
+      '.tb-flow-toolbar-sep{width:1px;height:18px;background:var(--tb-border-2,var(--dsw-alias-border-l2,#454650));margin:0 2px}',
+      '.tb-flow-zoom{display:inline-flex;align-items:center;gap:2px}',
+      '.tb-flow-zoom-btn{width:25px;height:24px;border:none;border-radius:5px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));cursor:pointer;font-family:inherit}',
+      '.tb-flow-zoom-btn:hover{background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b));color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
+      '.tb-flow-zoom-value{min-width:43px;text-align:center;font-size:11px;font-variant-numeric:tabular-nums;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6))}',
+      '.tb-flow-select-btn{height:24px;padding:0 9px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:6px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));font-size:11px;cursor:pointer;font-family:inherit}',
+      '.tb-flow-select-btn.on{border-color:var(--tb-accent-border,rgba(91,141,239,.55));background:var(--tb-accent-bg,rgba(91,141,239,.10));color:var(--tb-active-text,#7fa7f0)}',
+      '.tb-flow-session-select{height:25px;max-width:180px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:6px;background:var(--tb-input-bg,var(--dsw-alias-bg-layer-1,#26272e));color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4));font-size:11px;padding:0 6px;font-family:inherit}',
+      '.tb-flow-toolbar-note{font-size:11px;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px}',
       // ---- 画中画（Document PiP）：主抽屉 DOM 的实时镜像窗口（脱离 WebUI 框体） ----
       '.jr-pip-root{display:flex;flex-direction:column;height:100vh;background:var(--dsw-alias-bg-base,#17181d);color:var(--dsw-alias-label-primary,#e8e8ea);font-size:13px;overflow:hidden;font-family:inherit}',
       '.jr-pip-bar{flex:none;display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l1,#3a3b44);background:var(--dsw-alias-bg-layer-1,#26272e)}',
@@ -472,6 +480,11 @@ return {
       // 消息卡可点开详情（与工具卡同一交互）：手势 + 选中高亮
       '.fl-node[data-action]{cursor:pointer;transition:border-color .12s}',
       '.fl-node[data-action]:hover{border-color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#6f707c))}',
+      '.fl-branch-btn{flex:none;width:23px;height:21px;margin-left:auto;display:inline-flex;align-items:center;justify-content:center;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));cursor:pointer;padding:0}',
+      '.fl-branch-btn:hover{color:var(--tb-active-text,#7fa7f0);border-color:var(--tb-accent-border,rgba(91,141,239,.45));background:var(--tb-accent-bg,rgba(91,141,239,.10))}',
+      '[data-flow-select-seq].fl-select-picked{outline:2px solid var(--tb-accent,#3f6fd9);outline-offset:2px;box-shadow:0 0 0 4px var(--tb-accent-ring,rgba(91,141,239,.16))}',
+      '[data-flow-select-mode="1"] .tb-pane-body{cursor:crosshair;user-select:none}',
+      '.fl-marquee{position:fixed;z-index:30;border:1px solid var(--tb-accent,#3f6fd9);background:var(--tb-accent-ring,rgba(91,141,239,.16));pointer-events:none;border-radius:3px}',
       // 选中高亮：tint 叠在实色底上（直接用半透明 accent 底会被身后主干线穿透）
       '.fl-node.fl-on{border-color:var(--tb-accent-border,rgba(91,141,239,.6));background:linear-gradient(var(--tb-accent-bg,rgba(91,141,239,.08)),var(--tb-accent-bg,rgba(91,141,239,.08))),var(--tb-input-bg,var(--dsw-alias-bg-layer-1,#26272e))}',
       '.fl-model{flex:none;font-size:10px;font-family:ui-monospace,Consolas,monospace;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));background:var(--dsw-alias-bg-base,#17181d);border-radius:3px;padding:1px 5px}',
@@ -488,6 +501,7 @@ return {
       '.fl-conn-gap{flex:1;min-height:4px}',
       // 流程图画布：bg-base 实色 + blueprint 网格线（中性灰蓝极低透明，明暗两主题均隐约可见；实色底防透明皮肤重影）
       '.jr-drawer [data-flow] .tb-pane-body{background:var(--dsw-alias-bg-base,#17181d);border-radius:8px;background-image:linear-gradient(rgba(128,138,150,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(128,138,150,.055) 1px,transparent 1px);background-size:22px 22px}',
+      '.jr-drawer [data-flow] .tb-pane-body>*{zoom:var(--tb-flow-zoom,1)}',
       '.fl-par{flex:1;display:flex;flex-direction:column;gap:10px;min-width:0}',
       '.fl-name{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;font-weight:700;color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.fl-args{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
@@ -891,7 +905,14 @@ return {
       const [copied, setCopied] = React.useState(null)
       const [busyTool, setBusyTool] = React.useState(null)
       const [showJumpLatest, setShowJumpLatest] = React.useState(false)
-      const [flowOlderLoading, setFlowOlderLoading] = React.useState(false)
+      const [flowZoom, setFlowZoom] = React.useState(() => {
+        try { const n = Number(localStorage.getItem(RT.storageKey('flow.zoom'))); return n >= 60 && n <= 150 ? n : 100 } catch (e) { return 100 }
+      })
+      const [flowSelectMode, setFlowSelectMode] = React.useState(false)
+      const [flowSelectedSeqs, setFlowSelectedSeqs] = React.useState([])
+      const [flowTargetSession, setFlowTargetSession] = React.useState('')
+      const [flowUiBusy, setFlowUiBusy] = React.useState(false)
+      const [flowUiNotice, setFlowUiNotice] = React.useState('')
       const [managing, setManaging] = React.useState(false)
       const [plugins, setPlugins] = React.useState([])
       const [pluginCaps, setPluginCaps] = React.useState(null) // Host 半 capabilities（编译模式降级 UI 依据；null=未加载，按全能力渲染）
@@ -1188,6 +1209,7 @@ return {
       const flowSuppressHistoryAnimRef = React.useRef(false) // 向上加载的历史节点不播放“新事件”动画
       const flowFollowStateBySessionRef = React.useRef(new Map()) // Harness 跟随切换后重建 Flowglass crumbs
       const flowHarnessNavTargetRef = React.useRef(null) // 只有 Flowglass 主动导航的目标会话才恢复返回链
+      const suppressFlowClickUntilRef = React.useRef(0)
 
       // 停靠模式/激活 Tab/分类工具记忆变化即落盘（宽/高/浮动位置在手势结束时单独落盘，避免每帧写）
       React.useEffect(() => { lsWrite({ dockMode, active, activeByCat }) }, [dockMode, active, activeByCat])
@@ -1495,6 +1517,8 @@ return {
         return () => { try { window.removeEventListener(SESSION_EVENT, onChanged) } catch (e) {} }
       }, [])
       const hookSession = props.useSessions((s) => (s && s.current ? String(s.current) : undefined))
+      const flowSessionIds = props.useSessions((s) => (s && Array.isArray(s.ids) ? s.ids : []))
+      const flowSessionsById = props.useSessions((s) => (s && s.byId ? s.byId : {}))
       const currentSessionId = props.sessionId || (hookSession || lsSession) || undefined
       // cwd：按 currentSessionId 经 Host RPC 查询（宿主视角 byId 记录不可靠）；hook 按自身 current 查作兜底
       const [sessionCwd, setSessionCwd] = React.useState(undefined)
@@ -1520,6 +1544,188 @@ return {
       const handledCwdRef = React.useRef(currentCwd || '')
       const handledSessionRef = React.useRef(currentSessionId || '')
 
+      React.useEffect(() => {
+        if (!flowTargetSession || !flowSessionIds.includes(flowTargetSession)) setFlowTargetSession(currentSessionId || flowSessionIds[0] || '')
+      }, [currentSessionId, flowSessionIds, flowTargetSession])
+
+      React.useEffect(() => {
+        setFlowSelectedSeqs([])
+        setFlowSelectMode(false)
+        setFlowUiNotice('')
+      }, [currentSessionId])
+
+      React.useEffect(() => {
+        if (active === 'flow') return
+        setFlowSelectedSeqs([])
+        setFlowSelectMode(false)
+        setFlowUiNotice('')
+      }, [active])
+
+      const flowScope = () => {
+        const flow = panelRef.current && panelRef.current.querySelector('[data-flow][data-flow-scope]')
+        return flow ? (flow.getAttribute('data-flow-scope') || '') : ''
+      }
+
+      const setFlowZoomLevel = (value) => {
+        const levels = [60, 75, 90, 100, 110, 125, 150]
+        const nearest = levels.reduce((best, n) => Math.abs(n - value) < Math.abs(best - value) ? n : best, 100)
+        setFlowZoom(nearest)
+        try { localStorage.setItem(RT.storageKey('flow.zoom'), String(nearest)) } catch (e) {}
+      }
+
+      const stepFlowZoom = (direction) => {
+        const levels = [60, 75, 90, 100, 110, 125, 150]
+        const at = Math.max(0, levels.indexOf(flowZoom))
+        setFlowZoomLevel(levels[Math.max(0, Math.min(levels.length - 1, at + direction))])
+      }
+
+      const branchFlowAt = async (seq) => {
+        const source = flowScope()
+        if (!source || !Number.isFinite(Number(seq))) return
+        if (!sessionsClient || typeof sessionsClient.fork !== 'function') { setFlowUiNotice('Harness 当前版本不支持会话分支'); return }
+        setFlowUiBusy(true); setFlowUiNotice('正在创建分支会话…')
+        try {
+          const childId = await sessionsClient.fork({ sessionId: source, atSeq: Number(seq), increaseTitle: true })
+          sessionsClient.open(childId)
+          setFlowUiNotice('已创建分支会话')
+          setFlowSelectedSeqs([])
+          setFlowSelectMode(false)
+        } catch (e) { setFlowUiNotice('分支失败: ' + String((e && e.message) || e)) }
+        finally { setFlowUiBusy(false) }
+      }
+
+      const fetchSelectedFlowContext = async () => {
+        if (!flowSelectedSeqs.length) throw new Error('请先框选流程卡片')
+        const res = await host.call(RT.rpc('panel'), {
+          tool: 'flow', action: 'fcontext',
+          fields: { __el: { seqs: flowSelectedSeqs.join(',') } },
+          state: stateRef.current.flow || null,
+          root: currentCwd || undefined,
+          session: currentSessionId || undefined,
+        })
+        if (!res || !res.ok || !res.flowContext || !res.flowContext.text) throw new Error((res && res.error) || '无法读取选中内容')
+        return res.flowContext
+      }
+
+      const putFlowContextIntoDraft = (sessionId, text, append) => {
+        if (!sessionsClient || typeof sessionsClient.provideInfo !== 'function') throw new Error('Harness 当前版本不支持跨会话草稿写入')
+        const info = sessionsClient.provideInfo(sessionId)
+        const actions = info && info.props && info.props.inputActions
+        const input = info && info.hooks && info.hooks.input
+        if (!actions || typeof actions.setDraft !== 'function') throw new Error('目标会话的输入区不可用')
+        let next = text
+        if (append && input && typeof input.getSnapshot === 'function') {
+          const snap = input.getSnapshot()
+          const previous = snap && typeof snap.draft === 'string' ? snap.draft : ''
+          if (previous.trim()) next = previous.replace(/\s+$/, '') + '\n\n' + text
+        }
+        actions.setDraft(next)
+      }
+
+      const createSelectedFlowSession = async () => {
+        if (!flowSelectedSeqs.length) return
+        if (!sessionsClient || typeof sessionsClient.create !== 'function') { setFlowUiNotice('Harness 当前版本不支持创建空白会话'); return }
+        setFlowUiBusy(true); setFlowUiNotice('正在用框选内容创建新会话…')
+        try {
+          const context = await fetchSelectedFlowContext()
+          const sessionId = await sessionsClient.create(currentCwd ? { cwd: currentCwd } : {})
+          putFlowContextIntoDraft(sessionId, context.text, false)
+          sessionsClient.open(sessionId)
+          setFlowSelectedSeqs([])
+          setFlowSelectMode(false)
+          setFlowUiNotice('已创建只包含框选内容的新会话草稿')
+        } catch (e) { setFlowUiNotice('新建会话失败: ' + String((e && e.message) || e)) }
+        finally { setFlowUiBusy(false) }
+      }
+
+      const sendSelectedFlow = async () => {
+        const target = flowTargetSession
+        if (!target) { setFlowUiNotice('请选择目标会话'); return }
+        if (!sessionsClient) { setFlowUiNotice('Harness 会话服务不可用'); return }
+        setFlowUiBusy(true); setFlowUiNotice('正在整理并带入选中内容…')
+        try {
+          const context = await fetchSelectedFlowContext()
+          putFlowContextIntoDraft(target, context.text, true)
+          sessionsClient.open(target)
+          setFlowSelectedSeqs([])
+          setFlowSelectMode(false)
+          setFlowUiNotice('已追加到目标会话草稿')
+        } catch (e) { setFlowUiNotice('带入失败: ' + String((e && e.message) || e)) }
+        finally { setFlowUiBusy(false) }
+      }
+
+      // Zoom 仅缩放流镜画布内容，header/工具栏与滚动容器保持原尺寸。
+      React.useEffect(() => {
+        const flow = panelRef.current && panelRef.current.querySelector('[data-flow]')
+        if (!flow || active !== 'flow') return
+        const body = flow.querySelector('.tb-pane-body')
+        if (body) body.style.setProperty('--tb-flow-zoom', String(flowZoom / 100))
+      }, [active, html, flowZoom])
+
+      // 框选模式：在主滚动区拖出选框，用视口几何与可选卡片求交。
+      React.useEffect(() => {
+        const flow = panelRef.current && panelRef.current.querySelector('[data-flow]')
+        const body = flow && flow.querySelector('.tb-pane-body')
+        if (!flow || !body || active !== 'flow') return undefined
+        flow.setAttribute('data-flow-select-mode', flowSelectMode ? '1' : '0')
+        for (const card of flow.querySelectorAll('[data-flow-select-seq]')) {
+          const seq = Number(card.getAttribute('data-flow-select-seq'))
+          card.classList.toggle('fl-select-picked', flowSelectedSeqs.includes(seq))
+        }
+        if (!flowSelectMode) return undefined
+        let drag = null
+        const clearDrag = () => {
+          if (!drag) return
+          try { drag.box.remove() } catch (e) {}
+          drag = null
+        }
+        const onDown = (e) => {
+          if (e.button !== 0) return
+          const rect = body.getBoundingClientRect()
+          if (e.clientX > rect.right - 14) return // 保留滚动条拖动
+          e.preventDefault()
+          const box = document.createElement('div')
+          box.className = 'fl-marquee'
+          flow.appendChild(box)
+          drag = { x: e.clientX, y: e.clientY, box, moved: false }
+          try { body.setPointerCapture(e.pointerId) } catch (err) {}
+        }
+        const onMove = (e) => {
+          if (!drag) return
+          const left = Math.min(drag.x, e.clientX), top = Math.min(drag.y, e.clientY)
+          const width = Math.abs(e.clientX - drag.x), height = Math.abs(e.clientY - drag.y)
+          drag.moved = drag.moved || width > 3 || height > 3
+          Object.assign(drag.box.style, { left: left + 'px', top: top + 'px', width: width + 'px', height: height + 'px' })
+        }
+        const onUp = (e) => {
+          if (!drag) return
+          const d = drag
+          if (d.moved) {
+            const sel = d.box.getBoundingClientRect()
+            const seqs = new Set()
+            for (const card of flow.querySelectorAll('[data-flow-select-seq]')) {
+              const r = card.getBoundingClientRect()
+              if (r.right >= sel.left && r.left <= sel.right && r.bottom >= sel.top && r.top <= sel.bottom) {
+                const seq = Number(card.getAttribute('data-flow-select-seq'))
+                if (Number.isFinite(seq)) seqs.add(seq)
+              }
+            }
+            setFlowSelectedSeqs([...seqs].sort((a, b) => a - b))
+            suppressFlowClickUntilRef.current = Date.now() + 120
+          }
+          clearDrag()
+          try { body.releasePointerCapture(e.pointerId) } catch (err) {}
+        }
+        body.addEventListener('pointerdown', onDown)
+        body.addEventListener('pointermove', onMove)
+        body.addEventListener('pointerup', onUp)
+        body.addEventListener('pointercancel', onUp)
+        return () => {
+          clearDrag()
+          try { body.removeEventListener('pointerdown', onDown); body.removeEventListener('pointermove', onMove); body.removeEventListener('pointerup', onUp); body.removeEventListener('pointercancel', onUp) } catch (e) {}
+        }
+      }, [active, html, flowSelectMode, flowSelectedSeqs])
+
       function collectFields() {
         const fields = {}
         const box = panelRef.current
@@ -1537,7 +1743,6 @@ return {
         attemptedRef.current[toolId] = true // 标记已发起请求（refreshTools 兜底据此判定是否补打）
         const silent = Boolean(opts && opts.silent) // 静默刷新（自动轮询）：不转圈、不清错误
         const seq = (seqRef.current[toolId] || 0) + 1
-        const minFlowLoadingUntil = toolId === 'flow' && action === 'fmore' ? Date.now() + 500 : 0
         seqRef.current[toolId] = seq
         if (!silent) setBusyTool(toolId)
         if (!silent) setError(null)
@@ -1585,11 +1790,6 @@ return {
           })
           const res = await Promise.race([callP, timeoutP])
           if (seqRef.current[toolId] !== seq) return // 已有更新的请求发出：过期响应直接丢弃（联动切换竞态修复）；DOM 由新请求的响应接管
-          // 历史页返回很快时也保留至少 0.5s 的顶部 loading，避免只闪一帧。
-          if (minFlowLoadingUntil > Date.now()) {
-            await new Promise((resolve) => { try { ctx.timeout(resolve, minFlowLoadingUntil - Date.now()) } catch (e) { resolve() } })
-            if (seqRef.current[toolId] !== seq) return
-          }
           if (res && res.ok) {
             retryCountRef.current[toolId] = 0 // 成功：清零一次性重试计数
             stateRef.current[toolId] = res.state
@@ -1753,13 +1953,12 @@ return {
           // 距视觉顶部 80px 内即预加载，避免必须精确碰顶才触发。
           if (max <= 0 || Math.abs(max - Math.abs(body.scrollTop)) > 80) return
           flowOlderLoadingRef.current = true
-          setFlowOlderLoading(true)
           flowSuppressHistoryAnimRef.current = true
           const load = loadPanelRef.current
-          if (typeof load !== 'function') { flowOlderLoadingRef.current = false; setFlowOlderLoading(false); return }
+          if (typeof load !== 'function') { flowOlderLoadingRef.current = false; return }
           Promise.resolve(load('flow', 'fmore', null, { silent: true }))
             .catch(() => {})
-            .finally(() => { flowOlderLoadingRef.current = false; setFlowOlderLoading(false) })
+            .finally(() => { flowOlderLoadingRef.current = false })
         }
         root.addEventListener('scroll', onFlowScroll, true)
         return () => { try { root.removeEventListener('scroll', onFlowScroll, true) } catch (e) {} }
@@ -2088,6 +2287,14 @@ return {
       function onPanelClick(e) {
         if (!active) return
         const t = e.target
+        if (Date.now() < suppressFlowClickUntilRef.current) { e.preventDefault(); return }
+        const branch = t && t.closest ? t.closest('[data-flow-branch]') : null
+        if (active === 'flow' && branch) {
+          e.preventDefault()
+          e.stopPropagation()
+          branchFlowAt(Number(branch.getAttribute('data-seq')))
+          return
+        }
         const el = t && t.closest ? t.closest('[data-action]') : null
         if (!el) return
         e.preventDefault()
@@ -2199,6 +2406,37 @@ return {
       if ((!embedded && sidebarActive) || !isOpen) return null
 
       const curW = () => width || 520
+
+      const flowToolbar = active !== 'flow' || managing ? null : React.createElement('div', { className: 'tb-flow-toolbar' },
+        React.createElement('div', { className: 'tb-flow-zoom', title: '缩放流镜画布，不改变 header 和滚动区尺寸' },
+          React.createElement('button', { type: 'button', className: 'tb-flow-zoom-btn', disabled: flowZoom <= 60, onClick: () => stepFlowZoom(-1) }, '−'),
+          React.createElement('button', { type: 'button', className: 'tb-flow-zoom-value tb-flow-zoom-btn', title: '恢复 100%', onClick: () => setFlowZoomLevel(100) }, flowZoom + '%'),
+          React.createElement('button', { type: 'button', className: 'tb-flow-zoom-btn', disabled: flowZoom >= 150, onClick: () => stepFlowZoom(1) }, '+'),
+        ),
+        React.createElement('span', { className: 'tb-flow-toolbar-sep' }),
+        React.createElement('button', {
+          type: 'button', className: 'tb-flow-select-btn' + (flowSelectMode ? ' on' : ''),
+          title: '开启后在流镜画布中拖动框选卡片',
+          onClick: () => { setFlowSelectMode((v) => !v); setFlowUiNotice('') },
+        }, flowSelectMode ? '框选中' : '框选'),
+        flowSelectedSeqs.length ? React.createElement(React.Fragment, null,
+          React.createElement('span', { className: 'tb-flow-toolbar-note' }, '已选 ' + flowSelectedSeqs.length + ' 项'),
+          React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, title: '创建空白 Session，只把框选内容写入新会话草稿，不继承其他历史', onClick: createSelectedFlowSession }, '所选新会话'),
+          React.createElement('select', {
+            className: 'tb-flow-session-select', value: flowTargetSession,
+            title: '选择要带入框选内容的会话',
+            onChange: (e) => setFlowTargetSession(e.target.value),
+          }, flowSessionIds.map((id) => {
+            const row = flowSessionsById[id]
+            const label = row && (row.displayTitle || row.title) ? (row.displayTitle || row.title) : id
+            return React.createElement('option', { key: id, value: id }, label + ' · ' + String(id).replace(/^session-/, '').slice(0, 8))
+          })),
+          React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy || !flowTargetSession, title: '追加到目标会话草稿，不自动发送', onClick: sendSelectedFlow }, '带入会话'),
+          React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, onClick: () => setFlowSelectedSeqs([]) }, '清除'),
+        ) : null,
+        flowUiBusy ? React.createElement('span', { className: 'tb-tab-spin' }) : null,
+        flowUiNotice ? React.createElement('span', { className: 'tb-flow-toolbar-note', title: flowUiNotice }, flowUiNotice) : null,
+      )
 
       // 主题切换按钮：暗色下显示太阳（点击切亮），亮色下显示月亮（点击切暗）；theme 服务缺失时不渲染
       const themeButton = !themeSvc ? null : React.createElement('button', {
@@ -2599,14 +2837,10 @@ return {
         body = React.createElement('div', { className: 'tb-frame', ref: panelRef, onClick: onPanelClick, onKeyDown: onPanelKeyDown },
           error ? React.createElement('div', { className: 'tb-error' }, String(error)) : null,
           copied ? React.createElement('div', { className: 'tb-banner tb-banner-info' }, String(copied)) : null,
+          flowToolbar,
           html
             ? React.createElement('div', { dangerouslySetInnerHTML: { __html: html } })
             : React.createElement('div', { className: 'tb-notice' }, '加载面板…'),
-          active === 'flow' && flowOlderLoading ? React.createElement('div', {
-            className: 'tb-flow-older-loading',
-            role: 'status',
-            'aria-live': 'polite',
-          }, React.createElement('span', { className: 'tb-tab-spin' }), '正在加载更早流程…') : null,
           showJumpLatest ? React.createElement('button', {
             type: 'button',
             className: 'tb-jump-latest',

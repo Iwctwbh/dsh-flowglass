@@ -326,7 +326,7 @@ return {
               '<span class="fl-wl-row"><span class="fl-wl-arr">◀</span><span class="fl-wl-line"></span></span></div>') +
         '</div>' +
         '<div class="fl-callside">' +
-          '<div class="fl-iocard' + (pending ? ' fl-live' : '') + (isExp ? ' fl-on' : '') + (o && o.err ? ' fl-err' : '') + '" data-action="fdetail" data-seq="' + c.seq + '" title="点击在右侧查看完整传入/返回">' +
+          '<div class="fl-iocard' + (pending ? ' fl-live' : '') + (isExp ? ' fl-on' : '') + (o && o.err ? ' fl-err' : '') + '" data-action="fdetail" data-seq="' + c.seq + '" data-flow-select-seq="' + c.seq + '" title="点击在右侧查看完整传入/返回">' +
             '<div class="fl-iohead"><span class="fl-tag" style="color:' + km.color + ';background:' + km.bg + '">' + km.label + '</span>' +
             '<span class="fl-name">' + esc(c.name) + '</span>' +
             (pending ? '<span class="fl-spin"></span><span class="fl-time" data-flow-timer="' + c.time + '" data-flow-timer-prefix="⏱ ">⏱ 0ms</span>' : statusGlyph(c.status, c.dur)) + '</div>' +
@@ -365,12 +365,17 @@ return {
       const label = isUser ? '用户' : isAi ? '助手' : '注入'
       // 卡片统一面片底色（fl-node），角色色只落在左侧色条 + 几何符号/tag 上，避免整卡彩色半透明的杂乱感
       // 用户/助手/注入卡均可点开右侧详情浮层看完整内容（与工具卡同一交互）；live=进行中 → 与工具卡同款流光脉冲
-      return '<div class="fl-node' + (expandedSeq === it.seq ? ' fl-on' : '') + (live ? ' fl-live' : '') + '" style="border-left-color:' + color + '" data-flow-main-card="' + it.seq + '" data-flow-role="' + it.role + '" data-action="fdetail" data-seq="' + it.seq + '" title="点击查看完整消息">' +
+      const branchSeq = it.finalSeq != null ? it.finalSeq : it.seq
+      const branch = isAi && !it.streaming
+        ? '<button type="button" class="fl-branch-btn" data-flow-branch data-seq="' + branchSeq + '" title="从这条助手消息在 Harness 中创建新分支" aria-label="在新对话中分支">' +
+          '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3v5a3 3 0 0 0 3 3h4"/><path d="M8 5l3-3 3 3"/><path d="M11 2v4"/><path d="M9 9l2 2-2 2"/></svg></button>'
+        : ''
+      return '<div class="fl-node' + (expandedSeq === it.seq ? ' fl-on' : '') + (live ? ' fl-live' : '') + '" style="border-left-color:' + color + '" data-flow-main-card="' + it.seq + '" data-flow-role="' + it.role + '" data-flow-select-seq="' + it.seq + '" data-action="fdetail" data-seq="' + it.seq + '" title="点击查看完整消息">' +
         '<div class="fl-node-head"><span class="fl-glyph" style="color:' + color + '">' + (isUser ? '▲' : isAi ? '◆' : '■') + '</span><span class="fl-tag" style="color:' + color + '">' + label + '</span>' +
         (isAi && it.route ? '<span class="fl-model">' + esc(it.route) + '</span>' : '') +
         (fmtTime(it.time) ? '<span class="fl-time">' + fmtTime(it.time) + '</span>' : '') +
         (aiRunning && it.runStart ? '<span class="fl-time" data-flow-timer="' + it.runStart + '" data-flow-timer-prefix="⏱ ">⏱ 0ms</span>' : (isAi && it.runDur != null ? '<span class="fl-time">⏱ ' + fmtDur(it.runDur) + '</span>' : '')) +
-        (it.tok ? '<span class="fl-time">+' + it.tok + ' tok</span>' : '') + '</div>' +
+        (it.tok ? '<span class="fl-time">+' + it.tok + ' tok</span>' : '') + branch + '</div>' +
         '<div class="fl-preview"' + (it.interrupted ? ' style="color:var(--tb-danger-text,#f28b82)"' : '') + '>' + esc(it.preview || '（空）') + '</div>' +
       '</div>'
     }
@@ -428,7 +433,7 @@ return {
       }
       // 有子会话 id 后，整张入口卡就是“进入子流镜”的主点击面；
       // 子代理尚在启动时仍保留详情行为，避免点击无效。
-      let sub = '<div class="fl-sub-card fl-sub-open' + (subLive ? ' fl-live' : '') + '" data-action="' + (cid ? 'fenter' : 'fdetail') + '" data-seq="' + c.seq + '" title="' + (cid ? '进入该子代理的实时流镜' : '点击查看完整任务传入/返回') + '">' +
+      let sub = '<div class="fl-sub-card fl-sub-open' + (subLive ? ' fl-live' : '') + '" data-action="' + (cid ? 'fenter' : 'fdetail') + '" data-seq="' + c.seq + '" data-flow-select-seq="' + c.seq + '" title="' + (cid ? '进入该子代理的实时流镜' : '点击查看完整任务传入/返回') + '">' +
         '<div class="fl-iohead"><span class="fl-tag" style="color:var(--tb-active-text,#7fa7f0);background:rgba(91,141,239,.12)">子代理</span>' +
         '<span class="fl-name">' + esc(c.name) + '</span>' + statusGlyph(c.status, c.dur) + '</div>' +
         '<div class="fl-sub-io"><span class="fl-io-tag">入</span><span class="fl-branch-txt">' + esc(inSummary(c)) + '</span></div>' +
@@ -458,6 +463,27 @@ return {
         '</div>'
       }
       return sub
+    }
+
+    const flowContextOf = (items, seqs, sid) => {
+      const wanted = new Set(seqs)
+      const selected = items.filter((it) => wanted.has(it.seq)).sort((a, b) => a.seq - b.seq)
+      const chunks = ['以下是从 Flowglass 会话 ' + sid + ' 框选的流程片段（' + selected.length + ' 项）：']
+      for (const it of selected) {
+        if (it.kind === 'msg') {
+          const role = it.role === 'user' ? '用户' : it.role === 'ai' ? '助手' : '注入'
+          chunks.push('\n[' + role + ' · seq ' + it.seq + ']\n' + String(it.full || it.preview || '（空）'))
+        } else {
+          chunks.push('\n[工具 ' + it.name + ' · seq ' + it.seq + ']\n传入：' + (it.argsRaw || '（无参数）') + '\n返回：' + (it.status === 'pending' ? '（进行中）' : (it.resultText || '（空返回）')))
+        }
+      }
+      const text = chunks.join('\n')
+      const cap = 24000
+      return {
+        sourceSessionId: sid,
+        seqs: selected.map((it) => it.seq),
+        text: text.length > cap ? text.slice(0, cap) + '\n…（框选内容过长，已截断）' : text,
+      }
     }
 
     // 同步子代理组：每个分支是一个可自行拉伸的小流镜，宽屏自动多列、窄屏回落单列。
@@ -610,9 +636,15 @@ return {
       st.home = home
       if (!st.sid) st.sid = home
       let navigateSession = null
+      let flowContext = null
       if (action === 'toggle-live') st.live = !st.live
       else if (action === 'toggle-follow') st.follow = !st.follow
       else if (action === 'fmore') st.limit = Math.min(100000, Number(st.limit) + 60)
+      else if (action === 'fcontext' && typeof el.seqs === 'string') {
+        const seqs = el.seqs.split(',').map((v) => Number(v)).filter((v) => Number.isFinite(v))
+        const r = await readLog(st.sid)
+        flowContext = flowContextOf(parseItems(r.events || []), seqs, st.sid)
+      }
       else if (action === 'fdetail' && el.seq != null) {
         const seq = Number(el.seq)
         st.expanded = st.expanded === seq ? null : seq
@@ -641,7 +673,7 @@ return {
       const sid = st.sid
       try {
         const html = await render(st, sid)
-        return { ok: true, html, state: st, navigateSession }
+        return { ok: true, html, state: st, navigateSession, flowContext }
       } catch (e) {
         return { ok: false, error: String((e && e.message) || e), html: '', state: st }
       }

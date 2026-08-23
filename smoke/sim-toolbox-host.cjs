@@ -158,6 +158,7 @@ const check = (label, cond, detail) => {
     reg.register({ id: 'nav', label: 'Nav', order: 2 }, async () => ({
       html: '<b>N</b>',
       navigateSession: { sessionId: 'child-1', parentSessionId: 'parent-1', kind: 'subagent', ignored: 'x' },
+      flowContext: { text: 'selected context', sourceSessionId: 'parent-1', seqs: [1, 2, 'bad'], ignored: 'x' },
     }))
   })
   reg.register({ id: 'usage', label: '用量', order: 2 }, async () => ({ html: '<u>U</u>' })) // → lastRoot（W/repo）
@@ -175,6 +176,8 @@ const check = (label, cond, detail) => {
   const pNav = await reg.panel('W', { tool: 'nav', action: '' })
   check('panel 按 root 路由命中', pW.ok && pW.html === '<b>G</b>' && pW1.ok && pW1.html === '<b>J</b>')
   check('panel 透传窄化后的会话导航指令', pNav.navigateSession && pNav.navigateSession.sessionId === 'child-1' && pNav.navigateSession.parentSessionId === 'parent-1' && pNav.navigateSession.kind === 'subagent' && pNav.navigateSession.ignored === undefined)
+  check('panel 透传窄化后的 Flow 框选上下文', pNav.flowContext && pNav.flowContext.text === 'selected context'
+    && pNav.flowContext.seqs.join(',') === '1,2' && pNav.flowContext.ignored === undefined)
   check('跨 root 调未注册工具 → 明确错误', pCross.ok === false && /未注册/.test(pCross.error), pCross.error)
 
   // —— build 互斥（评审 H2/H3 回归）：runInBuild 整个异步段持锁——段内 register 稳定归本 root，

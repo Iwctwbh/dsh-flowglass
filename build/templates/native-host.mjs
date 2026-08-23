@@ -61,6 +61,13 @@ const makeStaticRegistry = () => {
             ...(res.navigateSession.kind === 'subagent' || res.navigateSession.kind === 'session' ? { kind: res.navigateSession.kind } : {}),
           }
         }
+        if (res.flowContext && typeof res.flowContext === 'object' && typeof res.flowContext.text === 'string') {
+          out.flowContext = {
+            text: res.flowContext.text,
+            ...(typeof res.flowContext.sourceSessionId === 'string' ? { sourceSessionId: res.flowContext.sourceSessionId } : {}),
+            ...(Array.isArray(res.flowContext.seqs) ? { seqs: res.flowContext.seqs.filter((v) => typeof v === 'number') } : {}),
+          }
+        }
         return out
       } catch (error) { return { ok: false, error: String(error && error.message || error) } }
     },

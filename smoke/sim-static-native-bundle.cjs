@@ -38,8 +38,10 @@ const check = (label, cond, detail) => {
       && client.includes('props.visible !== false'))
   check('动态批准明确为 false', JSON.parse(files.get('BUILDINFO.json')).dynamicApprovalRequired === false)
   check('Flow 跟随指令穿过静态 Host 注册表', host.includes('out.navigateSession') && client.includes('sessionsClient.openSubagent(address)'))
-  check('Flow Client 保留跟随返回链与 0.5s 历史 loading', client.includes('flowFollowStateBySessionRef') && client.includes('minFlowLoadingUntil') && client.includes('Date.now() + 500'))
+  check('Flow Client 保留跟随返回链，且历史加载无顶部 loading 浮层', client.includes('flowFollowStateBySessionRef') && !client.includes('tb-flow-older-loading'))
   check('Flow Client 恢复工具面板「回到最新」浮标', client.includes('tb-jump-latest') && client.includes('showJumpLatest') && client.includes('↓ 回到最新'))
+  check('Flow Client 含 Zoom/框选/真实 Harness 分支/带入会话', client.includes('tb-flow-toolbar') && client.includes('fl-marquee')
+    && client.includes('sessionsClient.fork') && client.includes('sessionsClient.create') && client.includes('inputActions'))
 
   const defaultBuilt = buildBundle(loader, { version: '0.1.0' })
   check('空功能选择默认构建 Flowglass', defaultBuilt.ok

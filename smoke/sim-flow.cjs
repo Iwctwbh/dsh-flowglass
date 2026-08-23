@@ -95,6 +95,8 @@ const check = (label, cond, detail) => {
   check('打开 → 渲染主干', r.html.indexOf('实时流镜') >= 0)
   check('自动刷新声明 data-autorefresh=2000', r.html.indexOf('data-autorefresh="2000"') >= 0)
   check('用户/助手消息节点', r.html.indexOf('帮我看下这个目录') >= 0 && r.html.indexOf('好的，我先并行读文件') >= 0)
+  check('已完成助手主线卡提供 Harness 分支按钮', r.html.indexOf('data-flow-branch') >= 0 && r.html.indexOf('在新对话中分支') >= 0)
+  check('流镜卡片带框选序号标记', r.html.indexOf('data-flow-select-seq="1"') >= 0 && r.html.indexOf('data-flow-select-seq="3"') >= 0)
   check('箭头连接符 ▼', r.html.indexOf('fl-arrow') >= 0 && r.html.indexOf('▼') >= 0)
   // 平行调用：read+grep 同 step → 连线布局（左主干/右工具卡，中间 上=输入▶ 下=◀输出 两条水平线）
   check('调用泳道布局（fl-lane 三列 + fl-wp 连线对）', r.html.indexOf('fl-lane') >= 0 && r.html.indexOf('fl-wp') >= 0)
@@ -149,6 +151,10 @@ const check = (label, cond, detail) => {
   r = await h({ action: '__refresh', fields: {}, state: r.state, root: ROOT, session: 's-main' })
   check('__refresh → 正常渲染', r.ok === true && r.html.indexOf('实时流镜') >= 0)
 
+  r = await h({ action: 'fcontext', fields: { __el: { seqs: '1,3' } }, state: r.state, root: ROOT, session: 's-main' })
+  check('框选内容返回完整消息/工具上下文', r.flowContext && r.flowContext.sourceSessionId === 's-main'
+    && r.flowContext.seqs.join(',') === '1,3' && r.flowContext.text.indexOf('帮我看下这个目录') >= 0 && r.flowContext.text.indexOf('file_path') >= 0)
+
   // 流式请求失败（已产生 chunk 但无最终 message）：草稿落定为中断，卡片与计时器停止运行态
   r = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-fail' })
   check('流式失败 → 中断标记', r.html.indexOf('（生成已中断）') >= 0)
@@ -165,7 +171,7 @@ const check = (label, cond, detail) => {
   // 长会话向上分页：初始 60，每次 fmore +60，全部加载后消失。
   r = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-long' })
   check('长会话初始仅显示最近 60 条', r.html.indexOf('data-flow-visible="60"') >= 0 && r.html.indexOf('long-071') >= 0 && r.html.indexOf('long-070') < 0)
-  check('顶部仅保留自动加载提示（loading 由 Client 浮层渲染）', r.html.indexOf('data-action="fmore"') < 0 && r.html.indexOf('data-flow-older-hint') >= 0 && r.html.indexOf('fl-older-loading') < 0)
+  check('顶部仅保留自动加载提示（无 loading 浮层）', r.html.indexOf('data-action="fmore"') < 0 && r.html.indexOf('data-flow-older-hint') >= 0 && r.html.indexOf('fl-older-loading') < 0)
   r = await h({ action: 'fmore', fields: {}, state: r.state, root: ROOT, session: 's-long' })
   check('第一次加载 → 显示 120 条', r.html.indexOf('data-flow-visible="120"') >= 0 && r.html.indexOf('long-011') >= 0 && r.html.indexOf('long-010') < 0)
   r = await h({ action: 'fmore', fields: {}, state: r.state, root: ROOT, session: 's-long' })
