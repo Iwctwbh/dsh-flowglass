@@ -1078,6 +1078,13 @@ return {
       const [flowTreeOpen, setFlowTreeOpen] = React.useState({})
       const [flowUiBusy, setFlowUiBusy] = React.useState(false)
       const [flowUiNotice, setFlowUiNotice] = React.useState('')
+      const readSessionsSnapshot = () => {
+        try {
+          const list = sessionsClient && sessionsClient.list
+          return list && typeof list.getSnapshot === 'function' ? list.getSnapshot() : undefined
+        } catch (e) { return undefined }
+      }
+      const [serviceSessionsSnapshot, setServiceSessionsSnapshot] = React.useState(readSessionsSnapshot)
       const [managing, setManaging] = React.useState(false)
       const [plugins, setPlugins] = React.useState([])
       const [pluginCaps, setPluginCaps] = React.useState(null) // Host 半 capabilities（编译模式降级 UI 依据；null=未加载，按全能力渲染）
@@ -1396,6 +1403,18 @@ return {
       // 停靠模式/激活 Tab/分类工具记忆变化即落盘（宽/高/浮动位置在手势结束时单独落盘，避免每帧写）
       React.useEffect(() => { lsWrite({ dockMode, active, activeByCat }) }, [dockMode, active, activeByCat])
 
+      // Better Sidebar 的外部 Tab 契约只给当前 scope，不给 useSessions。
+      // Drawer 直接订阅 DSH SessionRuntime.list，为工作区会话树提供完整、实时的 ids/byId。
+      React.useEffect(() => {
+        const list = sessionsClient && sessionsClient.list
+        if (!list || typeof list.getSnapshot !== 'function') return undefined
+        const sync = () => setServiceSessionsSnapshot(readSessionsSnapshot())
+        sync()
+        if (typeof list.subscribe !== 'function') return undefined
+        const off = list.subscribe(sync)
+        return typeof off === 'function' ? off : undefined
+      }, [])
+
       // 挤压三栏：full 模式给主内容列（DSH grid 的 centerCol）加 margin-right 让出抽屉宽度，
       // 聊天区收缩而非被覆盖（grid 项 margin 在轨道内生效，不影响侧边栏轨道）；
       // 关闭抽屉/切模式还原，拖拽调宽实时跟随；React 不管该列内联 style，不会被覆盖
@@ -1699,8 +1718,10 @@ return {
         return () => { try { window.removeEventListener(SESSION_EVENT, onChanged) } catch (e) {} }
       }, [])
       const hookSession = props.useSessions((s) => (s && s.current ? String(s.current) : undefined))
-      const rawFlowSessionIds = props.useSessions((s) => (s ? s.ids : undefined))
-      const rawFlowSessionsById = props.useSessions((s) => (s ? s.byId : undefined))
+      const hookFlowSessionIds = props.useSessions((s) => (s ? s.ids : undefined))
+      const hookFlowSessionsById = props.useSessions((s) => (s ? s.byId : undefined))
+      const rawFlowSessionIds = hookFlowSessionIds != null ? hookFlowSessionIds : (serviceSessionsSnapshot && serviceSessionsSnapshot.ids)
+      const rawFlowSessionsById = hookFlowSessionsById != null ? hookFlowSessionsById : (serviceSessionsSnapshot && serviceSessionsSnapshot.byId)
       // better-sidebar 的适配快照可能只给 byId，或把 ids 保留为 Set/其他可迭代容器。
       // 业务层统一收敛成数组，绝不直接假设 ids 可迭代。
       const flowSessionIds = Array.isArray(rawFlowSessionIds)
