@@ -31,6 +31,20 @@ w('staged.txt', 's2\n')
 git(['add', 'staged.txt'])                  // xy[0]=M 且 xy[1] 空（纯暂存）
 w('untracked.txt', 'new\n')                 // ??（未跟踪文件）
 
+// 第二个迷你仓库：模拟「当前激活会话的工作区」（与工具箱所在仓库不同，验证 sessionId 优先解析）
+const REPO2 = path.join(os.tmpdir(), 'sim-git-repo2-' + process.pid)
+fs.rmSync(REPO2, { recursive: true, force: true })
+fs.mkdirSync(REPO2, { recursive: true })
+const git2 = (args) => {
+  const r = spawnSync('git', args, { cwd: REPO2, stdio: 'ignore' })
+  if (r.status !== 0) throw new Error('夹具 git2 ' + args.join(' ') + ' 失败（exit ' + r.status + '）')
+}
+git2(['init'])
+fs.writeFileSync(path.join(REPO2, 'base.txt'), 'b\n')
+git2(['add', '.'])
+git2(['-c', 'user.name=sim', '-c', 'user.email=sim@local', 'commit', '-m', 'init2'])
+fs.writeFileSync(path.join(REPO2, 'only-in-repo2.txt'), 'distinct\n') // 未跟踪样本：status 可区分两仓
+
 // 沙箱禁命名管道 → stdio 用临时文件重定向（等价于插件内 subprocess 服务的采集行为）
 let tmpSeq = 0
 const subprocess = {
@@ -51,10 +65,17 @@ const subprocess = {
   },
 }
 
+const sessionsSvc = {
+  // 当前会话 cwd = REPO2：sessionId 解析应优先于框架传入的 root（REPO）
+  get(id) { return id === 's1' ? { header: { cwd: REPO2 } } : undefined },
+  list() { return [{ header: { cwd: REPO2 } }] },
+}
+
 const handlers = {}
 const ctx = {
   get(name) {
     if (name === 'subprocess') return subprocess
+    if (name === 'sessions') return sessionsSvc
     if (name === 'toolboxRegistry') return { register(d, h) { handlers[d.id] = h; return () => {} } }
     if (name === 'sandboxPolicy') return { workspaceRoot: REPO }
     return undefined
@@ -127,9 +148,14 @@ const check = (label, cond, detail) => {
       check('back-diff → 回到 detail', r.state.view === 'detail')
     }
 
+    // 6. sessionId 优先：框架传入的 root=REPO 被忽略，status 落在会话 cwd（REPO2）
+    r = await h({ action: '', fields: {}, state: null, root: REPO, session: 's1' })
+    check('sessionId 优先 → status 落当前会话工作区', r.ok && (r.state.files || []).some((f) => f.path === 'only-in-repo2.txt') && !(r.state.files || []).some((f) => f.path === 'tracked.txt'), 'files=' + JSON.stringify((r.state.files || []).map((f) => f.path)))
+
     console.log(failures ? ('\n共 ' + failures + ' 项失败') : '\n全部通过')
     process.exitCode = failures ? 1 : 0
   } finally {
     try { fs.rmSync(REPO, { recursive: true, force: true }) } catch (e) {}
+    try { fs.rmSync(REPO2, { recursive: true, force: true }) } catch (e) {}
   }
-})().catch((e) => { console.error('仿真异常:', e); try { fs.rmSync(REPO, { recursive: true, force: true }) } catch (e2) {} process.exit(2) })
+})().catch((e) => { console.error('仿真异常:', e); try { fs.rmSync(REPO, { recursive: true, force: true }) } catch (e2) {} try { fs.rmSync(REPO2, { recursive: true, force: true }) } catch (e3) {} process.exit(2) })

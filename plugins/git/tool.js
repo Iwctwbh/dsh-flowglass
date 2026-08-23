@@ -12,11 +12,20 @@ return {
     let lastDiff = null // { text, name, note } diff 本体（闭包持有，不进 state；重跑即清空回列表/详情）
     let outTruncated = false // 本轮动作任一 git 输出超 maxBytes 被 lossy 截尾 → 面板顶部提示条（每轮动作开头重置）
 
-    const resolveWs = (rootArg) => {
+    const resolveWs = (rootArg, sessionId) => {
+      // sessionId 优先：panel 传入的 root 已被框架替换为工具箱仓库根，当前会话 cwd 才是
+      // 「当前工作区」（仓库 clone 为宿主项目子目录时两者不同）。与 jira/http/files 同语义。
+      const sessionsSvc = ctx.get('sessions')
+      if (sessionId && sessionsSvc) {
+        try {
+          const s = sessionsSvc.get(sessionId)
+          const cwd = s && s.header && s.header.cwd
+          if (s && typeof cwd === 'string' && cwd) return cwd.replace(/[\\/]+$/, '')
+        } catch (e) {}
+      }
       if (rootArg && /^([A-Za-z]:[\\/]|\/)/.test(rootArg)) {
         return rootArg.replace(/[\\/]+$/, '')
       }
-      const sessionsSvc = ctx.get('sessions')
       if (sessionsSvc) {
         try {
           for (const s of sessionsSvc.list()) {
@@ -266,8 +275,8 @@ return {
       '</div>'
     }
 
-    const handler = async ({ action, fields, state, root }) => {
-      const wsRoot = resolveWs(root)
+    const handler = async ({ action, fields, state, root, session }) => {
+      const wsRoot = resolveWs(root, session)
       if (!wsRoot) return { ok: false, error: '无法确定工作区根', html: '' }
       outTruncated = false // 每轮动作重新累计截尾标志（只提示当前动作的输出状态）
       const st = (state && typeof state === 'object' && state) ? state : {

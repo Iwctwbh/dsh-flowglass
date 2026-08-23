@@ -2,7 +2,7 @@
   "key": "git",
   "idPrefix": "git",
   "name": "Git 历史工具 (Host-only)",
-  "purpose": "Host-only：subprocess spawn git 的 status/history/commit/diff 动作机 + HTML 面板渲染（list/detail/diff 三视图）；变更清单点击文件看工作区/暂存区 diff（未暂存优先，未跟踪走 --no-index）；status 用 porcelain -z（中文路径零转义），diff 按 rev-parse --show-toplevel 解析（工作区是子目录也对得上），经工具箱 RPC 注册",
+  "purpose": "Host-only：subprocess spawn git 的 status/history/commit/diff 动作机 + HTML 面板渲染（list/detail/diff 三视图）；变更清单点击文件看工作区/暂存区 diff（未暂存优先，未跟踪走 --no-index）；status 用 porcelain -z（中文路径零转义），diff 按 rev-parse --show-toplevel 解析（工作区是子目录也对得上），工作区按 sessionId→当前会话 cwd 优先解析，经工具箱 RPC 注册",
   "platform": "host-only",
   "inject": [
     "fs",

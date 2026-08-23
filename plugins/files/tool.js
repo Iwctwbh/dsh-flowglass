@@ -20,8 +20,18 @@ return {
       return c === b || c.startsWith(b + '/')
     }
 
-    const resolveWs = (rootArg) => {
+    const resolveWs = (rootArg, sessionId) => {
       const sessionsSvc = ctx.get('sessions')
+      // 1) sessionId 优先：当前激活会话的 cwd 才是「当前工作区」。框架 panel RPC 传入的 root
+      //    已被 Host 替换为工具箱仓库根——仓库 clone 为宿主项目子目录时 ≠ 会话工作区，
+      //    直接采信会列错目录。与 jira/http 的 resolveWs 同语义（审计 L8 后的统一行为）。
+      if (sessionId && sessionsSvc) {
+        try {
+          const s = sessionsSvc.get(sessionId)
+          const cwd = s && s.header && s.header.cwd
+          if (s && typeof cwd === 'string' && cwd) return { root: cwd.replace(/[\\/]+$/, ''), session: s }
+        } catch (e) {}
+      }
       let hit = null
       const sessionCwds = []
       if (sessionsSvc) {
@@ -132,8 +142,8 @@ return {
       return { text: text.length > PREVIEW_CAP ? text.slice(0, PREVIEW_CAP) : text, truncated: text.length > PREVIEW_CAP, total: text.length }
     }
 
-    const handler = async ({ action, fields, state, root }) => {
-      const ws = resolveWs(root)
+    const handler = async ({ action, fields, state, root, session }) => {
+      const ws = resolveWs(root, session)
       if (!ws.root) return { ok: false, error: '无法确定工作区根', html: '' }
       const st = (state && typeof state === 'object' && state) ? state : { dirs: {}, expanded: {}, preview: null, previewError: null }
       try {

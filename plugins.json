@@ -36,7 +36,7 @@
       "autoStart": true,
       "order": 3,
       "idPrefix": "git",
-      "purpose": "Host-only：subprocess spawn git 的 status/history/commit/diff 动作机 + HTML 面板渲染（list/detail/diff 三视图）；变更清单点击文件看工作区/暂存区 diff（未暂存优先，未跟踪走 --no-index）；status 用 porcelain -z（中文路径零转义），diff 按 rev-parse --show-toplevel 解析（工作区是子目录也对得上），经工具箱 RPC 注册"
+      "purpose": "Host-only：subprocess spawn git 的 status/history/commit/diff 动作机 + HTML 面板渲染（list/detail/diff 三视图）；变更清单点击文件看工作区/暂存区 diff（未暂存优先，未跟踪走 --no-index）；status 用 porcelain -z（中文路径零转义），diff 按 rev-parse --show-toplevel 解析（工作区是子目录也对得上），工作区按 sessionId→当前会话 cwd 优先解析，经工具箱 RPC 注册"
     },
     {
       "id": "files",
@@ -47,7 +47,7 @@
       "autoStart": true,
       "order": 4,
       "idPrefix": "files",
-      "purpose": "Host-only：fs 服务列目录 + 文件夹树 HTML 渲染（展开/折叠/刷新），经工具箱 RPC 注册"
+      "purpose": "Host-only：fs 服务列目录 + 文件夹树 HTML 渲染（展开/折叠/刷新），工作区按 sessionId→当前会话 cwd 优先解析（围栏内绝对路径兜底），经工具箱 RPC 注册"
     },
     {
       "id": "flow",
@@ -118,8 +118,8 @@
       "autoStart": true,
       "order": 8,
       "idPrefix": "ports",
-      "purpose": "Host-only：node 子进程 spawnSync netstat/tasklist 列监听端口 + 进程名，过滤/刷新/两步确认 taskkill 结束进程，经工具箱 RPC 注册",
-      "note": "pwsh stdin 按行执行有多行块坑；插件求值器无 Buffer——一律 node 子进程"
+      "purpose": "Host-only：跨平台列监听端口 + 进程名（win32 netstat/tasklist、macOS lsof、Linux ss→netstat 回退，node 子进程按 process.platform 分支解析），结束进程统一子进程 process.kill(SIGKILL)，过滤/刷新/两步确认，经工具箱 RPC 注册",
+      "note": "pwsh stdin 按行执行有多行块坑；插件求值器无 Buffer——一律 node 子进程；PORTS_FIXTURE 测试钩子供 smoke 在任意平台覆盖三平台解析分支"
     },
     {
       "id": "calc",

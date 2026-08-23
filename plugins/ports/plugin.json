@@ -2,7 +2,7 @@
   "key": "ports",
   "idPrefix": "ports",
   "name": "端口进程查看工具 (Host-only)",
-  "purpose": "Host-only：node 子进程 spawnSync netstat/tasklist 列监听端口 + 进程名，过滤/刷新/两步确认 taskkill 结束进程，经工具箱 RPC 注册",
+  "purpose": "Host-only：跨平台列监听端口 + 进程名（win32 netstat/tasklist、macOS lsof、Linux ss→netstat 回退，node 子进程按 process.platform 分支解析），结束进程统一子进程 process.kill(SIGKILL)，过滤/刷新/两步确认，经工具箱 RPC 注册",
   "platform": "host-only",
   "inject": [
     "fs",
