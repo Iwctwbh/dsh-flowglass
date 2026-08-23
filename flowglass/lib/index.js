@@ -1183,6 +1183,7 @@ return {
       // 钻取态：查看的不是面板所属会话 → 头部给「← 返回」+ 层级标注（crumbs 栈深度）
       const drilled = !!(st.home && sid !== st.home)
       const depth = drilled && Array.isArray(st.crumbs) ? st.crumbs.length : 0
+      const help = '中列是用户/助手主线，右列是工具调用（输入 ▶ / 输出 ◀），左列是子代理分支。点击卡片查看完整内容；悬停助手卡可从该节点创建 Harness 分支。画布默认可拖动框选，左下可新建仅所选内容的会话草稿或带入已有会话；Zoom 支持缩放与 Zen 原生全屏。点击子代理卡进入实时子流镜，“子代理跟随”开启时 Harness 同步切换；滚到顶部会每次自动加载更早 60 个节点。'
       parts.push('<div class="tb-row">' +
         (drilled ? '<button type="button" class="tb-btn tb-btn-sm" data-action="fback" title="返回上一级流程图">← 返回</button>' : '') +
         '<span class="tb-sec-label">' + (drilled ? '子代理流镜' : '实时流镜') + '</span>' +
@@ -1190,8 +1191,11 @@ return {
         '<button type="button" class="tb-chip' + (st.live ? ' tb-chip-on' : '') + '" data-action="toggle-live">' + (st.live ? '● 实时同步中' : '⏸ 已暂停') + '</button>' +
         '<button type="button" class="tb-chip' + (st.follow ? ' tb-chip-on' : '') + '" data-action="toggle-follow" title="开启后，点击子代理会同时切换 DeepSeek Harness 主会话">' + (st.follow ? '● 子代理跟随' : '○ 子代理跟随') + '</button>' +
         '<button type="button" class="tb-btn tb-btn-sm" data-action="refresh">刷新</button>' +
+        '<span class="fl-info" tabindex="0" aria-label="流镜使用说明">' +
+          '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7.2v4"/><circle cx="8" cy="4.7" r=".7" fill="currentColor" stroke="none"/></svg>' +
+          '<span class="fl-info-pop">' + esc(help) + '</span>' +
+        '</span>' +
       '</div>')
-      parts.push('<div class="tb-note">泳道：中列主干自上而下（用户/助手）；调用右出输入卡 ▶、左回输出卡 ◀，进行中的调用高亮脉冲；子代理分支在左列（入口/支线/出口），与主干卡同行不留空白；点工具卡看完整传入/返回，点消息卡看完整内容；点子代理分支「进入 →」钻取该子会话的完整流程图</div>')
       parts.push('</div>')
       // 流程体：tb-pane-body 为 column-reverse——这里以「视觉最新在底」渲染：DOM 先放最新节点，滚动条默认贴底
       parts.push('<div class="tb-pane-body">')
