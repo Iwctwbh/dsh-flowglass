@@ -95,6 +95,11 @@ const check = (label, cond, detail) => {
   // ---- 跨块失败：isError 在第二块 tool-result 上，必须计入失败（旧实现只看 content[0]）----
   check('跨块失败：edit 标记 ✗ 50ms', r.html.indexOf('✗ 50ms') >= 0)
   check('跨块失败：统计行 2 失败', r.html.indexOf('2 失败') >= 0)
+  // ---- 跨块正文：优先取配对块内容，而不是全消息第一段非空文本（首块是前置说明）----
+  r = await h({ action: 'detail', fields: { __el: { seq: '9' } }, state: r.state, root: ROOT, session: 's-a' })
+  check('跨块正文：详情取配对块正文', r.html.indexOf('edit failed body') >= 0 && r.html.indexOf('前置说明：工具返回如下') < 0)
+  const cc4 = await h({ action: 'copy-out', fields: {}, state: r.state, root: ROOT, session: 's-a' })
+  check('跨块正文：复制输出 = 配对块正文', cc4.copy === 'edit failed body')
 
   // ---- L11：缺 time 的注入事件不渲染 NaN ----
   check('L11 NaN 守卫：注入消息可见', r.html.indexOf('系统注入提示') >= 0)

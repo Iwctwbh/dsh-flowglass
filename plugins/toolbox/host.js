@@ -598,10 +598,20 @@ return {
       // 幂等快照（existingNames）必须在锁内采集（审计 M11）：两个并发重建若都在锁外拿旧快照，
       // 会先后持锁重复 define 同一批插件——锁内现读 inventory，后到者看到先到者刚定义的行即跳过。
       await registry.runInBuild(manifestRoot, async () => {
+        // 幂等快照在锁内采集（审计 M11），且按「仓库归属」判定而非仅当前会话（评审 P1 补充）：
+        // 同仓库两个会话并发重建时，先到者 define 的行挂在它会话名下——只认当前 sid/hostOfRoot
+        // 会让后到者视而不见、整批重复定义。owner 判定复用 sessionCwdOf/ownsRoot（与 isRepoRow
+        // 同语义）：行归属会话的工作区包含本仓库 root 即算已定义。
         const existingNames = new Set()
         for (const r of runner.inventory()) {
-          if (r.agentId !== sid && r.agentId !== hostOfRoot) continue
-          for (const p of r.packages) if (p && p.name) existingNames.add(p.name)
+          if (r.agentId === sid || r.agentId === hostOfRoot) {
+            for (const p of r.packages) if (p && p.name) existingNames.add(p.name)
+            continue
+          }
+          const ownerCwd = sessionCwdOf(r.agentId)
+          if (ownerCwd && ownsRoot(ownerCwd, manifestRoot)) {
+            for (const p of r.packages) if (p && p.name) existingNames.add(p.name)
+          }
         }
         for (const entry of entries) {
           if (entry.id === 'toolbox') { skipped.push('toolbox（框架自身）'); continue }

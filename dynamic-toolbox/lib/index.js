@@ -696,8 +696,11 @@ const auth = 'Basic ' + Buffer.from(email + ':' + token).toString('base64');
 // 边下边累计字节数，超 20MB 立即断流、销毁半成品并抛错，杜绝整包 arrayBuffer 入内存
 const LIMIT = 20 * 1024 * 1024;
 async function streamTo(res, outPath) {
+  // 先写同目录唯一临时件（评审 P1）：直接写最终路径会立刻截断已有归档，失败再 unlink 就是
+  // 数据丢失。成功后 rename 原子替换；失败只清理临时件，旧文件原样保留。
+  const tmp = outPath + '.part-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
   let total = 0;
-  const ws = fs.createWriteStream(outPath);
+  const ws = fs.createWriteStream(tmp);
   try {
     for await (const chunk of res.body) {
       total += chunk.length;
@@ -705,10 +708,11 @@ async function streamTo(res, outPath) {
       if (!ws.write(chunk)) await new Promise((r) => ws.once('drain', r));
     }
     await new Promise((resolve, reject) => ws.end((err) => (err ? reject(err) : resolve())));
+    fs.renameSync(tmp, outPath);
     return total;
   } catch (e) {
     ws.destroy();
-    try { fs.unlinkSync(outPath) } catch (e2) {}
+    try { fs.unlinkSync(tmp) } catch (e2) {}
     throw e;
   }
 }
@@ -751,8 +755,10 @@ const fmtSz = (n) => (n == null || isNaN(Number(n)) ? '—' : n < 1024 ? n + ' B
 // 流式落盘（审计 M7）：同 ATTACH_SCRIPT——content-length 缺失/虚报时边下边累计，超 20MB 断流删残件
 const LIMIT = 20 * 1024 * 1024;
 async function streamTo(res, outPath) {
+  // 同 ATTACH_SCRIPT：临时件 + 成功 rename 原子替换，失败只清临时件（不破坏已有归档）
+  const tmp = outPath + '.part-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
   let total = 0;
-  const ws = fs.createWriteStream(outPath);
+  const ws = fs.createWriteStream(tmp);
   try {
     for await (const chunk of res.body) {
       total += chunk.length;
@@ -760,10 +766,11 @@ async function streamTo(res, outPath) {
       if (!ws.write(chunk)) await new Promise((r) => ws.once('drain', r));
     }
     await new Promise((resolve, reject) => ws.end((err) => (err ? reject(err) : resolve())));
+    fs.renameSync(tmp, outPath);
     return total;
   } catch (e) {
     ws.destroy();
-    try { fs.unlinkSync(outPath) } catch (e2) {}
+    try { fs.unlinkSync(tmp) } catch (e2) {}
     throw e;
   }
 }
@@ -3149,6 +3156,18 @@ return {
       }
       return text
     }
+    // 结果正文（评审 P2 补充）：优先取「配对到的 tool-result 块」的文本——首块可能是
+    // 无 toolCallId 的前置说明，全消息第一段非空文本会取错；配对块无内容时才回退全消息。
+    const pairedTextOf = (msg) => {
+      let block = null
+      if (Array.isArray(msg && msg.content)) {
+        for (const b of msg.content) {
+          if (!block && b && b.toolCallId != null) { block = b; break }
+        }
+      }
+      const t = block ? textOf(block.content) : ''
+      return t || resultTextOf(msg)
+    }
 
     // ---- 日志 → 时间线条目 + 统计 ----
     const build = (events) => {
@@ -3182,7 +3201,7 @@ return {
               if (callId == null && block && block.toolCallId != null) { callId = String(block.toolCallId); callBlock = block; break }
             }
           }
-          const text = resultTextOf(m)
+          const text = pairedTextOf(m)
           // isError 必须取自「配对到的那个 tool-result 块」：首块是空占位/前置说明、
           // 失败标记落在后续块时，只看 content[0] 会把真实失败误标成成功
           const failed = !!(d.error || (callBlock && callBlock.isError))
@@ -3283,7 +3302,7 @@ return {
         if (!it || it.resSeq == null) return null
         const rev = model.bySeq[it.resSeq]
         const rm = rev && rev.data && rev.data.message
-        return resultTextOf(rm) || null
+        return pairedTextOf(rm) || null
       }
       const m = ev.type === 'assistant/message' ? (d.message || {}) : d
       return textOf(m.content) || null
@@ -3310,7 +3329,7 @@ return {
         if (it && it.resSeq != null) {
           const rev = model.bySeq[it.resSeq]
           const rm = rev && rev.data && rev.data.message
-          const text = resultTextOf(rm)
+          const text = pairedTextOf(rm)
           const err = rev && rev.data && rev.data.error
           out = (err ? '[error] ' + esc(err.name || '') + ' ' + esc(err.code || '') + '\n\n' : '') +
             esc(text.length > 12000 ? text.slice(0, 12000) + '\n…（截断，共 ' + text.length + ' 字符）' : text)

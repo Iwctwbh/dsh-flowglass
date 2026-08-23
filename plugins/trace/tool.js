@@ -117,6 +117,18 @@ return {
       }
       return text
     }
+    // 结果正文（评审 P2 补充）：优先取「配对到的 tool-result 块」的文本——首块可能是
+    // 无 toolCallId 的前置说明，全消息第一段非空文本会取错；配对块无内容时才回退全消息。
+    const pairedTextOf = (msg) => {
+      let block = null
+      if (Array.isArray(msg && msg.content)) {
+        for (const b of msg.content) {
+          if (!block && b && b.toolCallId != null) { block = b; break }
+        }
+      }
+      const t = block ? textOf(block.content) : ''
+      return t || resultTextOf(msg)
+    }
 
     // ---- 日志 → 时间线条目 + 统计 ----
     const build = (events) => {
@@ -150,7 +162,7 @@ return {
               if (callId == null && block && block.toolCallId != null) { callId = String(block.toolCallId); callBlock = block; break }
             }
           }
-          const text = resultTextOf(m)
+          const text = pairedTextOf(m)
           // isError 必须取自「配对到的那个 tool-result 块」：首块是空占位/前置说明、
           // 失败标记落在后续块时，只看 content[0] 会把真实失败误标成成功
           const failed = !!(d.error || (callBlock && callBlock.isError))
@@ -251,7 +263,7 @@ return {
         if (!it || it.resSeq == null) return null
         const rev = model.bySeq[it.resSeq]
         const rm = rev && rev.data && rev.data.message
-        return resultTextOf(rm) || null
+        return pairedTextOf(rm) || null
       }
       const m = ev.type === 'assistant/message' ? (d.message || {}) : d
       return textOf(m.content) || null
@@ -278,7 +290,7 @@ return {
         if (it && it.resSeq != null) {
           const rev = model.bySeq[it.resSeq]
           const rm = rev && rev.data && rev.data.message
-          const text = resultTextOf(rm)
+          const text = pairedTextOf(rm)
           const err = rev && rev.data && rev.data.error
           out = (err ? '[error] ' + esc(err.name || '') + ' ' + esc(err.code || '') + '\n\n' : '') +
             esc(text.length > 12000 ? text.slice(0, 12000) + '\n…（截断，共 ' + text.length + ' 字符）' : text)

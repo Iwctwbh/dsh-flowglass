@@ -63,8 +63,11 @@ const auth = 'Basic ' + Buffer.from(email + ':' + token).toString('base64');
 // 边下边累计字节数，超 20MB 立即断流、销毁半成品并抛错，杜绝整包 arrayBuffer 入内存
 const LIMIT = 20 * 1024 * 1024;
 async function streamTo(res, outPath) {
+  // 先写同目录唯一临时件（评审 P1）：直接写最终路径会立刻截断已有归档，失败再 unlink 就是
+  // 数据丢失。成功后 rename 原子替换；失败只清理临时件，旧文件原样保留。
+  const tmp = outPath + '.part-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
   let total = 0;
-  const ws = fs.createWriteStream(outPath);
+  const ws = fs.createWriteStream(tmp);
   try {
     for await (const chunk of res.body) {
       total += chunk.length;
@@ -72,10 +75,11 @@ async function streamTo(res, outPath) {
       if (!ws.write(chunk)) await new Promise((r) => ws.once('drain', r));
     }
     await new Promise((resolve, reject) => ws.end((err) => (err ? reject(err) : resolve())));
+    fs.renameSync(tmp, outPath);
     return total;
   } catch (e) {
     ws.destroy();
-    try { fs.unlinkSync(outPath) } catch (e2) {}
+    try { fs.unlinkSync(tmp) } catch (e2) {}
     throw e;
   }
 }
@@ -118,8 +122,10 @@ const fmtSz = (n) => (n == null || isNaN(Number(n)) ? '—' : n < 1024 ? n + ' B
 // 流式落盘（审计 M7）：同 ATTACH_SCRIPT——content-length 缺失/虚报时边下边累计，超 20MB 断流删残件
 const LIMIT = 20 * 1024 * 1024;
 async function streamTo(res, outPath) {
+  // 同 ATTACH_SCRIPT：临时件 + 成功 rename 原子替换，失败只清临时件（不破坏已有归档）
+  const tmp = outPath + '.part-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
   let total = 0;
-  const ws = fs.createWriteStream(outPath);
+  const ws = fs.createWriteStream(tmp);
   try {
     for await (const chunk of res.body) {
       total += chunk.length;
@@ -127,10 +133,11 @@ async function streamTo(res, outPath) {
       if (!ws.write(chunk)) await new Promise((r) => ws.once('drain', r));
     }
     await new Promise((resolve, reject) => ws.end((err) => (err ? reject(err) : resolve())));
+    fs.renameSync(tmp, outPath);
     return total;
   } catch (e) {
     ws.destroy();
-    try { fs.unlinkSync(outPath) } catch (e2) {}
+    try { fs.unlinkSync(tmp) } catch (e2) {}
     throw e;
   }
 }
