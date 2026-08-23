@@ -287,6 +287,8 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     check('框选图标栏复用 Zoom 透明度/按钮尺寸，工作区树默认收起并使用文件夹图标', css.indexOf('.tb-flow-zoom-float,.tb-flow-selection-bar{padding:3px 5px;opacity:.42') >= 0
       && css.indexOf('.tb-flow-icon-btn{position:relative;width:25px;height:24px') >= 0
       && src.indexOf('flowTreeOpen[group.cwd] ? group.sessions.map') >= 0 && src.indexOf("className: 'tb-flow-tree-folder'") >= 0)
+    check('框选图标栏位于 Zoom 上方，计数使用圆形描边', css.indexOf('.tb-flow-zoom-float.with-selection{bottom:14px}') >= 0
+      && css.indexOf('.tb-flow-selection-bar{bottom:54px') >= 0 && css.indexOf('.tb-flow-selection-count{width:24px;height:24px;padding:0') >= 0)
     check('面板主布局只作用于 HTML 包装层，不会把左下浮层拉成竖条', css.indexOf('.tb-frame>.tb-panel-html{') >= 0
       && css.indexOf('.tb-frame:has(.tb-pane)>div{') < 0 && src.indexOf("className: 'tb-panel-html'") >= 0)
     check('CSS 含隐藏行与计数覆盖规则', css.indexOf('li[data-cordis-row][data-tb-hide~="1"]{display:none!important}') >= 0
