@@ -2,7 +2,7 @@
 
 > 本文只适用于源码方式运行的完整动态 Toolbox，不是 `dsh-flowglass` 的默认安装说明。普通流镜用户请返回 [`README.md`](README.md)，通过 `dsh plugin --profile web add dsh-flowglass` 安装；原生静态 Flowglass 不需要执行本文的 define、run 或自举流程。
 
-> **最简重建（AI 执行规范，最高优先级，覆盖本页其他说明）**：用户要求重建工具箱时，AI 只做三步——① `cordis_define` ← `plugins/toolbox/payload.json`；② `cordis_run(mode: run)`（等用户在 GUI 点批准）；③ 按本页「AI 手动重建后的持久化询问」问一次。**不做**：读其他文档、探索仓库、跑 make-payloads/smoke/任何测试、调试、分析、总结汇报——三步做完即止，回复不超过三行。仅当 define/run 返回失败时才允许排查，且只报一句失败原因。非创造模式没有 cordis 工具时，只回一句「请切到创造模式再叫我重建」。
+> **最简重建（AI 执行规范，最高优先级，覆盖本页其他说明）**：用户要求重建工具箱时，AI 只做三步——① `cordis_define` ← `plugins/toolbox/payload.json`（先 `cordis_inspect_self` 判路径：插件表已有框架用 `kind:'existing'` 且 run 用 `update`，否则 `kind:'new'`+`run`）；② `cordis_run`（等用户在 GUI 点批准）；③ 按「AI 手动重建后的持久化询问」处理（用户本会话已明确说过不持久化的直接跳过）。**不做**：读其他文档、探索仓库、跑 make-payloads/smoke/任何测试、调试、分析、总结汇报——三步做完即止，回复不超过三行。仅当 define/run 返回失败时才允许排查，且只报一句失败原因。非创造模式没有 cordis 工具时，只回一句「请切到创造模式再叫我重建」。
 
 > **前置分阶段**：**首次自举**（define+run 框架）须处于「创造模式」（cordis preset，GUI 顶部模式选择器）——只有它挂载 `cordis_define` / `cordis_run` 模型工具；**框架已在跑之后**，本页的重建/补齐/重跑/启停在**任何模式**都能进行——抽屉管理按钮与 Cordis 面板直驱进程级全局 `dynamicCordisRunner`，不经过模型工具（动态插件运行时 cordis-host/client-runner 与 ui-cordis 均在 Host composition 全局挂载，与 preset 无关；插件归属 session 级）。
 > **最快重建 = define+run 框架一个插件（2 次调用 + 1 次 GUI 批准），零点击。** 框架启动时自动补齐（`doRebuild`，幂等按插件 name 跳过本会话已定义的，含被开关停掉的）：读磁盘 `plugins.json` + `payload.json` 经 `dynamicCordisRunner` **并行** define+run，只补缺失（**实测全量冷重建 22 插件 ≈ 0.3s**，含耗时字段 `ms` 于自动补齐报告）；启动与否遵循**启停记忆**（见下）。sid 发现：`agents.currentInitiator()` 优先，兜底按 toolbox 条目 name 在 inventory 里匹配（多会话同名框架时跳过，不误补别的会话）。抽屉齿轮「从 plugins.json 重建/补齐」按钮仍可手动触发同一逻辑。
@@ -10,6 +10,12 @@
 > 无框架时的手动路径：读 `plugins.json` → 按 order 逐个取条目 `payload.json`（即完整 define 参数）→ `cordis_define` → autoStart 的 `cordis_run`。
 > **AI 手动重建后的持久化询问**（与 bootstrapper 共用同一份偏好）：AI 经模型工具完成重建后，先读 `.dsh-dynamic-toolbox/toolbox-bootstrap.json`——`"auto":"never"` 则跳过询问；否则用 ask_user_question 问「要持久化自动重建吗」：**持久化**（跑 `host-bootstrap/install.ps1`，写 ~/.dsh 需沙箱批准，以后开会话自动重建、不用再找 AI）/ **仅本次** / **别再问**（写 `{"auto":"never"}` 落盘，bootstrapper 与后续 AI 重建共用这份偏好）。已装 bootstrapper 时会话启动即自举（每进程一次批准弹框），不会走到手动重建这步。
 > 写新工具插件 → 见 `PLUGIN-DEV.md`。
+
+## AI 实操备忘（重建流程实测补遗）
+
+- **payload.json 取词**：它是单行超长 JSON，读取工具会把超长行截断（host 半 ~3KB）——用 pwsh `ConvertFrom-Json` 把 `code.host` / `code.client` 分别解码落临时文件再逐字读，保证 define 传参与生成物逐字一致；临时目录带随机后缀（`$env:TEMP\dsh-*`），以命令实际打印的完整路径为准。
+- **install.ps1 必触发沙箱升级**：脚本要写 `~/.dsh\profiles\web\`（会话工作区之外），AI 直跑必先吃一次 `[sandbox: file access denied]` 拒绝标记；随后对同一命令升级重试、由用户批准完成写入。批准被拒即本次放弃持久化，不要换路子绕过。
+- **回合间可能跨进程重启**：动态插件随进程生死，上一回合刚完成的框架下一回合可能已消失（id 计数器同步复位，全新 define 仍得 `tbx-1/pkg-1`）。「重建」永远先查插件表再定路径，别凭上一回合记忆假设它还在跑。
 
 ## 零模型调用自举（host-bootstrap，可选加速器）
 
@@ -77,6 +83,7 @@ plugins/<key>/          每插件一个文件夹：plugin.json（元数据）+ p
   aiassist/               AI 助手 7 合一（tool.js，PRESETS 表：问答/翻译/优化/评审/提交信息/摘要/对比，共享 makeLlmHelper）
   calc/                   计算台 5 合一（tool.js，子模式：编解码/正则/Cron/文本对比/生成器）
   flow/                   实时流程图（tool.js，主干箭头 + 子代理 git 树分支 + 平行调用右分支；data-autorefresh 驱动 2s 静默轮询）
+  flowedit/               工作流编辑器（tool.js，Markdown↔流程图双向预览；idPrefix fedt）
   quota/                  API 配额查询（tool.js，Kimi for Coding 余量：周额度/滑动窗口/并发；Node 子进程 https）
   jira/ git/ files/ trace/ http/ ports/                     各含 tool.js
   usage/ prompt/ context/ tools/ search/ lineage/           会话透视类，各含 tool.js
@@ -95,12 +102,15 @@ AI 助手（Tab「AI 助手」）：preset 芯片切换 问答/翻译/优化/评
 | 顺序 | 插件 | 平台 | 批准 | 自动启用 |
 | --- | --- | --- | --- | --- |
 | 1 | toolbox | Host+Client | ✅ WebUI 批一次 | 是 |
-| 2-5 | jira / git / files / flow | Host-only | 免批 | 是 |
-| 6、7 | theme-teal / theme-amber | Client-only | ✅ 批一次 | **否**（按需手动激活，互斥） |
-| 8-13 | trace / http / ports / calc / usage / prompt | Host-only | 免批 | 是 |
-| 14-17 | context / aiassist / tools / search | Host-only | 免批 | 是 |
-| 18、24、25 | lineage / aiusage / quota | Host-only | 免批 | 是 |
+| 2-5 | jira / git / files / flow / flowedit | Host-only | 免批 | 是 |
+| 5 | theme-teal | Client-only | ✅ 批一次 | **否**（按需手动激活，与暖橙互斥） |
+| 6-9 | trace / http / ports / calc | Host-only | 免批 | 是 |
+| 11-17 | usage / prompt / context / aiassist / tools / search / lineage | Host-only | 免批 | 是 |
+| 24、25 | aiusage / quota | Host-only | 免批 | 是 |
+| 27 | theme-amber | Client-only | ✅ 批一次 | **否**（按需手动激活，与青绿互斥） |
 | 29 | selfview（界面自查） | Host+Client | ✅ 批一次 | **自动发起**（autoStart 条目重建时 runner.run 非阻塞发起 → 批准卡自动弹出，点一次允许即启动；授权不跨进程，Client 半插件每进程至少批一次是安全闸门） |
+
+（顺序号即 `plugins.json` 的 `order` 字段，空洞属正常——按清单原样照抄，勿手工重排，重排即漂移。）
 
 最终启动集合 = 上表默认 **∩** `.dsh-dynamic-toolbox/toolbox-plugins.json` 启停记忆（记录为关的不启动）。
 
