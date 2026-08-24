@@ -46,13 +46,6 @@
       "purpose": "Host-only：Markdown 优先的工作流编辑（参考 dsh-deepseek-flow）——## 步骤 / ### gate:ifElse 等 8 类逻辑门 / - 是→目标 分支，编辑区 ↔ 流程图实时双向预览（git 树分支样式复用 fl- 族）；文件落盘 .dsh-dynamic-toolbox/data/flows/<name>.md"
     },
     {
-      "id": "theme-teal",
-      "name": "工具箱主题 · 青绿（演示）",
-      "platform": "client-only",
-      "order": 5,
-      "purpose": "工具箱面板主题插件（演示）：在 :root 声明 --tb-* 变量覆盖，把共享设计系统的 accent 从蓝色换成青绿；停止即回默认主题，用于验证\"多主题插件按需激活\"机制"
-    },
-    {
       "id": "trace",
       "name": "会话轨迹工具 (Host-only)",
       "platform": "host-only",

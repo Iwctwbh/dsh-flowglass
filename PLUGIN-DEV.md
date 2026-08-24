@@ -65,28 +65,18 @@ return {
 
 ## 必踩的坑（实战血泪）
 
-1. **样式用框架共享设计系统（`tb-` 类），不要自己内嵌 `<style>`。** 共享层在 `toolbox-client.js` 注入一次：按钮/输入/横幅/pill/卡片/列表/文件行/树/空状态全有（组件类见源码注释块）。面板根节点用 `<div class="jr-tabpanel tb-root">`；按钮样式要 `!important` 压宿主全局样式。颜色只消费 `--tb-*` 变量（带 `--dsw-alias-*` 兜底）——框架**永不声明**这些变量，主题插件在 `:root` 声明即可整体换肤（多个主题插件，按需激活一个）。
+1. **样式用框架共享设计系统（`tb-` 类），不要自己内嵌 `<style>`。** 共享层在 `toolbox-client.js` 注入一次：按钮/输入/横幅/pill/卡片/列表/文件行/树/空状态全有（组件类见源码注释块）。面板根节点用 `<div class="jr-tabpanel tb-root">`；按钮样式要 `!important` 压宿主全局样式。颜色只消费 `--tb-*` 变量（带 `--dsw-alias-*` 兜底）——框架只在「外观」配置里声明这些变量（见下节），工具面板不要自己写死颜色。
 2. **模板字符串里的子进程脚本：`\n` 写 `'\\n'`。** 外层模板求值时 `\n` 已变真实换行，子脚本出现未终止字符串 → `SyntaxError: Unterminated string constant`。更稳的做法是**数组 join**（`'\\n'` 拼接）或干脆不写字面换行（见 plugins/http/tool.js）。改完用「eval 模板 + `new Function(child)`」验证子脚本能编译（见下）。
    **pwsh 子进程同理还有第二坑：`pwsh -Command -` 从 stdin 读脚本是按行执行**，多行块（`@(...ForEach-Object {` 跨行）直接解析失败且静默无输出。`-EncodedCommand` 又要 base64 而插件求值器没有 Buffer——**首选 node 子进程**（`node -` 整脚本 stdin，netstat/tasklist 用 spawnSync 解析，见 plugins/ports/tool.js）。另外 `Get-NetTCPConnection` 在受限环境会「拒绝访问」，列端口用 `netstat -ano` 解析。
 3. **`ctx.xxx` 直接访问必须先声明 `inject: ['xxx']`**；可选服务用 `ctx.get('xxx')` + `undefined` 判断。`timer` 也是服务，用 `ctx.interval/ctx.timeout`，禁原生 `setTimeout`。
 4. **副作用全部挂生命周期**：`ctx.effect()` / `ctx.on()` / 服务返回的 disposer，保证 stop/update 后清理干净。
 5. **不传活数据**：跨 RPC 和 state 只放可序列化 JSON 叶子字段，别 JSON.stringify 服务对象。
 
-## 主题插件（按需激活一个）
+## 外观配置（内置，取代旧主题插件）
 
-框架只以 `var(--tb-*, 兜底)` 消费变量、从不声明 —— 主题插件只需 Client 半在 `:root` 声明覆盖（参考 `plugins/theme-teal` 青绿、`plugins/theme-amber` 暖橙）：
+框架只以 `var(--tb-*, 兜底)` 消费变量、从不声明。旧 `theme-teal`/`theme-amber` 主题插件已移除，换肤收进框架 Client 半的「外观」配置：主题预设（默认/青绿/暖橙）+ 自定义主色 + 界面/详情字号倍率（`--tb-fs` / `--tb-fs-detail` 驱动全部字号 calc），入口在抽屉管理页「外观」分区与 better-sidebar 流镜 Tab 设置页，持久化在 localStorage（`RT.storageKey('appearance')`），注入机制不变——静态 bundle 挂 `[data-dsh-toolbox-scope]` 根、动态模式挂 `:root`。
 
-```js
-return {
-  name: 'tb-theme-xxx',
-  apply(ctx) {
-    const dispose = styles.insert(':root{--tb-accent:#0d9488;--tb-accent-text:#5eead4;--tb-accent-bg:rgba(20,184,166,.14);--tb-accent-border:rgba(20,184,166,.45);--tb-accent-ring:rgba(20,184,166,.16);--tb-accent-hover:#14b8a6;--tb-active:#14b8a6;--tb-active-text:#5eead4;--tb-active-border:rgba(20,184,166,.4)}')
-    ctx.effect(() => dispose)   // styles.insert 返回 disposer，停止即回默认主题
-  },
-}
-```
-
-可覆盖变量全清单看 `toolbox-client.js` 共享层注释；多主题并存时后插入者胜出，按需只激活一个。
+可覆盖变量全清单看 `toolbox-client.js` 共享层注释；仍可写自己的 Client 半插件在 `:root` 声明变量做深度定制（会与内置外观并存，后插入者胜出）。
 
 ## 子进程脚本模板验证
 

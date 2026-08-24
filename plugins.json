@@ -74,19 +74,6 @@
       "note": "idPrefix：flowedit 7 个字母超限 → fedt；编辑器非运行器（画布拖拽需 Client 半，本取舍为 Markdown↔图双向）"
     },
     {
-      "id": "theme-teal",
-      "name": "工具箱主题 · 青绿（演示）",
-      "payload": "plugins/theme-teal/payload.json",
-      "platform": "client-only",
-      "approval": true,
-      "autoStart": false,
-      "order": 5,
-      "idPrefix": "theme",
-      "purpose": "工具箱面板主题插件（演示）：在 :root 声明 --tb-* 变量覆盖，把共享设计系统的 accent 从蓝色换成青绿；停止即回默认主题，用于验证\"多主题插件按需激活\"机制",
-      "client": "plugins/theme-teal/client.js",
-      "note": "主题插件：纯 Client（注入 CSS 变量），按需手动激活一个；停止即回默认主题"
-    },
-    {
       "id": "trace",
       "name": "会话轨迹工具 (Host-only)",
       "payload": "plugins/trace/payload.json",
@@ -234,19 +221,6 @@
       "order": 25,
       "idPrefix": "quota",
       "purpose": "Host-only：查 Kimi for Coding（k3）套餐余量（周主额度 + 5h 滑动窗口 + 并发），GET /coding/v1/usages，Key 走 环境变量→~/.dsh/.credentials.yaml 凭据链，Node 子进程 https（沙箱内 curl 走 schannel 被拒、Node 走 TUN 可直连）；脱敏渲染，key 不出子进程"
-    },
-    {
-      "id": "theme-amber",
-      "name": "工具箱主题 · 暖橙",
-      "payload": "plugins/theme-amber/payload.json",
-      "platform": "client-only",
-      "approval": true,
-      "autoStart": false,
-      "order": 27,
-      "idPrefix": "theme",
-      "purpose": "工具箱面板主题插件：:root 声明 --tb-* 覆盖（accent + active 家族），整体换成暖橙；停止即回默认主题；与青绿演示互斥，按需只激活一个",
-      "client": "plugins/theme-amber/client.js",
-      "note": "主题插件：纯 Client（注入 CSS 变量），按需手动激活；停止即回默认主题"
     },
     {
       "id": "selfview",

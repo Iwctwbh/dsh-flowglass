@@ -1,11 +1,11 @@
-# 动态工具箱（dsh-dynamic-toolbox）
+# Jira + Git + 文件 + 流镜 + 工作流编辑 + 轨迹 + HTTP + 端口 + 计算 + 用量 + 提示词 + 上下文 + AI 助手 + 工具清单 + 搜索 + 血缘 + AI 台账 + 配额 + 界面自查 工具箱（dsh-dynamic-toolbox）
 
 这是 dsh-flowglass 仓库提供的**可选完整工具箱产品**，与默认的流镜包独立。只需要会话流程图时，请安装 `dsh-flowglass`；只有需要下列整套工具时才安装本包。
 
 本包是 DSH 原生静态 Host/Client 插件。
 
 - bundleId: `dynamic-toolbox`
-- 版本: 0.1.1
+- 版本: 0.1.2
 - 动态批准: **不需要**（不使用 dynamicCordisRunner，不产生 dyn/*）
 - 功能:
   - `jira` — Jira 需求读取与归档工具 (Host-only)
@@ -13,7 +13,6 @@
   - `files` — 工作区文件工具 (Host-only)
   - `flow` — 实时流镜 (Host-only)
   - `flowedit` — 工作流编辑器 (Host-only)
-  - `theme-teal` — 工具箱主题 · 青绿（演示）
   - `trace` — 会话轨迹工具 (Host-only)
   - `http` — HTTP 接口调试工具 (Host-only)
   - `ports` — 端口进程查看工具 (Host-only)

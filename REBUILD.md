@@ -72,14 +72,13 @@ build/plugin-catalog.mjs 单一事实源：PLUGINS 表（含 bundle 元数据）
 build/                  构建公共模块：source-loader / payload-builder / profile / build-bundle / templates
 scripts/                build-toolbox-bundle.mjs（编译合集 CLI）· verify-generated.mjs（动态生成物漂移检查）· verify-bundle.mjs（编译产物契约/npm pack 检查）
 smoke.mjs               契约冒烟入口：node smoke.mjs 跑 smoke/sim-*.cjs 全部套件（exit 0 全绿）
-smoke/                  仿真用例：mock ctx/服务真实求值插件 impl（面板协议/联动竞态/持久化/state 轻量化/主题生命周期）
+smoke/                  仿真用例：mock ctx/服务真实求值插件 impl（面板协议/联动竞态/持久化/state 轻量化/外观 scope 隔离）
 loader.js               磁盘级加载器（桩固定入口，改它不用重新 define）
 shared/host.js          共享辅助（esc/注册重试/持久化/日志缓存/base64）
 host-bootstrap/         可选加速器：静态自举插件（装进 DSH profile 后开会话即自动重建，见上节）
 plugins/<key>/          每插件一个文件夹：plugin.json（元数据）+ payload.json（生成）+ impl
   toolbox/                框架：host.js（注册表+RPC+启停记忆+并行自举+重启确定性重挂）+ client.js（抽屉壳+tb- 设计系统+面板自动刷新）
-  theme-teal/             主题：client.js（payload 由它内联生成）
-  theme-amber/            主题：client.js（暖橙；与青绿互斥按需激活）
+  （主题插件已移除：外观配置内置在框架 client.js 的「外观」分区，见 PLUGIN-DEV.md）
   aiassist/               AI 助手 7 合一（tool.js，PRESETS 表：问答/翻译/优化/评审/提交信息/摘要/对比，共享 makeLlmHelper）
   calc/                   计算台 5 合一（tool.js，子模式：编解码/正则/Cron/文本对比/生成器）
   flow/                   实时流程图（tool.js，主干箭头 + 子代理 git 树分支 + 平行调用右分支；data-autorefresh 驱动 2s 静默轮询）
@@ -103,11 +102,9 @@ AI 助手（Tab「AI 助手」）：preset 芯片切换 问答/翻译/优化/评
 | --- | --- | --- | --- | --- |
 | 1 | toolbox | Host+Client | ✅ WebUI 批一次 | 是 |
 | 2-5 | jira / git / files / flow / flowedit | Host-only | 免批 | 是 |
-| 5 | theme-teal | Client-only | ✅ 批一次 | **否**（按需手动激活，与暖橙互斥） |
 | 6-9 | trace / http / ports / calc | Host-only | 免批 | 是 |
 | 11-17 | usage / prompt / context / aiassist / tools / search / lineage | Host-only | 免批 | 是 |
 | 24、25 | aiusage / quota | Host-only | 免批 | 是 |
-| 27 | theme-amber | Client-only | ✅ 批一次 | **否**（按需手动激活，与青绿互斥） |
 | 29 | selfview（界面自查） | Host+Client | ✅ 批一次 | **自动发起**（autoStart 条目重建时 runner.run 非阻塞发起 → 批准卡自动弹出，点一次允许即启动；授权不跨进程，Client 半插件每进程至少批一次是安全闸门） |
 
 （顺序号即 `plugins.json` 的 `order` 字段，空洞属正常——按清单原样照抄，勿手工重排，重排即漂移。）

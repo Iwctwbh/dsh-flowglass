@@ -1,4 +1,4 @@
-// ===== 动态工具箱 · DSH 原生静态 Host（构建生成，勿手改） =====
+// ===== Jira + Git + 文件 + 流镜 + 工作流编辑 + 轨迹 + HTTP + 端口 + 计算 + 用量 + 提示词 + 上下文 + AI 助手 + 工具清单 + 搜索 + 血缘 + AI 台账 + 配额 + 界面自查 工具箱 · DSH 原生静态 Host（构建生成，勿手改） =====
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
@@ -8,7 +8,7 @@ export const inject = ["fs","credentials","subprocess","timer","sessionQuery","s
 const TOOLBOX_RUNTIME_OVERRIDES = {
   "mode": "static-bundle",
   "bundleId": "dynamic-toolbox",
-  "displayName": "动态工具箱",
+  "displayName": "Jira + Git + 文件 + 流镜 + 工作流编辑 + 轨迹 + HTTP + 端口 + 计算 + 用量 + 提示词 + 上下文 + AI 助手 + 工具清单 + 搜索 + 血缘 + AI 台账 + 配额 + 界面自查 工具箱",
   "registryService": "toolboxRegistryDynamicToolbox",
   "artifactService": "toolboxArtifactsDynamicToolbox",
   "remoteService": "toolboxNativeDynamicToolbox",
@@ -107,6 +107,20 @@ const makeStaticRegistry = () => {
         if (!res || typeof res.html !== 'string') return { ok: false, error: '工具返回了无效面板内容' }
         const out = { ok: true, html: res.html, state: res.state == null ? null : res.state }
         if (typeof res.copy === 'string' && res.copy) out.copy = res.copy
+        if (res.navigateSession && typeof res.navigateSession === 'object' && typeof res.navigateSession.sessionId === 'string') {
+          out.navigateSession = {
+            sessionId: res.navigateSession.sessionId,
+            ...(typeof res.navigateSession.parentSessionId === 'string' ? { parentSessionId: res.navigateSession.parentSessionId } : {}),
+            ...(res.navigateSession.kind === 'subagent' || res.navigateSession.kind === 'session' ? { kind: res.navigateSession.kind } : {}),
+          }
+        }
+        if (res.flowContext && typeof res.flowContext === 'object' && typeof res.flowContext.text === 'string') {
+          out.flowContext = {
+            text: res.flowContext.text,
+            ...(typeof res.flowContext.sourceSessionId === 'string' ? { sourceSessionId: res.flowContext.sourceSessionId } : {}),
+            ...(Array.isArray(res.flowContext.seqs) ? { seqs: res.flowContext.seqs.filter((v) => typeof v === 'number') } : {}),
+          }
+        }
         return out
       } catch (error) { return { ok: false, error: String(error && error.message || error) } }
     },
@@ -2121,7 +2135,7 @@ const create_flow = () => {
 // 实时：面板根带 data-autorefresh="2000"，框架抽屉每 2s 静默重拉（live 开关可暂停）。
 // 钻取：点子代理分支「进入 →」切换到该子会话的流程图（当前会话压 crumbs 栈，「← 返回」逐级退回）。
 // 数据源：sessionQuery（makeSessionLogReader 缓存；子代理会话按 id 各自缓存读取器）。
-// 状态：{ live, sid, home, expanded, crumbs }（轻量标量；事件本体与流程模型每次动作重建，不进 state）
+// 状态：{ live, follow, limit, sid, home, expanded, crumbs }（轻量标量；事件本体与流程模型每次动作重建，不进 state）
 
 return {
   name: 'flow-tool',
@@ -2340,7 +2354,14 @@ return {
       const nodes = []
       for (const it of items) {
         if (it.kind === 'msg') { nodes.push({ t: 'msg', it }); continue }
-        if (it.cat === 'subagent') { nodes.push({ t: 'sub', call: it }); continue }
+        if (it.cat === 'subagent') {
+          const last = nodes[nodes.length - 1]
+          // 同一 step 里连续启动的子代理是真并行分支：合成一个左泳道组，
+          // 避免 N 个子代理被拆成 N 个空主干行、把画布垂直拉长。
+          if (last && last.t === 'subs' && last.turn === it.turn && last.step === it.step) last.calls.push(it)
+          else nodes.push({ t: 'subs', turn: it.turn, step: it.step, calls: [it] })
+          continue
+        }
         const last = nodes[nodes.length - 1]
         if (last && last.t === 'par' && last.turn === it.turn && last.step === it.step) last.calls.push(it)
         else nodes.push({ t: 'par', turn: it.turn, step: it.step, calls: [it] })
@@ -2433,7 +2454,7 @@ return {
               '<span class="fl-wl-row"><span class="fl-wl-arr">◀</span><span class="fl-wl-line"></span></span></div>') +
         '</div>' +
         '<div class="fl-callside">' +
-          '<div class="fl-iocard' + (pending ? ' fl-live' : '') + (isExp ? ' fl-on' : '') + (o && o.err ? ' fl-err' : '') + '" data-action="fdetail" data-seq="' + c.seq + '" title="点击在右侧查看完整传入/返回">' +
+          '<div class="fl-iocard' + (pending ? ' fl-live' : '') + (isExp ? ' fl-on' : '') + (o && o.err ? ' fl-err' : '') + '" data-action="fdetail" data-seq="' + c.seq + '" data-flow-select-seq="' + c.seq + '" title="点击在右侧查看完整传入/返回">' +
             '<div class="fl-iohead"><span class="fl-tag" style="color:' + km.color + ';background:' + km.bg + '">' + km.label + '</span>' +
             '<span class="fl-name">' + esc(c.name) + '</span>' +
             (pending ? '<span class="fl-spin"></span><span class="fl-time" data-flow-timer="' + c.time + '" data-flow-timer-prefix="⏱ ">⏱ 0ms</span>' : statusGlyph(c.status, c.dur)) + '</div>' +
@@ -2472,12 +2493,17 @@ return {
       const label = isUser ? '用户' : isAi ? '助手' : '注入'
       // 卡片统一面片底色（fl-node），角色色只落在左侧色条 + 几何符号/tag 上，避免整卡彩色半透明的杂乱感
       // 用户/助手/注入卡均可点开右侧详情浮层看完整内容（与工具卡同一交互）；live=进行中 → 与工具卡同款流光脉冲
-      return '<div class="fl-node' + (expandedSeq === it.seq ? ' fl-on' : '') + (live ? ' fl-live' : '') + '" style="border-left-color:' + color + '" data-flow-main-card="' + it.seq + '" data-flow-role="' + it.role + '" data-action="fdetail" data-seq="' + it.seq + '" title="点击查看完整消息">' +
+      const branchSeq = it.finalSeq != null ? it.finalSeq : it.seq
+      const branch = isAi && !it.streaming
+        ? '<button type="button" class="fl-branch-btn" data-flow-branch data-seq="' + branchSeq + '" title="从这条助手消息在 Harness 中创建新分支" aria-label="在新对话中分支">' +
+          '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3v5a3 3 0 0 0 3 3h4"/><path d="M8 5l3-3 3 3"/><path d="M11 2v4"/><path d="M9 9l2 2-2 2"/></svg></button>'
+        : ''
+      return '<div class="fl-node' + (expandedSeq === it.seq ? ' fl-on' : '') + (live ? ' fl-live' : '') + '" style="border-left-color:' + color + '" data-flow-main-card="' + it.seq + '" data-flow-role="' + it.role + '" data-flow-select-seq="' + it.seq + '" data-action="fdetail" data-seq="' + it.seq + '" title="点击查看完整消息">' +
         '<div class="fl-node-head"><span class="fl-glyph" style="color:' + color + '">' + (isUser ? '▲' : isAi ? '◆' : '■') + '</span><span class="fl-tag" style="color:' + color + '">' + label + '</span>' +
         (isAi && it.route ? '<span class="fl-model">' + esc(it.route) + '</span>' : '') +
         (fmtTime(it.time) ? '<span class="fl-time">' + fmtTime(it.time) + '</span>' : '') +
         (aiRunning && it.runStart ? '<span class="fl-time" data-flow-timer="' + it.runStart + '" data-flow-timer-prefix="⏱ ">⏱ 0ms</span>' : (isAi && it.runDur != null ? '<span class="fl-time">⏱ ' + fmtDur(it.runDur) + '</span>' : '')) +
-        (it.tok ? '<span class="fl-time">+' + it.tok + ' tok</span>' : '') + '</div>' +
+        (it.tok ? '<span class="fl-time">+' + it.tok + ' tok</span>' : '') + branch + '</div>' +
         '<div class="fl-preview"' + (it.interrupted ? ' style="color:var(--tb-danger-text,#f28b82)"' : '') + '>' + esc(it.preview || '（空）') + '</div>' +
       '</div>'
     }
@@ -2533,7 +2559,9 @@ return {
       if (cid) {
         try { sub2 = await childRows(cid, 10); if (sub2.live) subLive = true } catch (e) {}
       }
-      let sub = '<div class="fl-sub-card fl-sub-open' + (subLive ? ' fl-live' : '') + '" data-action="fdetail" data-seq="' + c.seq + '" title="点击查看完整任务传入/返回">' +
+      // 有子会话 id 后，整张入口卡就是“进入子流镜”的主点击面；
+      // 子代理尚在启动时仍保留详情行为，避免点击无效。
+      let sub = '<div class="fl-sub-card fl-sub-open' + (subLive ? ' fl-live' : '') + '" data-action="' + (cid ? 'fenter' : 'fdetail') + '" data-seq="' + c.seq + '" data-flow-select-seq="' + c.seq + '" title="' + (cid ? '进入该子代理的实时流镜' : '点击查看完整任务传入/返回') + '">' +
         '<div class="fl-iohead"><span class="fl-tag" style="color:var(--tb-active-text,#7fa7f0);background:rgba(91,141,239,.12)">子代理</span>' +
         '<span class="fl-name">' + esc(c.name) + '</span>' + statusGlyph(c.status, c.dur) + '</div>' +
         '<div class="fl-sub-io"><span class="fl-io-tag">入</span><span class="fl-branch-txt">' + esc(inSummary(c)) + '</span></div>' +
@@ -2564,6 +2592,36 @@ return {
       }
       return sub
     }
+
+    const flowContextOf = (items, seqs, sid) => {
+      const wanted = new Set(seqs)
+      const selected = items.filter((it) => wanted.has(it.seq)).sort((a, b) => a.seq - b.seq)
+      const chunks = ['以下是从 Flowglass 会话 ' + sid + ' 框选的流程片段（' + selected.length + ' 项）：']
+      for (const it of selected) {
+        if (it.kind === 'msg') {
+          const role = it.role === 'user' ? '用户' : it.role === 'ai' ? '助手' : '注入'
+          chunks.push('\n[' + role + ' · seq ' + it.seq + ']\n' + String(it.full || it.preview || '（空）'))
+        } else {
+          chunks.push('\n[工具 ' + it.name + ' · seq ' + it.seq + ']\n传入：' + (it.argsRaw || '（无参数）') + '\n返回：' + (it.status === 'pending' ? '（进行中）' : (it.resultText || '（空返回）')))
+        }
+      }
+      const text = chunks.join('\n')
+      const cap = 24000
+      return {
+        sourceSessionId: sid,
+        seqs: selected.map((it) => it.seq),
+        text: text.length > cap ? text.slice(0, cap) + '\n…（框选内容过长，已截断）' : text,
+      }
+    }
+
+    // 同步子代理组：每个分支是一个可自行拉伸的小流镜，宽屏自动多列、窄屏回落单列。
+    const subGroupHtml = async (node) => {
+      const branches = await Promise.all(node.calls.map(subBranchHtml))
+      return (node.calls.length > 1 ? '<span class="fl-subgrp-tag">并行子代理 ×' + node.calls.length + '</span>' : '') +
+        branches.map((html) => '<div class="fl-subbranch">' + html + '</div>').join('')
+    }
+
+    const subColHtml = (node, html) => '<div class="fl-subcol' + (node.calls.length > 1 ? ' fl-subgrp' : '') + '">' + html + '</div>'
 
     const render = async (st, sid) => {
       const r = await readLog(sid)
@@ -2600,23 +2658,39 @@ return {
         }
       }
       const liveAiSeq = (hasAgentStatus ? sessionLive : active) && lastIt && lastIt.kind === 'msg' && lastIt.role === 'ai' && !lastIt.interrupted ? lastIt.seq : null
-      const CAP = 60
-      const shown = nodes.slice(-CAP)
+      const PAGE = 60
+      const limit = Number.isFinite(Number(st.limit)) ? Math.max(PAGE, Math.floor(Number(st.limit) / PAGE) * PAGE) : PAGE
+      st.limit = limit
+      const shown = nodes.slice(-limit)
+      const hasOlder = nodes.length > shown.length
       const parts = []
-      parts.push('<div class="jr-tabpanel tb-root tb-pane" data-flow data-flow-scope="' + esc(sid) + '" data-autorefresh="' + (st.live ? '2000' : '') + '" data-tab-badge="' + (st.live ? String(nodes.length) : '') + '">')
+      parts.push('<div class="jr-tabpanel tb-root tb-pane" data-flow data-flow-scope="' + esc(sid) + '" data-flow-has-older="' + (hasOlder ? '1' : '0') + '" data-flow-visible="' + shown.length + '" data-flow-total="' + nodes.length + '" data-autorefresh="' + (st.live ? '2000' : '') + '" data-tab-badge="' + (st.live ? String(nodes.length) : '') + '">')
       // 固定头
       parts.push('<div class="tb-pane-head">')
       // 钻取态：查看的不是面板所属会话 → 头部给「← 返回」+ 层级标注（crumbs 栈深度）
       const drilled = !!(st.home && sid !== st.home)
       const depth = drilled && Array.isArray(st.crumbs) ? st.crumbs.length : 0
+      const help = [
+        '• 中列是用户/助手主线，右列是工具调用（输入 ▶ / 输出 ◀），左列是子代理分支。',
+        '• 点击卡片查看完整内容。',
+        '• 悬停助手卡可从该节点创建 Harness 分支。',
+        '• 画布默认可拖动框选，点击空白处取消框选并收起详情；左下可新建仅所选内容的会话草稿或带入已有会话。',
+        '• Zoom 支持缩放与 Zen 原生全屏。',
+        '• 点击子代理卡进入实时子流镜，“子代理跟随”开启时 Harness 同步切换。',
+        '• 滚到顶部会每次自动加载更早 60 个节点。',
+      ].join('\n')
       parts.push('<div class="tb-row">' +
         (drilled ? '<button type="button" class="tb-btn tb-btn-sm" data-action="fback" title="返回上一级流程图">← 返回</button>' : '') +
         '<span class="tb-sec-label">' + (drilled ? '子代理流镜' : '实时流镜') + '</span>' +
         '<span class="tb-note">' + esc(sid.replace(/^session-/, '').slice(0, 8)) + ' · ' + items.length + ' 条事件 · ' + nodes.length + ' 节点' + (drilled ? ' · 第 ' + (depth + 1) + ' 层' : '') + '</span>' +
         '<button type="button" class="tb-chip' + (st.live ? ' tb-chip-on' : '') + '" data-action="toggle-live">' + (st.live ? '● 实时同步中' : '⏸ 已暂停') + '</button>' +
+        '<button type="button" class="tb-chip' + (st.follow ? ' tb-chip-on' : '') + '" data-action="toggle-follow" title="开启后，点击子代理会同时切换 DeepSeek Harness 主会话">' + (st.follow ? '● 子代理跟随' : '○ 子代理跟随') + '</button>' +
         '<button type="button" class="tb-btn tb-btn-sm" data-action="refresh">刷新</button>' +
+        '<span class="fl-info" tabindex="0" aria-label="流镜使用说明">' +
+          '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7.2v4"/><circle cx="8" cy="4.7" r=".7" fill="currentColor" stroke="none"/></svg>' +
+          '<span class="fl-info-pop">' + esc(help) + '</span>' +
+        '</span>' +
       '</div>')
-      parts.push('<div class="tb-note">泳道：中列主干自上而下（用户/助手）；调用右出输入卡 ▶、左回输出卡 ◀，进行中的调用高亮脉冲；子代理分支在左列（入口/支线/出口），与主干卡同行不留空白；点工具卡看完整传入/返回，点消息卡看完整内容；点子代理分支「进入 →」钻取该子会话的完整流程图</div>')
       parts.push('</div>')
       // 流程体：tb-pane-body 为 column-reverse——这里以「视觉最新在底」渲染：DOM 先放最新节点，滚动条默认贴底
       parts.push('<div class="tb-pane-body">')
@@ -2625,7 +2699,7 @@ return {
       } else {
         // 子代理分支内容并行预取（串行 await 会让多个子代理分支的 readLog 延迟叠加）
         const subHtmls = {}
-        await Promise.all(shown.map(async (n, i) => { if (n.t === 'sub') subHtmls[i] = await subBranchHtml(n.call) }))
+        await Promise.all(shown.map(async (n, i) => { if (n.t === 'subs') subHtmls[i] = await subGroupHtml(n) }))
         const rows = []
         for (let i = 0; i < shown.length; i++) {
           const n = shown[i]
@@ -2633,40 +2707,45 @@ return {
           let h
           // 助手消息后紧跟的同步骤节点统一归并：普通调用组(par)与子代理(sub)任意顺序/兼有都并进同一行
           // —— 左=分支、中=助手卡、右=工具组（此前 par/sub 只认单一模式，混合步骤会把子代理落单到下一行导致分支错位）
-          if (n.t === 'msg' && n.it.role === 'ai' && shown[i + 1] && (shown[i + 1].t === 'par' || shown[i + 1].t === 'sub')) {
+          if (n.t === 'msg' && n.it.role === 'ai' && shown[i + 1] && (shown[i + 1].t === 'par' || shown[i + 1].t === 'subs')) {
             let parN = null, subN = null, subIdx = -1, next = i + 1
             if (shown[next] && shown[next].t === 'par') { parN = shown[next]; next++ }
-            if (shown[next] && shown[next].t === 'sub') { subN = shown[next]; subIdx = next; next++ }
+            if (shown[next] && shown[next].t === 'subs') { subN = shown[next]; subIdx = next; next++ }
             if (!parN && shown[next] && shown[next].t === 'par') { parN = shown[next]; next++ }
-            const call = subN ? subN.call : null
+            const subCalls = subN ? subN.calls : []
             // 进行中判定：工具组有 pending / 子代理还在跑 / 该助手消息正活跃
-            const aiLive = (parN && parN.calls.some((c) => c.status === 'pending')) || (call && call.status === 'pending') || n.it.seq === liveAiSeq
+            const aiLive = (parN && parN.calls.some((c) => c.status === 'pending')) || subCalls.some((c) => c.status === 'pending') || n.it.seq === liveAiSeq
             let main = msgCardInner(n.it, st.expanded, aiLive)
             let lastI = next - 1
-            if (call && call.resSeq != null) {
+            // 并行分支全部返回后，出口对齐最后一个结果之后的主干消息。
+            const allSettled = subCalls.length > 0 && subCalls.every((c) => c.resSeq != null)
+            const resultSeq = allSettled ? Math.max(...subCalls.map((c) => c.resSeq)) : null
+            if (resultSeq != null) {
               // 已完成：中列从卡A 起 ▼ 串到「结果之后的第一条消息」（出口卡贴底与其对齐）；
               // 合并边界按轮次（turn）——只吞同轮消息，下一轮的用户/助手消息回到独立行（对齐基准）
               for (let j = next; j < shown.length; j++) {
                 const m = shown[j]
                 if (m.t !== 'msg') break
-                if (call.turn != null && m.it.turn != null && m.it.turn !== call.turn) break
+                if (subN.turn != null && m.it.turn != null && m.it.turn !== subN.turn) break
                 main += '<span class="fl-arrow">▼</span>' + msgCardInner(m.it, st.expanded, m.it.seq === liveAiSeq)
                 lastI = j
-                if (m.it.seq > call.resSeq) break
+                if (m.it.seq > resultSeq) break
               }
             }
             h = '<div class="fl-lane">' +
-              (subN ? '<div class="fl-subcol">' + (subHtmls[subIdx] || '') + '</div>' : '<div></div>') +
+              (subN ? subColHtml(subN, subHtmls[subIdx] || '') : '<div></div>') +
               '<div class="fl-lane-main">' + connMain(main, withConn) + '</div>' +
               (parN ? grpSide(parN, parN.calls.map((c) => renderCallWire(c, st.expanded)).join('')) : '<div></div>') +
             '</div>'
             i = lastI
           } else if (n.t === 'msg') h = renderMsg(n.it, st.expanded, withConn, n.it.seq === liveAiSeq)
           else if (n.t === 'par') h = renderPar(n, st.expanded)
-          else h = '<div class="fl-lane"><div class="fl-subcol">' + (subHtmls[i] || '') + '</div><div class="fl-lane-main"><span class="fl-lane-line"></span></div><div></div></div>'
+          else h = '<div class="fl-lane">' + subColHtml(n, subHtmls[i] || '') + '<div class="fl-lane-main"><span class="fl-lane-line"></span></div><div></div></div>'
           rows.push(h)
         }
-        if (nodes.length > CAP) rows.push('<div class="tb-notice">仅显示最近 ' + CAP + ' 个节点（更早 ' + (nodes.length - CAP) + ' 个未加载）</div>')
+        if (hasOlder) rows.push('<div class="tb-notice fl-older" data-flow-older-hint>' +
+          '已显示最近 ' + shown.length + ' 个节点 · 继续向上滚动会自动加载更早 ' + Math.min(PAGE, nodes.length - shown.length) + ' 条' +
+        '</div>')
         parts.push(rows.reverse().join(''))
       }
       parts.push('</div>')
@@ -2682,16 +2761,30 @@ return {
 
     const handler = async ({ action, fields, state, session }) => {
       if (!sq) return { ok: false, error: 'sessionQuery 服务不可用', html: '' }
-      const st = (state && typeof state === 'object' && state) ? state : { live: true, sid: null, home: null, expanded: null, crumbs: [] }
+      const st = (state && typeof state === 'object' && state) ? state : { live: true, follow: true, limit: 60, sid: null, home: null, expanded: null, crumbs: [] }
+      if (typeof st.follow !== 'boolean') st.follow = true
+      if (!Number.isFinite(Number(st.limit)) || Number(st.limit) < 60) st.limit = 60
       if (typeof st.expanded !== 'number' && st.expanded != null) st.expanded = null
       if (!Array.isArray(st.crumbs)) st.crumbs = []
       const el = fields && fields.__el ? fields.__el : {}
-      // home=面板所属会话（钻取不改变归属）；sid=当前查看的会话（默认=home）
-      const home = session || st.home || st.sid
+      // home=面板所属会话（钻取不改变归属）；sid=当前查看的会话（默认=home）。
+      // 跟随模式下 Harness 已经把当前 session 切到 st.sid，但 crumbs 表明这仍是
+      // 从父流镜钻取进来的链；此时必须保留原 home，才能继续渲染“← 返回”。
+      const carriedFollow = st.follow === true && st.home && session && st.sid === session && st.crumbs.length > 0
+      const home = carriedFollow ? st.home : (session || st.home || st.sid)
       if (!home) return { ok: true, html: '<div class="jr-tabpanel tb-root"><div class="tb-notice">未找到当前会话</div></div>', state: st }
       st.home = home
       if (!st.sid) st.sid = home
+      let navigateSession = null
+      let flowContext = null
       if (action === 'toggle-live') st.live = !st.live
+      else if (action === 'toggle-follow') st.follow = !st.follow
+      else if (action === 'fmore') st.limit = Math.min(100000, Number(st.limit) + 60)
+      else if (action === 'fcontext' && typeof el.seqs === 'string') {
+        const seqs = el.seqs.split(',').map((v) => Number(v)).filter((v) => Number.isFinite(v))
+        const r = await readLog(st.sid)
+        flowContext = flowContextOf(parseItems(r.events || []), seqs, st.sid)
+      }
       else if (action === 'fdetail' && el.seq != null) {
         const seq = Number(el.seq)
         st.expanded = st.expanded === seq ? null : seq
@@ -2703,18 +2796,24 @@ return {
         const call = parseItems(r.events || []).find((it) => it.kind === 'call' && it.seq === seq && it.cat === 'subagent')
         const cid = call ? childIdOf(call) : null
         if (cid && cid !== st.sid) {
+          const parentSid = st.sid
           st.crumbs.push({ sid: st.sid, label: call.name + ' ' + cid.slice(0, 8) })
           st.sid = cid
           st.expanded = null
+          if (st.follow) navigateSession = { sessionId: cid, parentSessionId: parentSid, kind: 'subagent' }
         }
       } else if (action === 'fback') {
         const prev = st.crumbs.pop()
-        if (prev && prev.sid) { st.sid = prev.sid; st.expanded = null }
+        if (prev && prev.sid) {
+          st.sid = prev.sid
+          st.expanded = null
+          if (st.follow) navigateSession = { sessionId: prev.sid, kind: 'session' }
+        }
       }
       const sid = st.sid
       try {
         const html = await render(st, sid)
-        return { ok: true, html, state: st }
+        return { ok: true, html, state: st, navigateSession, flowContext }
       } catch (e) {
         return { ok: false, error: String((e && e.message) || e), html: '', state: st }
       }

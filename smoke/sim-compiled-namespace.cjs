@@ -153,14 +153,10 @@ const runHost = async (overrides, env) => {
     && cssB.some((s) => s.indexOf('@scope ([data-dsh-toolbox-scope="flow-jira"])') >= 0))
   check('导航 CSS 使用 bundle 值级选择器', cssA.some((s) => s.indexOf('[data-dsh-toolbox-entry="flow"]') >= 0)
     && cssB.some((s) => s.indexOf('[data-dsh-toolbox-entry="flow-jira"]') >= 0))
-  const themeCss = []
-  const themeImpl = await new Function('ctx', 'styles', 'console', 'return (async () => {\n'
-    + overridesSrc(PA) + '\n' + runtimeSrc + '\n' + read('plugins/theme-teal/client.js') + '\n})()')(
-      { effect() {} }, { insert: (css) => { themeCss.push(css); return () => {} } }, console,
-    )
-  themeImpl.apply({ effect() {} })
-  check('编译主题变量只挂本 bundle scope', themeCss.some((s) => s.indexOf('[data-dsh-toolbox-scope="flow"]{') >= 0)
-    && themeCss.every((s) => s.indexOf(':root{') < 0))
+  // 旧 theme-teal/amber 插件已删除（外观配置收进框架「外观」分区）；此处改验外观样式的 scope 隔离：
+  // apply 时注入的外观样式必须只挂本 bundle 的 scope 根，绝不能落到 :root 污染别的 bundle
+  check('编译外观变量只挂本 bundle scope', cssA.some((s) => s.indexOf('[data-dsh-toolbox-scope="flow"]{--tb-fs:') >= 0)
+    && cssA.every((s) => s.indexOf(':root{--tb-fs:') < 0))
   check('setItem 只 patch 一次（共享原始方法）', lsProto.setItem.__tbPatched === true && lsProto.setItem.__tbEvents.size === 2)
 
   // 切会话：两个 bundle 各自收到自己的事件
