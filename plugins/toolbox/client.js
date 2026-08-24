@@ -915,39 +915,90 @@ return {
       amber: ['--tb-accent:#d97706', '--tb-accent-hover:#f59e0b', '--tb-accent-text:#fbbf24', '--tb-accent-bg:rgba(245,158,11,.14)', '--tb-accent-border:rgba(245,158,11,.45)', '--tb-accent-ring:rgba(245,158,11,.16)', '--tb-active:#f59e0b', '--tb-active-text:#fbbf24', '--tb-active-border:rgba(245,158,11,.4)', '--tb-active-bg:rgba(245,158,11,.12)'],
     }
     const APP_LS_KEY = RT.storageKey('appearance')
+    // Keep the UI sliders aligned with the persisted validation contract. The
+    // old UI exposed a narrower range than the reader accepted, which made
+    // some valid stored values impossible to select or reset from the panel.
+    const APPEARANCE_SCALE_MIN = 0.7
+    const APPEARANCE_SCALE_MAX = 2
+    const APPEARANCE_RAIL_MIN = 240
+    const APPEARANCE_RAIL_MAX = 1200
+    const APPEARANCE_PERSIST_DEBOUNCE_MS = 150
     const appearanceClampScale = (v, dft) => {
       const n = Number(v)
-      return Number.isFinite(n) ? Math.min(2, Math.max(0.7, Math.round(n * 100) / 100)) : dft
+      return Number.isFinite(n)
+        ? Math.min(APPEARANCE_SCALE_MAX, Math.max(APPEARANCE_SCALE_MIN, Math.round(n * 100) / 100))
+        : dft
     }
-    // 详情侧拉框宽度：0 = 默认（350px，CSS 兜底）；有效范围 240–1200px
+    // 详情侧拉框宽度：0 = 默认（350px，CSS 兜底）；有效范围 240–1200px。
     const appearanceClampRailW = (v) => {
       const n = Number(v)
-      return Number.isFinite(n) && n >= 240 && n <= 1200 ? Math.round(n) : 0
+      return Number.isFinite(n) && n >= APPEARANCE_RAIL_MIN && n <= APPEARANCE_RAIL_MAX ? Math.round(n) : 0
     }
-    let appearanceState = (() => {
-      const dft = { preset: 'default', accent: '', uiScale: 1, detailScale: 1, railW: 0 }
+    const appearanceDefaults = () => ({ preset: 'default', accent: '', uiScale: 1, detailScale: 1, railW: 0 })
+    const normalizeAppearance = (value) => {
+      const dft = appearanceDefaults()
+      const p = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+      return {
+        preset: Object.prototype.hasOwnProperty.call(APPEARANCE_PRESETS, p.preset) ? p.preset : dft.preset,
+        accent: typeof p.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(p.accent) ? p.accent : '',
+        uiScale: appearanceClampScale(p.uiScale, dft.uiScale),
+        detailScale: appearanceClampScale(p.detailScale, dft.detailScale),
+        railW: appearanceClampRailW(p.railW),
+      }
+    }
+    const readAppearanceStorage = () => {
       try {
         const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(APP_LS_KEY)
-        const p = raw ? JSON.parse(raw) : {}
-        return {
-          preset: Object.prototype.hasOwnProperty.call(APPEARANCE_PRESETS, p.preset) ? p.preset : dft.preset,
-          accent: typeof p.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(p.accent) ? p.accent : '',
-          uiScale: appearanceClampScale(p.uiScale, 1),
-          detailScale: appearanceClampScale(p.detailScale, 1),
-          railW: appearanceClampRailW(p.railW),
-        }
-      } catch (e) { return dft }
-    })()
+        return normalizeAppearance(raw ? JSON.parse(raw) : null)
+      } catch (e) { return appearanceDefaults() }
+    }
+    let appearanceState = readAppearanceStorage()
     const appearanceListeners = new Set()
+    let appearancePersistTimer = null
     const appearanceRead = () => appearanceState
+    const persistAppearance = () => {
+      appearancePersistTimer = null
+      try {
+        if (typeof localStorage !== 'undefined') localStorage.setItem(APP_LS_KEY, JSON.stringify(appearanceState))
+      } catch (e) {}
+    }
+    const scheduleAppearancePersist = () => {
+      if (appearancePersistTimer !== null) clearTimeout(appearancePersistTimer)
+      appearancePersistTimer = setTimeout(persistAppearance, APPEARANCE_PERSIST_DEBOUNCE_MS)
+    }
     const appearanceWrite = (patch) => {
-      appearanceState = Object.assign({}, appearanceState, patch)
-      try { if (typeof localStorage !== 'undefined') localStorage.setItem(APP_LS_KEY, JSON.stringify(appearanceState)) } catch (e) {}
+      appearanceState = normalizeAppearance(Object.assign({}, appearanceState, patch))
+      scheduleAppearancePersist()
       appearanceListeners.forEach((fn) => { try { fn() } catch (e) {} })
     }
     const appearanceSubscribe = (fn) => {
       appearanceListeners.add(fn)
       return () => appearanceListeners.delete(fn)
+    }
+    // Keep multiple DSH windows in sync. The active window still updates
+    // immediately through appearanceWrite; this listener covers writes from
+    // another window/tab without changing the existing storage key.
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      const onAppearanceStorage = (event) => {
+        if (!event || event.key !== APP_LS_KEY) return
+        try {
+          const next = event.newValue ? normalizeAppearance(JSON.parse(event.newValue)) : appearanceDefaults()
+          if (appearancePersistTimer !== null) {
+            clearTimeout(appearancePersistTimer)
+            appearancePersistTimer = null
+          }
+          appearanceState = next
+        } catch (e) { return }
+        appearanceListeners.forEach((fn) => { try { fn() } catch (e) {} })
+      }
+      window.addEventListener('storage', onAppearanceStorage)
+      ctx.effect(() => () => {
+        window.removeEventListener('storage', onAppearanceStorage)
+        if (appearancePersistTimer !== null) {
+          clearTimeout(appearancePersistTimer)
+          persistAppearance()
+        }
+      })
     }
     function useAppearance() {
       const [, force] = React.useState(0)
@@ -1003,10 +1054,10 @@ return {
       const lblStyle = { fontSize: '11px', opacity: 0.7, minWidth: '58px' }
       const numStyle = { fontSize: '11px', opacity: 0.75, minWidth: '40px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }
       const chipBase = { height: '22px', padding: '0 10px', borderRadius: '999px', border: '1px solid rgba(128,128,128,.45)', background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: '11.5px', fontFamily: 'inherit', lineHeight: '1' }
-      const sliderRow = (label, key, max) => React.createElement('div', { style: rowStyle },
+      const sliderRow = (label, key, min, max) => React.createElement('div', { style: rowStyle },
         React.createElement('span', { style: lblStyle }, label),
         React.createElement('input', {
-          type: 'range', min: 0.85, max: max, step: 0.05, value: String(a[key]),
+          type: 'range', min: min, max: max, step: 0.05, value: String(a[key]),
           title: label + '缩放（100% = 内置默认）',
           style: { flex: '1', minWidth: '110px', accentColor: 'var(--tb-accent,#3f6fd9)' },
           onChange: (e) => appearanceWrite({ [key]: Number(e.target.value) }),
@@ -1044,13 +1095,13 @@ return {
             }, '✕ 自定义')
             : null,
         ),
-        sliderRow('界面字号', 'uiScale', 1.4),
-        sliderRow('详情字号', 'detailScale', 1.8),
+        sliderRow('界面字号', 'uiScale', APPEARANCE_SCALE_MIN, APPEARANCE_SCALE_MAX),
+        sliderRow('详情字号', 'detailScale', APPEARANCE_SCALE_MIN, APPEARANCE_SCALE_MAX),
         // 详情侧拉框宽度：0 = 默认 350px；拖 rail 左缘手柄与滑杆写同一配置
         React.createElement('div', { style: rowStyle },
           React.createElement('span', { style: lblStyle }, '详情宽度'),
           React.createElement('input', {
-            type: 'range', min: 280, max: 760, step: 10, value: String(a.railW || 350),
+            type: 'range', min: APPEARANCE_RAIL_MIN, max: APPEARANCE_RAIL_MAX, step: 10, value: String(a.railW || 350),
             title: '详情侧拉框宽度（拖侧拉框左缘也可调，自动记忆）',
             style: { flex: '1', minWidth: '110px', accentColor: 'var(--tb-accent,#3f6fd9)' },
             onChange: (e) => appearanceWrite({ railW: Number(e.target.value) }),
