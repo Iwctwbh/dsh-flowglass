@@ -1025,6 +1025,21 @@ return {
         ),
         sliderRow('界面字号', 'uiScale', 1.4),
         sliderRow('详情字号', 'detailScale', 1.8),
+        // 预览块：内联按倍率现算 px（不依赖 CSS 变量）——管理页看不到流镜本体、sidebar 设置弹层
+        // 又在本 bundle scope 之外，两处都靠它即时看效果；侧边模式下面板背后的流镜本身也在实时变
+        React.createElement('div', {
+          style: { border: '1px solid rgba(128,128,128,.35)', borderRadius: '6px', padding: '7px 9px', display: 'flex', flexDirection: 'column', gap: '5px', background: 'rgba(128,128,128,.07)' },
+        },
+          React.createElement('span', { style: { fontSize: '10px', opacity: 0.6, letterSpacing: '.4px' } }, '预览（拖动滑杆即时变化）'),
+          React.createElement('div', { style: { fontSize: (12.5 * a.uiScale).toFixed(1) + 'px', lineHeight: 1.5 } },
+            '界面文字 Aa123 — 按钮 / 标签 / 消息预览'),
+          React.createElement('div', {
+            style: {
+              fontFamily: 'ui-monospace,Consolas,monospace', fontSize: (10.5 * a.detailScale).toFixed(1) + 'px', lineHeight: 1.5,
+              whiteSpace: 'pre-wrap', wordBreak: 'break-all', border: '1px solid rgba(128,128,128,.35)', borderRadius: '5px', padding: '4px 6px',
+            },
+          }, '入 · 完整传入 {"seq": 12}\n出 · 完整返回 文本详情示例 Aa123'),
+        ),
       )
     }
 
@@ -1032,7 +1047,13 @@ return {
     function BetterSidebarFlowSettings(props) {
       const saved = props && props.pluginSettings && props.pluginSettings.displayMode
       const [mode, setMode] = React.useState(saved === 'sidebar' || saved === 'drawer' ? saved : 'auto')
-      const selStyle = { height: '26px', padding: '0 8px', borderRadius: '6px', border: '1px solid rgba(128,128,128,.45)', background: 'transparent', color: 'inherit', fontSize: '12px', fontFamily: 'inherit', cursor: 'pointer' }
+      // 原生 <option> 弹出不继承页面深色样式（白底 + 继承浅色字 → 白底白字不可读），
+      // 显式按 DSH 明暗主题给 select/option 配色，colorScheme 让原生弹层跟随
+      const dark = (() => { try { return typeof document === 'undefined' || document.body.hasAttribute('data-ds-dark-theme') } catch (e) { return true } })()
+      const selBg = dark ? '#26272e' : '#ffffff'
+      const selFg = dark ? '#e8e8ea' : '#1f2024'
+      const selStyle = { height: '26px', padding: '0 8px', borderRadius: '6px', border: '1px solid rgba(128,128,128,.45)', background: selBg, color: selFg, fontSize: '12px', fontFamily: 'inherit', cursor: 'pointer', colorScheme: dark ? 'dark' : 'light' }
+      const optStyle = { background: selBg, color: selFg }
       const headStyle = { fontSize: '11px', fontWeight: 600, opacity: 0.7, letterSpacing: '.4px' }
       return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12.5px' } },
         React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '5px' } },
@@ -1041,9 +1062,9 @@ return {
             value: mode, style: selStyle,
             onChange: (e) => { setMode(e.target.value); try { props.updatePluginSetting('displayMode', e.target.value) } catch (err) {} },
           },
-            React.createElement('option', { value: 'auto' }, '自动 — 可用时使用侧边卡片'),
-            React.createElement('option', { value: 'sidebar' }, '侧边卡片 — 使用 better-sidebar 的流镜 Tab'),
-            React.createElement('option', { value: 'drawer' }, '独立抽屉 — 保留流镜原来的独立入口与抽屉'),
+            React.createElement('option', { value: 'auto', style: optStyle }, '自动 — 可用时使用侧边卡片'),
+            React.createElement('option', { value: 'sidebar', style: optStyle }, '侧边卡片 — 使用 better-sidebar 的流镜 Tab'),
+            React.createElement('option', { value: 'drawer', style: optStyle }, '独立抽屉 — 保留流镜原来的独立入口与抽屉'),
           ),
         ),
         React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
