@@ -1,6 +1,6 @@
 {
   "name": "dsh-dynamic-toolbox",
-  "version": "0.1.2",
+  "version": "0.4.0",
   "description": "Jira + Git + 文件 + 流镜 + 工作流编辑 + 轨迹 + HTTP + 端口 + 计算 + 用量 + 提示词 + 上下文 + AI 助手 + 工具清单 + 搜索 + 血缘 + AI 台账 + 配额 + 界面自查 工具箱（DSH 原生静态工具箱）",
   "type": "module",
   "main": "./lib/index.js",

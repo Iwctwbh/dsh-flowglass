@@ -11,7 +11,7 @@ window.__ModuleLoader__.load({
     const TOOLBOX_RUNTIME_OVERRIDES = {
   "mode": "static-bundle",
   "bundleId": "dynamic-toolbox",
-  "displayName": "完整工具箱",
+  "displayName": "Jira + Git + 文件 + 流镜 + 工作流编辑 + 轨迹 + HTTP + 端口 + 计算 + 用量 + 提示词 + 上下文 + AI 助手 + 工具清单 + 搜索 + 血缘 + AI 台账 + 配额 + 界面自查 工具箱",
   "registryService": "toolboxRegistryDynamicToolbox",
   "artifactService": "toolboxArtifactsDynamicToolbox",
   "remoteService": "toolboxNativeDynamicToolbox",
