@@ -766,7 +766,7 @@ return {
       '.fl-pre{white-space:pre-wrap;word-break:break-all;font-family:ui-monospace,Consolas,monospace;font-size:calc(12px*var(--tb-fs-detail,1));line-height:1.5;border:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));border-radius:6px;padding:6px 8px;max-height:220px;overflow:auto;margin:0;background:var(--dsw-alias-bg-base,#17181d);color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
       '.fl-spin{flex:none;display:inline-block;width:10px;height:10px;border:1.5px solid var(--tb-accent-border,rgba(91,141,239,.35));border-top-color:var(--tb-accent,#3f6fd9);border-radius:50%;animation:tbSpin .7s linear infinite}',
       // ---- 调用详情右侧浮层（不插入流程流撑高内容——展开/收起零跳跃，关闭回原来位置）----
-      '.fl-rail{position:absolute;right:0;top:0;bottom:0;width:min(320px,58%);display:flex;flex-direction:column;background:var(--tb-input-bg,var(--dsw-alias-bg-layer-1,#26272e));border-left:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));box-shadow:-8px 0 18px rgba(0,0,0,.24);z-index:4;border-radius:0 8px 8px 0}',
+      '.fl-rail{position:absolute;right:0;top:0;bottom:0;width:min(var(--fl-rail-w,350px),85%);display:flex;flex-direction:column;background:var(--tb-input-bg,var(--dsw-alias-bg-layer-1,#26272e));border-left:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));box-shadow:-8px 0 18px rgba(0,0,0,.24);z-index:4;border-radius:0 8px 8px 0}',
       // 动画只在展开动作那次渲染带（轮询重渲染不重播，防详情浮层闪烁）
       '.fl-rail-anim{animation:jrDrawerIn .16s ease-out}',
       '.fl-rail-head{flex:none;display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));font-size:calc(12px*var(--tb-fs-detail,1));font-weight:600;color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
@@ -774,6 +774,20 @@ return {
       '.fl-rail-x{flex:none;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;border:none;background:transparent;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));cursor:pointer;border-radius:5px;padding:0;font-size:calc(12px*var(--tb-fs-detail,1));font-family:inherit}',
       '.fl-rail-x:hover{background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b));color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
       '.fl-rail-body{flex:1;min-height:0;overflow:auto;padding:8px 10px;display:flex;flex-direction:column;gap:8px}',
+      // 左缘拖拽手柄：隐形 9px 热区悬出边框 4px，悬停/拖拽中显 2px 提示线
+      '.fl-rail-resize{position:absolute;left:-4px;top:0;bottom:0;width:9px;cursor:col-resize;z-index:6;touch-action:none}',
+      '.fl-rail-resize::after{content:"";position:absolute;left:3px;top:0;bottom:0;width:2px;border-radius:1px;background:transparent;transition:background .12s}',
+      '.fl-rail-resize:hover::after,.fl-rail-dragging .fl-rail-resize::after{background:var(--tb-accent-border,rgba(91,141,239,.5))}',
+      '.fl-rail-dragging{user-select:none}',
+      // rail 头部的分支按钮：复用卡片 .fl-branch-btn 外观，改为常显静态布局
+      '.fl-rail-head .fl-branch-btn{position:static;opacity:1;pointer-events:auto;transform:none;width:22px;height:20px;flex:none}',
+      // 详情内容框标题行 + 复制按钮
+      '.fl-sec-head{display:flex;align-items:center;gap:6px;min-width:0}',
+      '.fl-sec-head .fl-sec-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.fl-copy-btn{flex:none;height:18px;padding:0 7px;border-radius:4px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));background:transparent;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));font-size:calc(10px*var(--tb-fs-detail,1));line-height:1;cursor:pointer;font-family:inherit;transition:color .12s,border-color .12s}',
+      '.fl-copy-btn:hover{color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4));border-color:var(--tb-accent-border,rgba(91,141,239,.45))}',
+      '.fl-copy-btn.fl-copied{color:var(--tb-done-text,#81c784);border-color:var(--tb-done-text,#81c784)}',
+      '.fl-copy-btn.fl-copy-fail{color:var(--tb-danger-text,#f28b82);border-color:var(--tb-danger-text,#f28b82)}',
       '.fl-branch-pill{flex:none;font-size:calc(9.5px*var(--tb-fs-detail,1));padding:0 5px;border-radius:3px;background:rgba(91,141,239,.12);color:var(--tb-active-text,#7fa7f0);font-weight:600}',
       '.fl-branch-txt{flex:1;min-width:0;font-family:ui-monospace,Consolas,monospace;font-size:calc(11px*var(--tb-fs-detail,1));color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.fl-branch-ai{font-style:italic}',
@@ -1034,8 +1048,13 @@ return {
       const n = Number(v)
       return Number.isFinite(n) ? Math.min(2, Math.max(0.7, Math.round(n * 100) / 100)) : dft
     }
+    // 详情侧拉框宽度：0 = 默认（350px，CSS 兜底）；有效范围 240–1200px
+    const appearanceClampRailW = (v) => {
+      const n = Number(v)
+      return Number.isFinite(n) && n >= 240 && n <= 1200 ? Math.round(n) : 0
+    }
     let appearanceState = (() => {
-      const dft = { preset: 'default', accent: '', uiScale: 1, detailScale: 1 }
+      const dft = { preset: 'default', accent: '', uiScale: 1, detailScale: 1, railW: 0 }
       try {
         const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(APP_LS_KEY)
         const p = raw ? JSON.parse(raw) : {}
@@ -1044,6 +1063,7 @@ return {
           accent: typeof p.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(p.accent) ? p.accent : '',
           uiScale: appearanceClampScale(p.uiScale, 1),
           detailScale: appearanceClampScale(p.detailScale, 1),
+          railW: appearanceClampRailW(p.railW),
         }
       } catch (e) { return dft }
     })()
@@ -1083,6 +1103,7 @@ return {
     }
     function appearanceCss() {
       const decls = ['--tb-fs:' + appearanceState.uiScale, '--tb-fs-detail:' + appearanceState.detailScale]
+      if (appearanceState.railW) decls.push('--fl-rail-w:' + appearanceState.railW + 'px')
       if (appearanceState.accent) decls.push.apply(decls, accentFamilyVars(appearanceState.accent))
       else if (APPEARANCE_PRESET_VARS[appearanceState.preset]) decls.push.apply(decls, APPEARANCE_PRESET_VARS[appearanceState.preset])
       const sel = RT.bundleId === 'dynamic' ? ':root' : '[data-dsh-toolbox-scope="' + RT.domValue() + '"]'
@@ -1154,6 +1175,21 @@ return {
         ),
         sliderRow('界面字号', 'uiScale', 1.4),
         sliderRow('详情字号', 'detailScale', 1.8),
+        // 详情侧拉框宽度：0 = 默认 350px；拖 rail 左缘手柄与滑杆写同一配置
+        React.createElement('div', { style: rowStyle },
+          React.createElement('span', { style: lblStyle }, '详情宽度'),
+          React.createElement('input', {
+            type: 'range', min: 280, max: 760, step: 10, value: String(a.railW || 350),
+            title: '详情侧拉框宽度（拖侧拉框左缘也可调，自动记忆）',
+            style: { flex: '1', minWidth: '110px', accentColor: 'var(--tb-accent,#3f6fd9)' },
+            onChange: (e) => appearanceWrite({ railW: Number(e.target.value) }),
+          }),
+          React.createElement('span', { style: numStyle }, a.railW ? a.railW + 'px' : '默认'),
+          React.createElement('button', {
+            type: 'button', style: Object.assign({}, chipBase, { padding: '0 6px', opacity: 0.65 }),
+            title: '恢复默认 350px', onClick: () => appearanceWrite({ railW: 0 }),
+          }, '↺'),
+        ),
         // 预览块：内联按倍率现算 px（不依赖 CSS 变量）——管理页看不到流镜本体、sidebar 设置弹层
         // 又在本 bundle scope 之外，两处都靠它即时看效果；侧边模式下面板背后的流镜本身也在实时变
         React.createElement('div', {
@@ -1656,6 +1692,46 @@ return {
           panelRef.current.querySelectorAll('.tb-pane-body.tb-pane-col').forEach((s) => { s.scrollTop = s.scrollHeight })
         } catch (e) {}
       }, [html])
+
+      // 详情侧拉框拖拽调宽：左缘手柄横向拖动实时改 --fl-rail-w（rail 是 .tb-pane-body 的兄弟节点，
+      // 与框选/空白点击监听互不干扰）；松手写入外观配置 railW（localStorage 记忆，重渲染经 scope 变量回填）
+      React.useEffect(() => {
+        const panel = panelRef.current
+        if (!panel || active !== 'flow') return undefined
+        const onDown = (e) => {
+          if (e.button !== 0) return
+          const t = e.target
+          const handle = t && typeof t.closest === 'function' ? t.closest('.fl-rail-resize') : null
+          if (!handle) return
+          const rail = handle.closest('.fl-rail')
+          const pane = rail && rail.closest('.tb-pane')
+          if (!rail || !pane) return
+          e.preventDefault()
+          const startW = rail.getBoundingClientRect().width
+          const startX = e.clientX
+          const maxW = Math.max(320, Math.round(pane.getBoundingClientRect().width * 0.85))
+          let lastW = Math.round(startW)
+          rail.classList.add('fl-rail-dragging')
+          try { document.body.style.userSelect = 'none' } catch (err) {}
+          const onMove = (ev) => {
+            lastW = Math.round(Math.min(maxW, Math.max(240, startW + (startX - ev.clientX))))
+            rail.style.setProperty('--fl-rail-w', lastW + 'px')
+          }
+          const onUp = () => {
+            rail.classList.remove('fl-rail-dragging')
+            try { document.body.style.userSelect = '' } catch (err) {}
+            document.removeEventListener('pointermove', onMove)
+            document.removeEventListener('pointerup', onUp)
+            document.removeEventListener('pointercancel', onUp)
+            appearanceWrite({ railW: lastW })
+          }
+          document.addEventListener('pointermove', onMove)
+          document.addEventListener('pointerup', onUp)
+          document.addEventListener('pointercancel', onUp)
+        }
+        panel.addEventListener('pointerdown', onDown)
+        return () => { try { panel.removeEventListener('pointerdown', onDown) } catch (e) {} }
+      }, [active])
 
       // header + 独立滚动区的原设计：离开主列表底部 40px 后显示浮标。
       // dangerouslySetInnerHTML 会替换面板 DOM，因此随 html/Tab 重新挂载捕获阶段 scroll 监听。
@@ -2739,6 +2815,37 @@ return {
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [tools, isOpen])
 
+      // 详情内容框复制：读同段 .fl-pre 的 textContent（浏览器已把实体解码回原文）写剪贴板，
+      // 纯客户端不绕 Host；1.2s 后经 ctx.timeout 复位按钮文案（插件停止随生命周期清理）
+      async function copyFlowRailContent(btn) {
+        const sec = btn.closest('.fl-sec')
+        const pre = sec && sec.querySelector('.fl-pre')
+        const text = pre ? String(pre.textContent || '') : ''
+        let ok = false
+        try {
+          if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text)
+            ok = true
+          } else {
+            const ta = document.createElement('textarea')
+            ta.value = text
+            ta.setAttribute('readonly', '')
+            ta.style.position = 'fixed'
+            ta.style.opacity = '0'
+            document.body.appendChild(ta)
+            ta.select()
+            ok = document.execCommand('copy')
+            ta.remove()
+          }
+        } catch (e) { ok = false }
+        btn.classList.add(ok ? 'fl-copied' : 'fl-copy-fail')
+        btn.textContent = ok ? '已复制' : '复制失败'
+        ctx.timeout(() => {
+          btn.classList.remove('fl-copied', 'fl-copy-fail')
+          btn.textContent = '复制'
+        }, 1200)
+      }
+
       function onPanelClick(e) {
         if (!active) return
         const t = e.target
@@ -2748,6 +2855,13 @@ return {
           e.preventDefault()
           e.stopPropagation()
           branchFlowAt(Number(branch.getAttribute('data-seq')))
+          return
+        }
+        const copyBtn = t && t.closest ? t.closest('[data-flow-copy]') : null
+        if (active === 'flow' && copyBtn) {
+          e.preventDefault()
+          e.stopPropagation()
+          copyFlowRailContent(copyBtn)
           return
         }
         const el = t && t.closest ? t.closest('[data-action]') : null

@@ -1033,12 +1033,12 @@ return {
       const out = c.status === 'pending' ? '（进行中，尚无返回）' : (c.resultText || '（空返回）')
       const outShown = out.length > cap ? out.slice(0, cap) + '\n…（截断，共 ' + out.length + ' 字符）' : out
       // anim=是否新展开（轮询重渲染不重播滑入动画，防闪烁）
-      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '">' +
+      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '"><div class="fl-rail-resize" title="拖拽调宽（自动记忆）"></div>' +
         '<div class="fl-rail-head"><span class="fl-rail-title">' + esc(c.name) + ' · 详情</span>' +
         '<button type="button" class="fl-rail-x" data-action="fdetail" data-seq="' + c.seq + '" title="关闭详情">✕</button></div>' +
         '<div class="fl-rail-body">' +
-          '<div class="fl-sec"><span class="fl-sec-label">入 · 完整传入' + (input.length > cap ? '（截断）' : '') + '</span><pre class="fl-pre">' + esc(inShown) + '</pre></div>' +
-          '<div class="fl-sec"><span class="fl-sec-label">出 · 完整返回' + (c.outLen ? '（' + fmtSize(c.outLen) + '）' : '') + '</span><pre class="fl-pre">' + esc(outShown) + '</pre></div>' +
+          '<div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">入 · 完整传入' + (input.length > cap ? '（截断）' : '') + '</span><button type="button" class="fl-copy-btn" data-flow-copy="1" title="复制内容到剪贴板">复制</button></div><pre class="fl-pre">' + esc(inShown) + '</pre></div>' +
+          '<div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">出 · 完整返回' + (c.outLen ? '（' + fmtSize(c.outLen) + '）' : '') + '</span><button type="button" class="fl-copy-btn" data-flow-copy="1" title="复制内容到剪贴板">复制</button></div><pre class="fl-pre">' + esc(outShown) + '</pre></div>' +
         '</div>' +
       '</div>'
     }
@@ -1053,12 +1053,17 @@ return {
       if (fmtTime(it.time)) meta.push('时间 ' + fmtTime(it.time))
       if (it.route) meta.push('模型 ' + it.route)
       if (it.tok) meta.push('输出 +' + it.tok + ' tok')
-      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '">' +
-        '<div class="fl-rail-head"><span class="fl-rail-title">' + label + ' · 详情</span>' +
+      // 与外层助手卡同款分支按钮：详情头部可直接从这条消息创建新分支（复用 data-flow-branch 委托）
+      const branch = it.role === 'ai' && !it.streaming
+        ? '<button type="button" class="fl-branch-btn" data-flow-branch data-seq="' + (it.finalSeq != null ? it.finalSeq : it.seq) + '" title="从这条助手消息在 Harness 中创建新分支" aria-label="在新对话中分支">' +
+          '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3v5a3 3 0 0 0 3 3h4"/><path d="M8 5l3-3 3 3"/><path d="M11 2v4"/><path d="M9 9l2 2-2 2"/></svg></button>'
+        : ''
+      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '"><div class="fl-rail-resize" title="拖拽调宽（自动记忆）"></div>' +
+        '<div class="fl-rail-head"><span class="fl-rail-title">' + label + ' · 详情</span>' + branch +
         '<button type="button" class="fl-rail-x" data-action="fdetail" data-seq="' + it.seq + '" title="关闭详情">✕</button></div>' +
         '<div class="fl-rail-body">' +
           (meta.length ? '<div class="fl-sec"><span class="fl-sec-label">' + esc(meta.join(' · ')) + '</span></div>' : '') +
-          '<div class="fl-sec"><span class="fl-sec-label">完整内容' + (full.length > cap ? '（截断）' : '') + '</span><pre class="fl-pre">' + esc(shown || '（空）') + '</pre></div>' +
+          '<div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">完整内容' + (full.length > cap ? '（截断）' : '') + '</span><button type="button" class="fl-copy-btn" data-flow-copy="1" title="复制内容到剪贴板">复制</button></div><pre class="fl-pre">' + esc(shown || '（空）') + '</pre></div>' +
         '</div>' +
       '</div>'
     }
