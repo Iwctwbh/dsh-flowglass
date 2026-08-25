@@ -254,9 +254,12 @@ return {
       on: (() => { try { return localStorage.getItem(PANEL_HIDE_KEY) !== '0' } catch (e) { return true } })(),
       headless: new Set(),
     }
+    // 静态合集（capabilities.managePlugins=false）没有插件 inventory——plugins RPC 恒返回空清单，
+    // 联动启用也只会把 headless 清空、一行都藏不住：整体不启用（不装 CSS/observer/轮询、不渲染开关）。
+    const panelHideSupported = RT.capabilities.managePlugins !== false
     // styles.insert 返回 disposer——必须挂 ctx.effect，否则插件停止/重跑后旧样式残留，
     // 重跑一次叠一份（PLUGIN-DEV.md 规则4；主题插件同款约束）
-    ctx.effect(() => styles.insert([
+    if (panelHideSupported) ctx.effect(() => styles.insert([
       'li[data-cordis-row][data-tb-hide~="' + PANEL_HIDE_TOKEN + '"]{display:none!important}',
       '[data-cordis-panel] section[data-tb-hide~="' + PANEL_HIDE_TOKEN + '"]{display:none!important}',
       'button[data-cordis-badge] span[data-tb-count]{font-size:0!important}',
@@ -315,7 +318,7 @@ return {
       if (v) refreshPanelHide()
       applyPanelHide()
     }
-    if (typeof MutationObserver !== 'undefined' && typeof document !== 'undefined' && document.body) {
+    if (panelHideSupported && typeof MutationObserver !== 'undefined' && typeof document !== 'undefined' && document.body) {
       const mo = new MutationObserver(schedulePanelHide)
       mo.observe(document.body, {
         childList: true, subtree: true, characterData: true, attributes: true,
@@ -654,6 +657,12 @@ return {
       '.fl-glyph{flex:none;font-size:calc(9px*var(--tb-fs,1));line-height:1;opacity:.9}',
       '.fl-node-head{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}',
       '.fl-tag{flex:none;display:inline-flex;align-items:center;height:17px;padding:0 6px;border-radius:4px;font-size:calc(10px*var(--tb-fs,1));font-weight:700;letter-spacing:.3px}',
+      // 重试/失败徽标（流镜助手卡头）：等待=琥珀 / 成功=绿 / 失败与错误码=红 / 未成行=灰
+      '.fl-retry{flex:none;display:inline-flex;align-items:center;height:15px;padding:0 5px;border-radius:4px;font-size:calc(9.5px*var(--tb-fs,1));font-weight:600;letter-spacing:.2px}',
+      '.fl-retry-ok{color:var(--tb-done-text,#81c784);background:rgba(102,187,106,.12)}',
+      '.fl-retry-wait{color:#d4b95c;background:rgba(212,167,44,.12)}',
+      '.fl-retry-fail{color:var(--tb-danger-text,#f28b82);background:rgba(242,139,130,.12)}',
+      '.fl-retry-cancel{color:var(--tb-text-3,#777884);background:rgba(138,139,150,.10)}',
       '.fl-time{flex:none;font-size:calc(10.5px*var(--tb-fs,1));color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));font-variant-numeric:tabular-nums}',
       '.fl-preview{font-size:calc(12px*var(--tb-fs,1));line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4));max-width:500px}',
       // ▼ 箭头自带画布底色块：主干竖线从下方穿过时字形不被线划过
@@ -3350,12 +3359,12 @@ return {
                   title: '隐藏全部无界面（Host-only）工具，只显示含界面的插件；再次点击恢复',
                   onClick: () => toggleAll(false),
                 }, '全部停止'),
-                React.createElement('button', {
+                panelHideSupported ? React.createElement('button', {
                   type: 'button',
                   className: 'tb-chip' + (hideHostOnly ? ' tb-chip-on' : ''),
-                  title: '隐藏左下角 Cordis 面板里的无界面（Host-only）插件（管理页清单不受影响）；亮起为隐藏中，再次点击恢复',
+                  title: '隐藏左下角 Cordis 面板里的无界面（Host-only）插件（管理页清单不受影响）；亮起为隐藏中，再次点击恢复' + (hideHostOnly ? '；当前隐藏 ' + panelHide.headless.size + ' 个' : ''),
                   onClick: () => { const nv = !hideHostOnly; setHideHostOnly(nv); setPanelHideOn(nv) },
-                }, '隐藏CordisPlugin'),
+                }, '隐藏CordisPlugin') : null,
                 React.createElement('input', {
                   className: 'tb-input',
                   style: { flex: '1', minWidth: '120px' },

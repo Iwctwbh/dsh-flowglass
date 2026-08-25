@@ -730,6 +730,8 @@ return {
       const stepStarts = {} // turn:step → step/start 时间；助手运行计时从请求步骤开始，而不是首个 token 才开始
       const stepEnds = {} // turn:step → step/end 时间；无最终 message 的草稿据此落定（请求失败/中断）
       const turnEnds = {} // turn → turn/end 时间；step/end 缺失时的兜底落定依据
+      const retriesByStep = {} // turn:step → dsh-llm-retry 的重试链（llm/retry 调度事件，按序追加）
+      const retryById = {} // retryId → 链上条目；llm/retry-started 按 id 回填起跳时间
       let route = '' // 最近 request/header 的 provider/model，贴给后续助手消息卡
       let curTurn = null // 最近 turn/start 的轮次：user/message 不带 turn，用它推算归属
       for (const ev of events) {
@@ -750,6 +752,21 @@ return {
         }
         if (ev.type === 'turn/end') {
           if (typeof d.turn === 'number') turnEnds[d.turn] = ev.time
+          continue
+        }
+        // dsh-llm-retry 的持久事件：调度（含退避时长与触发失败码）写入等待期之前，起跳在重发时写入。
+        // 重试不换 step 号——同 turn:step 的失败→等待→重发共享同一张助手卡，徽标直接挂卡上。
+        if (ev.type === 'llm/retry') {
+          const key = String(d.turn) + ':' + d.step
+          const f = d.failure || {}
+          const entry = { retry: d.retry, maxRetries: d.maxRetries, delayMs: d.delayMs, code: typeof f.code === 'string' ? f.code : '', message: typeof f.message === 'string' ? f.message : '', time: ev.time, startedAt: 0 }
+          ;(retriesByStep[key] || (retriesByStep[key] = [])).push(entry)
+          if (typeof d.retryId === 'string' && d.retryId) retryById[d.retryId] = entry
+          continue
+        }
+        if (ev.type === 'llm/retry-started') {
+          const r = typeof d.retryId === 'string' ? retryById[d.retryId] : null
+          if (r) r.startedAt = ev.time
           continue
         }
         if (ev.type === 'request/header') {
@@ -809,6 +826,10 @@ return {
             it.reasoningChunks.push(chunk.text)
           } else if (/tool-call/i.test(String(chunk.type || ''))) {
             it.hasToolCallChunk = true
+          } else if (chunk.type === 'finish' && chunk.reason && chunk.reason.kind === 'error') {
+            // 终态失败块：留住真实错误码/消息——「生成已中断」是推断，这才是真因（如 PI_AI_ERROR）
+            const f = chunk.reason.failure || {}
+            if (typeof f.code === 'string' && f.code) { it.failCode = f.code; it.failMsg = typeof f.message === 'string' ? f.message : '' }
           }
         } else if (ev.type === 'assistant/message') {
           const m = d.message || {}
@@ -830,6 +851,8 @@ return {
             delete draft.chunks
             delete draft.reasoningChunks
             delete draft.hasToolCallChunk
+            delete draft.failCode
+            delete draft.failMsg
           } else {
             const runStart = stepStarts[key] || ev.time
             items.push({ kind: 'msg', role: 'ai', seq: ev.seq, time: ev.time, turn, step, runStart, runDur: Math.max(0, ev.time - runStart), preview: oneLine(finalText, 110) || '（工具调用）', full: finalText, tok: u ? (u.outputTokens || 0) : null, route, streaming: false })
@@ -858,6 +881,12 @@ return {
         delete it.chunks
         delete it.reasoningChunks
         delete it.hasToolCallChunk
+      }
+      // 重试链挂到对应助手卡（含重试后成功的卡与终局失败的中断卡）
+      for (const it of items) {
+        if (it.kind !== 'msg' || it.role !== 'ai' || it.turn == null) continue
+        const rs = retriesByStep[String(it.turn) + ':' + it.step]
+        if (rs && rs.length) it.retries = rs
       }
       return items
     }
@@ -998,6 +1027,34 @@ return {
       '</div>'
     }
 
+    // 重试/失败徽标（llm/retry 链 + 终态错误码）：等待中显示退避倒计时（面板 2s 重拉自动递减）；
+    // 起跳后按卡片终局判定成功/失败；调度后未起跳即终结 = 未成行
+    const retryBadgeHtml = (it) => {
+      let out = ''
+      const rs = it.retries
+      if (rs && rs.length) {
+        const last = rs[rs.length - 1]
+        const max = typeof last.maxRetries === 'number' ? '/' + last.maxRetries : ''
+        const tip = esc((last.code || '') + (last.message ? '：' + last.message : ''))
+        if (it.streaming && !last.startedAt) {
+          const remain = Math.max(0, Math.ceil((last.time + (last.delayMs || 0) - Date.now()) / 1000))
+          out += '<span class="fl-retry fl-retry-wait" title="' + tip + '">⟳ 等待重试 ' + last.retry + max + (remain ? ' · ' + remain + 's' : '') + '</span>'
+        } else if (it.streaming) {
+          out += '<span class="fl-retry fl-retry-wait" title="' + tip + '">⟳ 重试 ' + last.retry + max + ' · 进行中</span>'
+        } else if (!last.startedAt) {
+          out += '<span class="fl-retry fl-retry-cancel" title="退避等待期间步骤/轮次已结束">⟳ 重试 ' + last.retry + max + ' 未成行</span>'
+        } else if (it.interrupted) {
+          out += '<span class="fl-retry fl-retry-fail" title="' + tip + '">⟳ 重试 ' + last.retry + max + ' · 失败</span>'
+        } else {
+          out += '<span class="fl-retry fl-retry-ok" title="' + tip + '">⟳ 重试 ' + last.retry + max + ' · 成功</span>'
+        }
+      }
+      if (it.interrupted && it.failCode) {
+        out += '<span class="fl-retry fl-retry-fail" title="' + esc(it.failMsg || '') + '">✗ ' + esc(it.failCode) + '</span>'
+      }
+      return out
+    }
+
     const msgCardInner = (it, expandedSeq, live) => {
       const isUser = it.role === 'user'
       const isAi = it.role === 'ai'
@@ -1016,7 +1073,7 @@ return {
         (isAi && it.route ? '<span class="fl-model">' + esc(it.route) + '</span>' : '') +
         (fmtTime(it.time) ? '<span class="fl-time">' + fmtTime(it.time) + '</span>' : '') +
         (aiRunning && it.runStart ? '<span class="fl-time" data-flow-timer="' + it.runStart + '" data-flow-timer-prefix="⏱ ">⏱ 0ms</span>' : (isAi && it.runDur != null ? '<span class="fl-time">⏱ ' + fmtDur(it.runDur) + '</span>' : '')) +
-        (it.tok ? '<span class="fl-time">+' + it.tok + ' tok</span>' : '') + branch + '</div>' +
+        (it.tok ? '<span class="fl-time">+' + it.tok + ' tok</span>' : '') + (isAi ? retryBadgeHtml(it) : '') + branch + '</div>' +
         '<div class="fl-preview"' + (it.interrupted ? ' style="color:var(--tb-danger-text,#f28b82)"' : '') + '>' + esc(it.preview || '（空）') + '</div>' +
       '</div>'
     }
@@ -1053,6 +1110,8 @@ return {
       if (fmtTime(it.time)) meta.push('时间 ' + fmtTime(it.time))
       if (it.route) meta.push('模型 ' + it.route)
       if (it.tok) meta.push('输出 +' + it.tok + ' tok')
+      if (it.failCode) meta.push('错误 ' + it.failCode + (it.failMsg ? '：' + oneLine(it.failMsg, 80) : ''))
+      if (it.retries && it.retries.length) meta.push('重试 ' + it.retries.length + ' 次（' + it.retries.map((r) => r.code || '?').join(' → ') + '）')
       // 与外层助手卡同款分支按钮：详情头部可直接从这条消息创建新分支（复用 data-flow-branch 委托）
       const branch = it.role === 'ai' && !it.streaming
         ? '<button type="button" class="fl-branch-btn" data-flow-branch data-seq="' + (it.finalSeq != null ? it.finalSeq : it.seq) + '" title="从这条助手消息在 Harness 中创建新分支" aria-label="在新对话中分支">' +

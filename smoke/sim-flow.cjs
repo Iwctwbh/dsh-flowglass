@@ -42,7 +42,45 @@ const LIVE_EVENTS = [
   { seq: 2, time: 3010, type: 'step/start', data: { turn: 1, step: 1 } },
   { seq: 3, time: 3020, type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'still going' } } },
 ]
-// ---- 长会话：验证初始 60 条、每次向上增量 60 条 ----
+// ---- 重试成功样本：EMPTY_RESPONSE 失败 → llm/retry 调度 → 起跳 → 重发成功（同 step 落定）----
+const RETRY_OK_EVENTS = [
+  { seq: 1, time: 5000, type: 'turn/start', data: { turn: 1 } },
+  { seq: 2, time: 5010, type: 'step/start', data: { turn: 1, step: 1 } },
+  { seq: 3, time: 5020, type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'finish', reason: { kind: 'error', failure: { message: 'no content', code: 'EMPTY_RESPONSE' } } } } },
+  { seq: 4, time: 5021, type: 'llm/retry', data: { retryId: 'r1', turn: 1, step: 1, provider: 'openrouter', mode: 'normal', retry: 1, maxRetries: 5, delayMs: 500, failure: { message: 'no content', code: 'EMPTY_RESPONSE' } } },
+  { seq: 5, time: 5521, type: 'llm/retry-started', data: { retryId: 'r1', turn: 1, step: 1, retry: 1 } },
+  { seq: 6, time: 5600, type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: '重试后成功输出' }] }, usage: { outputTokens: 7 } } },
+  { seq: 7, time: 5610, type: 'step/end', data: { turn: 1, step: 1 } },
+  { seq: 8, time: 5620, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+]
+// ---- 重试仍失败样本：重发又遇 PI_AI_ERROR，轮次终局失败 ----
+const RETRY_FAIL_EVENTS = [
+  { seq: 1, time: 6000, type: 'turn/start', data: { turn: 1 } },
+  { seq: 2, time: 6010, type: 'step/start', data: { turn: 1, step: 1 } },
+  { seq: 3, time: 6020, type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'finish', reason: { kind: 'error', failure: { message: 'no content', code: 'EMPTY_RESPONSE' } } } } },
+  { seq: 4, time: 6021, type: 'llm/retry', data: { retryId: 'r2', turn: 1, step: 1, provider: 'openrouter', mode: 'normal', retry: 1, maxRetries: 5, delayMs: 500, failure: { message: 'no content', code: 'EMPTY_RESPONSE' } } },
+  { seq: 5, time: 6521, type: 'llm/retry-started', data: { retryId: 'r2', turn: 1, step: 1, retry: 1 } },
+  { seq: 6, time: 6600, type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'finish', reason: { kind: 'error', failure: { message: 'ERROR', code: 'PI_AI_ERROR' } } } } },
+  { seq: 7, time: 6610, type: 'step/end', data: { turn: 1, step: 1 } },
+  { seq: 8, time: 6620, type: 'turn/end', data: { turn: 1, reason: { kind: 'error', error: { message: 'ERROR', code: 'PI_AI_ERROR' } } } },
+]
+// ---- 重试等待样本：调度已写、未起跳、步骤仍活（无 step/end）→ 倒计时徽标 ----
+const RETRY_WAIT_EVENTS = [
+  { seq: 1, time: 7000, type: 'turn/start', data: { turn: 1 } },
+  { seq: 2, time: 7010, type: 'step/start', data: { turn: 1, step: 1 } },
+  { seq: 3, time: 7020, type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'finish', reason: { kind: 'error', failure: { message: 'no content', code: 'EMPTY_RESPONSE' } } } } },
+  { seq: 4, time: 7021, type: 'llm/retry', data: { retryId: 'r3', turn: 1, step: 1, provider: 'openrouter', mode: 'normal', retry: 1, maxRetries: 5, delayMs: 60000, failure: { message: 'no content', code: 'EMPTY_RESPONSE' } } },
+]
+// ---- 重试进行中样本：已起跳但尚未收到最终响应 → 进行中徽标 ----
+const RETRY_ACTIVE_EVENTS = [
+  { seq: 1, time: 8000, type: 'turn/start', data: { turn: 1 } },
+  { seq: 2, time: 8010, type: 'step/start', data: { turn: 1, step: 1 } },
+  { seq: 3, time: 8020, type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'finish', reason: { kind: 'error', failure: { message: 'no content', code: 'EMPTY_RESPONSE' } } } } },
+  { seq: 4, time: 8021, type: 'llm/retry', data: { retryId: 'r4', turn: 1, step: 1, provider: 'openrouter', mode: 'normal', retry: 1, maxRetries: 5, delayMs: 500, failure: { message: 'no content', code: 'EMPTY_RESPONSE' } } },
+  { seq: 5, time: 8521, type: 'llm/retry-started', data: { retryId: 'r4', turn: 1, step: 1, retry: 1 } },
+  { seq: 6, time: 8530, type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'retrying' } } },
+]
+
 const LONG_EVENTS = Array.from({ length: 130 }, (_, i) => ({
   seq: i + 1,
   time: 4000 + i,
@@ -58,6 +96,10 @@ const sessionQuery = {
     if (sid === 's-fail') return { session: { id: sid }, events: FAIL_EVENTS }
     if (sid === 's-live') return { session: { id: sid }, events: LIVE_EVENTS }
     if (sid === 's-long') return { session: { id: sid }, events: LONG_EVENTS }
+    if (sid === 's-retry-ok') return { session: { id: sid }, events: RETRY_OK_EVENTS }
+    if (sid === 's-retry-fail') return { session: { id: sid }, events: RETRY_FAIL_EVENTS }
+    if (sid === 's-retry-wait') return { session: { id: sid }, events: RETRY_WAIT_EVENTS }
+    if (sid === 's-retry-active') return { session: { id: sid }, events: RETRY_ACTIVE_EVENTS }
     return { session: { id: sid }, events: [] }
   },
   async listSessions() { return [{ header: { id: 's-main' }, live: true }] },
@@ -172,6 +214,22 @@ const check = (label, cond, detail) => {
   r = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-live' })
   check('流式中 → 片段实时展示', r.html.indexOf('still going') >= 0)
   check('流式中 → 运行中计时器', r.html.indexOf('data-flow-timer') >= 0)
+
+  // 重试可视化：llm/retry 链挂到同 step 的助手卡
+  r = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-retry-ok' })
+  check('重试后成功 → 绿色重试徽标', r.html.indexOf('fl-retry-ok') >= 0 && r.html.indexOf('⟳ 重试 1/5 · 成功') >= 0)
+  check('重试徽标 title 带触发失败码', r.html.indexOf('EMPTY_RESPONSE') >= 0)
+  check('重试后成功 → 不出现错误码徽标', r.html.indexOf('✗') < 0)
+  r = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-retry-fail' })
+  check('重试仍失败 → 红色重试徽标', r.html.indexOf('fl-retry-fail') >= 0 && r.html.indexOf('⟳ 重试 1/5 · 失败') >= 0)
+  check('终局失败 → 真实错误码徽标', r.html.indexOf('✗ PI_AI_ERROR') >= 0)
+  check('终局失败 → 中断标记保留', r.html.indexOf('（生成已中断）') >= 0)
+  r = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-retry-wait' })
+  check('重试等待中 → 琥珀倒计时徽标', r.html.indexOf('fl-retry-wait') >= 0 && r.html.indexOf('⟳ 等待重试 1/5') >= 0)
+  check('重试等待中 → 卡片仍保持生成态', r.html.indexOf('data-flow-timer') >= 0)
+  r = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-retry-active' })
+  check('重试已起跳 → 显示进行中', r.html.indexOf('⟳ 重试 1/5 · 进行中') >= 0)
+  check('重试已起跳 → 不提前显示成功', r.html.indexOf('⟳ 重试 1/5 · 成功') < 0)
 
   // 长会话向上分页：初始 60，每次 fmore +60，全部加载后消失。
   r = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-long' })
