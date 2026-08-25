@@ -5,6 +5,8 @@ window.__ModuleLoader__.load({
     var exports = module.exports
     Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
     const React = require('react')
+    const TOOLBOX_MARKDOWN_TEXT = null
+    const TOOLBOX_CREATE_PORTAL = null
     const name = "dsh-dynamic-toolbox/client"
     const inject = ['slots', 'remote', 'timer']
 
@@ -138,6 +140,23 @@ return {
   apply(ctx) {
     // ===== 命名空间（TOOLBOX_RUNTIME 由拼接的 shared/runtime.js 提供；动态默认=历史名称）=====
     const RT = TOOLBOX_RUNTIME
+    // 原生 Flowglass bundle 注入 Harness 官方 Markdown renderer；其他静态合集与
+    // 动态开发模式没有这两个词法绑定时保持纯文本详情，不改变 Toolbox 通用契约。
+    const flowMarkdownText = RT.bundleId === 'flow'
+      && typeof TOOLBOX_MARKDOWN_TEXT !== 'undefined'
+      // React.memo / forwardRef components are objects, while ordinary
+      // function components are functions. MarkdownText currently uses memo.
+      && (typeof TOOLBOX_MARKDOWN_TEXT === 'function'
+        || (TOOLBOX_MARKDOWN_TEXT && typeof TOOLBOX_MARKDOWN_TEXT === 'object'))
+      ? TOOLBOX_MARKDOWN_TEXT : null
+    const flowCreatePortal = RT.bundleId === 'flow'
+      && typeof TOOLBOX_CREATE_PORTAL !== 'undefined'
+      && typeof TOOLBOX_CREATE_PORTAL === 'function'
+      ? TOOLBOX_CREATE_PORTAL : null
+    // Client-side fallback for a split reload: DSH can hot-reload client.js
+    // while the native Host half stays resident until process restart.
+    const FLOW_COPY_ICON_HTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1.5"></rect><path d="M3 11H2.5A1.5 1.5 0 0 1 1 9.5v-7A1.5 1.5 0 0 1 2.5 1h7A1.5 1.5 0 0 1 11 2.5V3"></path></svg>'
+    const FLOW_PREVIEW_ICON_HTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.3-4 6.5-4 6.5 4 6.5 4-2.3 4-6.5 4S1.5 8 1.5 8Z"></path><circle cx="8" cy="8" r="1.8"></circle></svg>'
     // 进程级单例（bundle 级）：页面已有本 bundle 主实例的抽屉时，本会话 Client 半空转——避免重复注册
     // sidebar.footer.action / shell.overlay 造成双抽屉。marker 值为空格分隔的 bundleId 列表
     // （多 bundle 同进程各挂各的抽屉，互不抢占）；标记随 fiber 卸载只移除自己那一份。
@@ -771,6 +790,10 @@ return {
       // 卡片点击展开的完整详情（入=完整传入 JSON / 出=完整返回文本）
       '.fl-detail{display:flex;flex-direction:column;gap:6px;border:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));border-radius:8px;padding:8px;background:var(--tb-input-bg,var(--dsw-alias-bg-layer-1,#26272e));max-width:460px;margin-top:2px}',
       '.fl-sec{display:flex;flex-direction:column;gap:3px}',
+      // 右侧详情的最后一个内容区吃满剩余高度：工具详情为「出」，消息详情为「完整内容」。
+      // 前面的元信息/传入仍按内容自然高度展示。
+      '.fl-rail-body>.fl-sec:last-child{flex:1;min-height:0}',
+      '.fl-rail-body>.fl-sec:last-child>.fl-pre,.fl-rail-body>.fl-sec:last-child>.fl-markdown-rendered{flex:1;min-height:0;max-height:none}',
       '.fl-sec-label{font-size:calc(11px*var(--tb-fs-detail,1));font-weight:600;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));letter-spacing:.4px}',
       '.fl-pre{white-space:pre-wrap;word-break:break-all;font-family:ui-monospace,Consolas,monospace;font-size:calc(12px*var(--tb-fs-detail,1));line-height:1.5;border:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));border-radius:6px;padding:6px 8px;max-height:220px;overflow:auto;margin:0;background:var(--dsw-alias-bg-base,#17181d);color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
       '.fl-spin{flex:none;display:inline-block;width:10px;height:10px;border:1.5px solid var(--tb-accent-border,rgba(91,141,239,.35));border-top-color:var(--tb-accent,#3f6fd9);border-radius:50%;animation:tbSpin .7s linear infinite}',
@@ -783,6 +806,11 @@ return {
       '.fl-rail-x{flex:none;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;border:none;background:transparent;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));cursor:pointer;border-radius:5px;padding:0;font-size:calc(12px*var(--tb-fs-detail,1));font-family:inherit}',
       '.fl-rail-x:hover{background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b));color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
       '.fl-rail-body{flex:1;min-height:0;overflow:auto;padding:8px 10px;display:flex;flex-direction:column;gap:8px}',
+      // 原生 Flowglass 按需用 React portal 把官方 MarkdownText 挂进 Host 详情 body；
+      // 默认显示原始 pre，用户点预览图标后才隐藏，避免详情打开时文本闪现。
+      '.fl-rail-body[data-flow-markdown-enhanced="1"] [data-flow-markdown-source]{display:none}',
+      '.fl-markdown-rendered{min-width:0;border:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));border-radius:6px;padding:6px 8px;max-height:min(70vh,520px);overflow:auto;background:var(--dsw-alias-bg-base,#17181d);color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4));font-size:calc(13px*var(--tb-fs-detail,1));line-height:1.6}',
+      '.fl-markdown-rendered>*{min-width:0}',
       // 左缘拖拽手柄：隐形 9px 热区悬出边框 4px，悬停/拖拽中显 2px 提示线
       '.fl-rail-resize{position:absolute;left:-4px;top:0;bottom:0;width:9px;cursor:col-resize;z-index:6;touch-action:none}',
       '.fl-rail-resize::after{content:"";position:absolute;left:3px;top:0;bottom:0;width:2px;border-radius:1px;background:transparent;transition:background .12s}',
@@ -793,8 +821,9 @@ return {
       // 详情内容框标题行 + 复制按钮
       '.fl-sec-head{display:flex;align-items:center;gap:6px;min-width:0}',
       '.fl-sec-head .fl-sec-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-      '.fl-copy-btn{flex:none;height:18px;padding:0 7px;border-radius:4px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));background:transparent;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));font-size:calc(10px*var(--tb-fs-detail,1));line-height:1;cursor:pointer;font-family:inherit;transition:color .12s,border-color .12s}',
-      '.fl-copy-btn:hover{color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4));border-color:var(--tb-accent-border,rgba(91,141,239,.45))}',
+      '.fl-copy-btn,.fl-md-preview-btn{flex:none;width:22px;height:20px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));background:transparent;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));line-height:1;cursor:pointer;font-family:inherit;transition:color .12s,border-color .12s,background .12s}',
+      '.fl-copy-btn:hover,.fl-md-preview-btn:hover{color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4));border-color:var(--tb-accent-border,rgba(91,141,239,.45))}',
+      '.fl-md-preview-btn[aria-pressed="true"]{color:var(--tb-active-text,#7fa7f0);border-color:var(--tb-accent-border,rgba(91,141,239,.45));background:var(--tb-active-bg,rgba(91,141,239,.12))}',
       '.fl-copy-btn.fl-copied{color:var(--tb-done-text,#81c784);border-color:var(--tb-done-text,#81c784)}',
       '.fl-copy-btn.fl-copy-fail{color:var(--tb-danger-text,#f28b82);border-color:var(--tb-danger-text,#f28b82)}',
       '.fl-branch-pill{flex:none;font-size:calc(9.5px*var(--tb-fs-detail,1));padding:0 5px;border-radius:3px;background:rgba(91,141,239,.12);color:var(--tb-active-text,#7fa7f0);font-weight:600}',
@@ -1346,6 +1375,9 @@ return {
       const [html, setHtml] = React.useState(null)
       const [error, setError] = React.useState(null)
       const [copied, setCopied] = React.useState(null)
+      const [flowMarkdownPreviewKey, setFlowMarkdownPreviewKey] = React.useState(null)
+      const flowMarkdownDisabledKeyRef = React.useRef(null)
+      const [flowMarkdownPortal, setFlowMarkdownPortal] = React.useState(null)
       const [busyTool, setBusyTool] = React.useState(null)
       const [showJumpLatest, setShowJumpLatest] = React.useState(false)
       const [flowZoom, setFlowZoom] = React.useState(() => {
@@ -1753,45 +1785,45 @@ return {
         } catch (e) {}
       }, [html])
 
-      // 详情侧拉框拖拽调宽：左缘手柄横向拖动实时改 --fl-rail-w（rail 是 .tb-pane-body 的兄弟节点，
-      // 与框选/空白点击监听互不干扰）；松手写入外观配置 railW（localStorage 记忆，重渲染经 scope 变量回填）
-      React.useEffect(() => {
-        const panel = panelRef.current
-        if (!panel || active !== 'flow') return undefined
-        const onDown = (e) => {
-          if (e.button !== 0) return
-          const t = e.target
-          const handle = t && typeof t.closest === 'function' ? t.closest('.fl-rail-resize') : null
-          if (!handle) return
-          const rail = handle.closest('.fl-rail')
-          const pane = rail && rail.closest('.tb-pane')
-          if (!rail || !pane) return
-          e.preventDefault()
-          const startW = rail.getBoundingClientRect().width
-          const startX = e.clientX
-          const maxW = Math.max(320, Math.round(pane.getBoundingClientRect().width * 0.85))
-          let lastW = Math.round(startW)
-          rail.classList.add('fl-rail-dragging')
-          try { document.body.style.userSelect = 'none' } catch (err) {}
-          const onMove = (ev) => {
-            lastW = Math.round(Math.min(maxW, Math.max(240, startW + (startX - ev.clientX))))
-            rail.style.setProperty('--fl-rail-w', lastW + 'px')
-          }
-          const onUp = () => {
-            rail.classList.remove('fl-rail-dragging')
-            try { document.body.style.userSelect = '' } catch (err) {}
-            document.removeEventListener('pointermove', onMove)
-            document.removeEventListener('pointerup', onUp)
-            document.removeEventListener('pointercancel', onUp)
-            appearanceWrite({ railW: lastW })
-          }
-          document.addEventListener('pointermove', onMove)
-          document.addEventListener('pointerup', onUp)
-          document.addEventListener('pointercancel', onUp)
+      // 详情侧拉框拖拽调宽。直接走 React 面板事件，确保 Better Sidebar 嵌入态
+      // 也能命中；开始后 capture pointer，并阻断外层侧栏自己的拖拽处理。
+      function onFlowRailResizeDown(e) {
+        if (active !== 'flow' || e.button !== 0) return
+        const t = e.target
+        const handle = t && typeof t.closest === 'function' ? t.closest('.fl-rail-resize') : null
+        if (!handle) return
+        const rail = handle.closest('.fl-rail')
+        const pane = rail && rail.closest('.tb-pane')
+        if (!rail || !pane) return
+        e.preventDefault()
+        e.stopPropagation()
+        const startW = rail.getBoundingClientRect().width
+        const startX = e.clientX
+        const pointerId = e.pointerId
+        const maxW = Math.max(320, Math.round(pane.getBoundingClientRect().width * 0.85))
+        let lastW = Math.round(startW)
+        rail.classList.add('fl-rail-dragging')
+        try { handle.setPointerCapture(pointerId) } catch (err) {}
+        try { document.body.style.userSelect = 'none' } catch (err) {}
+        const onMove = (ev) => {
+          if (ev.pointerId !== pointerId) return
+          lastW = Math.round(Math.min(maxW, Math.max(240, startW + (startX - ev.clientX))))
+          rail.style.setProperty('--fl-rail-w', lastW + 'px')
         }
-        panel.addEventListener('pointerdown', onDown)
-        return () => { try { panel.removeEventListener('pointerdown', onDown) } catch (e) {} }
-      }, [active])
+        const onUp = (ev) => {
+          if (ev.pointerId !== pointerId) return
+          rail.classList.remove('fl-rail-dragging')
+          try { handle.releasePointerCapture(pointerId) } catch (err) {}
+          try { document.body.style.userSelect = '' } catch (err) {}
+          document.removeEventListener('pointermove', onMove)
+          document.removeEventListener('pointerup', onUp)
+          document.removeEventListener('pointercancel', onUp)
+          appearanceWrite({ railW: lastW })
+        }
+        document.addEventListener('pointermove', onMove)
+        document.addEventListener('pointerup', onUp)
+        document.addEventListener('pointercancel', onUp)
+      }
 
       // header + 独立滚动区的原设计：离开主列表底部 40px 后显示浮标。
       // dangerouslySetInnerHTML 会替换面板 DOM，因此随 html/Tab 重新挂载捕获阶段 scroll 监听。
@@ -2015,6 +2047,86 @@ return {
         const timer = setInterval(updateTimers, 250)
         return () => { try { clearInterval(timer) } catch (e) {} }
       }, [isOpen, active, html])
+
+      // Upgrade controls before paint when an old resident Host returns the
+      // pre-icon HTML contract. New Hosts already emit the same controls, so
+      // this path is idempotent and only fills missing markup/attributes.
+      React.useLayoutEffect(() => {
+        if (!isOpen || active !== 'flow') return undefined
+        const root = panelRef.current
+        if (!root) return undefined
+        for (const button of root.querySelectorAll('[data-flow-copy]')) {
+          if (!button.querySelector('svg')) button.innerHTML = FLOW_COPY_ICON_HTML
+          button.setAttribute('title', '复制内容到剪贴板')
+          button.setAttribute('aria-label', '复制内容到剪贴板')
+        }
+        const target = root.querySelector('[data-flow-markdown-body]')
+        const source = target && target.querySelector('[data-flow-markdown-source]')
+        if (!target || !source) {
+          flowMarkdownDisabledKeyRef.current = null
+          return undefined
+        }
+        let key = target.getAttribute('data-flow-markdown-key') || ''
+        if (!key) {
+          const close = target.closest('.fl-rail') && target.closest('.fl-rail').querySelector('[data-action="fdetail"][data-seq]')
+          key = close ? (close.getAttribute('data-seq') || '') : ''
+          if (key) target.setAttribute('data-flow-markdown-key', key)
+        }
+        let previewButton = target.querySelector('[data-flow-markdown-preview]')
+        if (!previewButton && key) {
+          previewButton = document.createElement('button')
+          previewButton.type = 'button'
+          previewButton.className = 'fl-md-preview-btn'
+          previewButton.setAttribute('data-flow-markdown-preview', '1')
+          previewButton.setAttribute('data-flow-markdown-key', key)
+          previewButton.setAttribute('title', 'Markdown 预览')
+          previewButton.setAttribute('aria-label', 'Markdown 预览')
+          previewButton.setAttribute('aria-pressed', 'false')
+          previewButton.innerHTML = FLOW_PREVIEW_ICON_HTML
+          const head = source.closest('.fl-sec') && source.closest('.fl-sec').querySelector('.fl-sec-head')
+          const copy = head && head.querySelector('[data-flow-copy]')
+          if (head) head.insertBefore(previewButton, copy || null)
+        }
+        // 新打开的助手详情默认预览；用户对当前详情显式切回文本后，
+        // 自动刷新保持文本，关闭详情后清掉该例外，下次打开恢复默认预览。
+        if (key && !flowMarkdownPreviewKey && flowMarkdownDisabledKeyRef.current !== key) {
+          setFlowMarkdownPreviewKey(key)
+        }
+        return undefined
+      }, [isOpen, active, html, flowMarkdownPreviewKey])
+
+      // Host HTML remains the default text view. Only an explicit preview click
+      // enables the official Markdown renderer. useLayoutEffect reconnects the
+      // portal before paint after Host HTML replacement, avoiding text flashes.
+      React.useLayoutEffect(() => {
+        if (!flowMarkdownPreviewKey || !flowMarkdownText || !flowCreatePortal || !isOpen || active !== 'flow') {
+          setFlowMarkdownPortal((current) => current === null ? current : null)
+          return undefined
+        }
+        const root = panelRef.current
+        const target = root && root.querySelector('[data-flow-markdown-body]')
+        const source = target && target.querySelector('[data-flow-markdown-source]')
+        const key = target && target.getAttribute('data-flow-markdown-key')
+        if (!target || !source || key !== flowMarkdownPreviewKey) {
+          setFlowMarkdownPreviewKey(null)
+          setFlowMarkdownPortal((current) => current === null ? current : null)
+          return undefined
+        }
+        target.setAttribute('data-flow-markdown-enhanced', '1')
+        const previewButton = target.querySelector('[data-flow-markdown-preview]')
+        if (previewButton) previewButton.setAttribute('aria-pressed', 'true')
+        const mount = source.closest('.fl-sec') || target
+        const text = String(source.textContent || '')
+        const streaming = target.getAttribute('data-flow-markdown-streaming') === '1'
+        setFlowMarkdownPortal((current) => current
+          && current.target === target && current.mount === mount && current.text === text && current.streaming === streaming
+          ? current
+          : { target, mount, text, streaming })
+        return () => {
+          try { target.removeAttribute('data-flow-markdown-enhanced') } catch (e) {}
+          try { if (previewButton) previewButton.setAttribute('aria-pressed', 'false') } catch (e) {}
+        }
+      }, [isOpen, active, html, flowMarkdownPreviewKey])
 
       // —— 当前会话/工作区解析（v6.5）——
       // 抽屉主实例挂在宿主会话（toolbox-host-*）下，其 useSessions 不响应浏览器 UI 切会话；
@@ -2899,10 +3011,12 @@ return {
           }
         } catch (e) { ok = false }
         btn.classList.add(ok ? 'fl-copied' : 'fl-copy-fail')
-        btn.textContent = ok ? '已复制' : '复制失败'
+        btn.setAttribute('title', ok ? '已复制' : '复制失败')
+        btn.setAttribute('aria-label', ok ? '已复制' : '复制失败')
         ctx.timeout(() => {
           btn.classList.remove('fl-copied', 'fl-copy-fail')
-          btn.textContent = '复制'
+          btn.setAttribute('title', '复制内容到剪贴板')
+          btn.setAttribute('aria-label', '复制内容到剪贴板')
         }, 1200)
       }
 
@@ -2915,6 +3029,18 @@ return {
           e.preventDefault()
           e.stopPropagation()
           branchFlowAt(Number(branch.getAttribute('data-seq')))
+          return
+        }
+        const previewBtn = t && t.closest ? t.closest('[data-flow-markdown-preview]') : null
+        if (active === 'flow' && previewBtn) {
+          e.preventDefault()
+          e.stopPropagation()
+          const key = previewBtn.getAttribute('data-flow-markdown-key') || ''
+          setFlowMarkdownPreviewKey((current) => {
+            const disabling = current === key
+            flowMarkdownDisabledKeyRef.current = disabling ? key : null
+            return disabling ? null : key
+          })
           return
         }
         const copyBtn = t && t.closest ? t.closest('[data-flow-copy]') : null
@@ -3533,7 +3659,7 @@ return {
               '暂无工具\n运行工具插件（如 Jira）后自动出现在这里；已停止的插件可在右上角管理按钮里重新启动',
             )
       } else {
-        body = React.createElement('div', { className: 'tb-frame', ref: panelRef, onClick: onPanelClick, onKeyDown: onPanelKeyDown },
+        body = React.createElement('div', { className: 'tb-frame', ref: panelRef, onClick: onPanelClick, onKeyDown: onPanelKeyDown, onPointerDown: onFlowRailResizeDown },
           error ? React.createElement('div', { className: 'tb-error' }, String(error)) : null,
           copied ? React.createElement('div', { className: 'tb-banner tb-banner-info' }, String(copied)) : null,
           html
@@ -3601,17 +3727,28 @@ return {
         handles,
       )
 
+      const flowMarkdownPortalEl = flowMarkdownPortal && flowMarkdownText && flowCreatePortal
+        ? flowCreatePortal(React.createElement('div', { className: 'fl-markdown-rendered' },
+          React.createElement(flowMarkdownText, {
+            text: flowMarkdownPortal.text,
+            streaming: flowMarkdownPortal.streaming,
+            codeLabels: { copyLabel: '复制代码', copiedLabel: '已复制' },
+          }),
+        ), flowMarkdownPortal.mount || flowMarkdownPortal.target)
+        : null
+      const drawerWithPortal = React.createElement(React.Fragment, null, drawerEl, flowMarkdownPortalEl)
+
       // 静态 bundle 的整套 CSS 位于 @scope ([data-dsh-toolbox-scope="<bundle>"])；
       // 嵌入分支也必须保留这个祖先，否则浏览器只会显示未样式化的 Host HTML。
       if (embedded) {
         return React.createElement('div', {
           'data-dsh-toolbox-scope': RT.domValue(),
           style: { display: 'flex', width: '100%', height: '100%', minHeight: 0 },
-        }, drawerEl)
+        }, drawerWithPortal)
       }
 
       const overlay = React.createElement(React.Fragment, null,
-        drawerEl,
+        drawerWithPortal,
         snapHint ? React.createElement('div', { className: 'jr-snap-indicator' }) : null,
         resize ? React.createElement('div', { className: 'jr-resize-badge' },
           Math.round(width || 520) + ' × ' + (height ? Math.round(height) : '自动'),
