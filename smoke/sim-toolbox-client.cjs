@@ -313,8 +313,10 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
         && src.indexOf("typeof TOOLBOX_MARKDOWN_TEXT !== 'undefined'") >= 0
         && src.indexOf("typeof TOOLBOX_MARKDOWN_TEXT === 'object'") >= 0
         && css.indexOf('[data-flow-markdown-enhanced="1"] [data-flow-markdown-source]{display:none}') >= 0)
-    check('Markdown 默认文本并由预览图标显式切换，HTML 替换前用 layout effect 恢复预览',
+    check('Markdown 默认预览并可切回文本，HTML 替换前用 layout effect 恢复当前选择',
       src.indexOf('flowMarkdownPreviewKey') >= 0
+        && src.indexOf('flowMarkdownDisabledKeyRef') >= 0
+        && src.indexOf('setFlowMarkdownPreviewKey(key)') >= 0
         && src.indexOf("closest('[data-flow-markdown-preview]')") >= 0
         && src.indexOf('React.useLayoutEffect(() => {') >= 0
         && css.indexOf('.fl-md-preview-btn[aria-pressed="true"]') >= 0)

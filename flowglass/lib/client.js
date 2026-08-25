@@ -1376,6 +1376,7 @@ return {
       const [error, setError] = React.useState(null)
       const [copied, setCopied] = React.useState(null)
       const [flowMarkdownPreviewKey, setFlowMarkdownPreviewKey] = React.useState(null)
+      const flowMarkdownDisabledKeyRef = React.useRef(null)
       const [flowMarkdownPortal, setFlowMarkdownPortal] = React.useState(null)
       const [busyTool, setBusyTool] = React.useState(null)
       const [showJumpLatest, setShowJumpLatest] = React.useState(false)
@@ -2061,7 +2062,10 @@ return {
         }
         const target = root.querySelector('[data-flow-markdown-body]')
         const source = target && target.querySelector('[data-flow-markdown-source]')
-        if (!target || !source) return undefined
+        if (!target || !source) {
+          flowMarkdownDisabledKeyRef.current = null
+          return undefined
+        }
         let key = target.getAttribute('data-flow-markdown-key') || ''
         if (!key) {
           const close = target.closest('.fl-rail') && target.closest('.fl-rail').querySelector('[data-action="fdetail"][data-seq]')
@@ -2083,8 +2087,13 @@ return {
           const copy = head && head.querySelector('[data-flow-copy]')
           if (head) head.insertBefore(previewButton, copy || null)
         }
+        // 新打开的助手详情默认预览；用户对当前详情显式切回文本后，
+        // 自动刷新保持文本，关闭详情后清掉该例外，下次打开恢复默认预览。
+        if (key && !flowMarkdownPreviewKey && flowMarkdownDisabledKeyRef.current !== key) {
+          setFlowMarkdownPreviewKey(key)
+        }
         return undefined
-      }, [isOpen, active, html])
+      }, [isOpen, active, html, flowMarkdownPreviewKey])
 
       // Host HTML remains the default text view. Only an explicit preview click
       // enables the official Markdown renderer. useLayoutEffect reconnects the
@@ -3027,7 +3036,11 @@ return {
           e.preventDefault()
           e.stopPropagation()
           const key = previewBtn.getAttribute('data-flow-markdown-key') || ''
-          setFlowMarkdownPreviewKey((current) => current === key ? null : key)
+          setFlowMarkdownPreviewKey((current) => {
+            const disabling = current === key
+            flowMarkdownDisabledKeyRef.current = disabling ? key : null
+            return disabling ? null : key
+          })
           return
         }
         const copyBtn = t && t.closest ? t.closest('[data-flow-copy]') : null
