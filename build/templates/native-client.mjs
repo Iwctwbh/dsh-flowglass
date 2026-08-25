@@ -12,6 +12,14 @@ export const renderNativeClient = ({
   const remoteMethodNames = ['tools', 'panel', 'plugins', 'sessionInfo'].concat(bridgeMethods.map(({ method }) => method))
   const bridgeMappings = bridgeMethods.map(({ rpc, method }) => `
         [${JSON.stringify(rpc)}]: (args) => remote.${method}(args || {}),`).join('')
+  // The primary Flowglass package enhances assistant detail rails with the
+  // Harness-native renderer. Other toolbox bundles retain their dependency-free
+  // HTML panel fallback and never load these modules.
+  const markdownRuntime = profile.bundleId === 'flow'
+    ? `    const { MarkdownText: TOOLBOX_MARKDOWN_TEXT } = require('@deepseek-ai/dsh-client-ui-primitives')
+    const { createPortal: TOOLBOX_CREATE_PORTAL } = require('react-dom')`
+    : `    const TOOLBOX_MARKDOWN_TEXT = null
+    const TOOLBOX_CREATE_PORTAL = null`
   return `window.__ModuleLoader__.load({
   id: ${JSON.stringify(packageName)},
   factory: (require) => {
@@ -19,6 +27,7 @@ export const renderNativeClient = ({
     var exports = module.exports
     Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
     const React = require('react')
+${markdownRuntime}
     const name = ${JSON.stringify(packageName + '/client')}
     const inject = ['slots', 'remote', 'timer']
 

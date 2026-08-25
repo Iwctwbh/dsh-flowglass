@@ -308,6 +308,38 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
       && src.indexOf('list.subscribe(sync)') >= 0 && src.indexOf('serviceSessionsSnapshot.ids') >= 0)
     check('Better Sidebar 会话回退严格限定 Flowglass，完整 Toolbox 不启用', src.indexOf("if (RT.bundleId !== 'flow') return undefined") >= 0
       && src.indexOf("RT.bundleId === 'flow' && serviceSessionsSnapshot") >= 0)
+    check('Markdown 增强严格限定原生 Flow bundle，动态 Toolbox 保留原文 fallback',
+      src.indexOf("RT.bundleId === 'flow'") >= 0
+        && src.indexOf("typeof TOOLBOX_MARKDOWN_TEXT !== 'undefined'") >= 0
+        && src.indexOf("typeof TOOLBOX_MARKDOWN_TEXT === 'object'") >= 0
+        && css.indexOf('[data-flow-markdown-enhanced="1"] [data-flow-markdown-source]{display:none}') >= 0)
+    check('Markdown 默认文本并由预览图标显式切换，HTML 替换前用 layout effect 恢复预览',
+      src.indexOf('flowMarkdownPreviewKey') >= 0
+        && src.indexOf("closest('[data-flow-markdown-preview]')") >= 0
+        && src.indexOf('React.useLayoutEffect(() => {') >= 0
+        && css.indexOf('.fl-md-preview-btn[aria-pressed="true"]') >= 0)
+    check('Markdown 预览挂在原文所在内容节并使用同类边框滚动框',
+      src.indexOf("const mount = source.closest('.fl-sec') || target") >= 0
+        && src.indexOf('flowMarkdownPortal.mount || flowMarkdownPortal.target') >= 0
+        && css.indexOf('.fl-markdown-rendered{min-width:0;border:1px solid') >= 0
+        && css.indexOf('max-height:min(70vh,520px);overflow:auto') >= 0)
+    check('详情最后一个内容框填满右侧剩余高度，传入和元信息保持自然高度',
+      css.indexOf('.fl-rail-body>.fl-sec:last-child{flex:1;min-height:0}') >= 0
+        && css.indexOf('.fl-rail-body>.fl-sec:last-child>.fl-pre,.fl-rail-body>.fl-sec:last-child>.fl-markdown-rendered{flex:1;min-height:0;max-height:none}') >= 0)
+    check('详情上限统一为容器 85%，Better Sidebar 嵌入态仍使用兼容拖拽事件链',
+      css.indexOf('.fl-rail{position:absolute;right:0;top:0;bottom:0;width:min(var(--fl-rail-w,350px),85%)') >= 0
+        && css.indexOf('.jr-drawer-embedded .fl-rail{width:min(var(--fl-rail-w,350px),100%)}') < 0
+        && src.indexOf('pane.getBoundingClientRect().width * 0.85') >= 0
+        && src.indexOf('onPointerDown: onFlowRailResizeDown') >= 0
+        && src.indexOf('handle.setPointerCapture(pointerId)') >= 0)
+    check('Client 可在 Host 尚未重启时把旧文字复制按钮升级为图标并补齐预览按钮',
+      src.indexOf('FLOW_COPY_ICON_HTML') >= 0
+        && src.indexOf("if (!button.querySelector('svg')) button.innerHTML = FLOW_COPY_ICON_HTML") >= 0
+        && src.indexOf("document.createElement('button')") >= 0
+        && src.indexOf("head.insertBefore(previewButton, copy || null)") >= 0)
+    check('详情复制按钮保持 SVG 图标，反馈只更新 title 与 aria-label',
+      src.indexOf("btn.setAttribute('title', ok ? '已复制' : '复制失败')") >= 0
+        && src.indexOf("btn.textContent = ok ? '已复制' : '复制失败'") < 0)
     check('框选图标栏位于 Zoom 上方，计数使用圆形描边', css.indexOf('.tb-flow-zoom-float.with-selection{bottom:14px}') >= 0
       && css.indexOf('.tb-flow-selection-bar{bottom:54px') >= 0 && css.indexOf('.tb-flow-selection-count{width:24px;height:24px;padding:0') >= 0)
     check('面板主布局只作用于 HTML 包装层，不会把左下浮层拉成竖条', css.indexOf('.tb-frame>.tb-panel-html{') >= 0

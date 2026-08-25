@@ -194,6 +194,19 @@ const check = (label, cond, detail) => {
   r = await h({ action: 'fdetail', fields: { __el: { seq: '3' } }, state: r.state, root: ROOT, session: 's-main' })
   check('再点 → 收起详情', r.html.indexOf('fl-rail') < 0)
 
+  // 助手消息详情默认保留原文，并提供显式 Markdown 预览图标。
+  r = await h({ action: 'fdetail', fields: { __el: { seq: '2' } }, state: r.state, root: ROOT, session: 's-main' })
+  check('助手详情声明 Markdown 挂载点、预览按钮与原文 fallback', r.html.indexOf('data-flow-markdown-detail="1"') >= 0
+    && r.html.indexOf('data-flow-markdown-body="1"') >= 0
+    && r.html.indexOf('data-flow-markdown-source="1"') >= 0
+    && r.html.indexOf('data-flow-markdown-preview="1"') >= 0
+    && r.html.indexOf('aria-pressed="false"') >= 0
+    && r.html.indexOf('好的，我先并行读文件') >= 0)
+  check('详情复制控件使用图标并保留无障碍名称', r.html.indexOf('data-flow-copy="1"') >= 0
+    && r.html.indexOf('aria-label="复制内容到剪贴板"') >= 0
+    && r.html.indexOf('>复制</button>') < 0)
+  r = await h({ action: 'fdetail', fields: { __el: { seq: '2' } }, state: r.state, root: ROOT, session: 's-main' })
+
   // 静默刷新动作（__refresh 不报错）
   r = await h({ action: '__refresh', fields: {}, state: r.state, root: ROOT, session: 's-main' })
   check('__refresh → 正常渲染', r.ok === true && r.html.indexOf('实时流镜') >= 0)

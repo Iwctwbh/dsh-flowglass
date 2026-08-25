@@ -28,6 +28,9 @@ const check = (label, cond, detail) => {
   check('Flow 包声明 optional better-sidebar peer',
     pkg.peerDependencies['dsh-better-sidebar'] === '>=0.4.0'
       && pkg.peerDependenciesMeta['dsh-better-sidebar'].optional === true)
+  check('Flow 包声明官方 Markdown renderer 与 portal peer',
+    pkg.peerDependencies['@deepseek-ai/dsh-client-ui-primitives'] === '^0.1.1-rc.2'
+      && pkg.peerDependencies['react-dom'] === '^18.3.1')
   const client = files.get('lib/client.js')
   const host = files.get('lib/index.js')
   check('Flow Client 含 Sidebar Tab 与嵌入布局适配',
@@ -36,6 +39,11 @@ const check = (label, cond, detail) => {
       && client.includes('jr-drawer-embedded')
       && !client.includes('if (embedded) return drawerEl')
       && client.includes('props.visible !== false'))
+  check('Flow Client 加载官方 MarkdownText，并只在详情 body 建立 portal',
+    client.includes("require('@deepseek-ai/dsh-client-ui-primitives')")
+      && client.includes("require('react-dom')")
+      && client.includes('data-flow-markdown-enhanced')
+      && client.includes('flowCreatePortal(React.createElement'))
   check('动态批准明确为 false', JSON.parse(files.get('BUILDINFO.json')).dynamicApprovalRequired === false)
   check('Flow 跟随指令穿过静态 Host 注册表', host.includes('out.navigateSession') && client.includes('sessionsClient.openSubagent(address)'))
   check('Flow Client 保留跟随返回链，且历史加载无顶部 loading 浮层', client.includes('flowFollowStateBySessionRef') && !client.includes('tb-flow-older-loading'))

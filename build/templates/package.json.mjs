@@ -35,7 +35,11 @@ export const renderPackageJson = ({ packageName, version, description, bundleId,
   engines: { node: '>=22.19' },
   peerDependencies: {
     ...(hasModelTools ? { '@deepseek-ai/dsh-tools': '^0.1.0-rc.8' } : {}),
-    ...(bundleId === 'flow' ? { 'dsh-better-sidebar': '>=0.4.0' } : {}),
+    ...(bundleId === 'flow' ? {
+      '@deepseek-ai/dsh-client-ui-primitives': '^0.1.1-rc.2',
+      'dsh-better-sidebar': '>=0.4.0',
+      'react-dom': '^18.3.1',
+    } : {}),
     react: '^18.3.1',
   },
   ...(bundleId === 'flow' ? {
