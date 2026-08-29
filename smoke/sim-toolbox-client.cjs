@@ -274,7 +274,9 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     impl.apply(ctx)
     const css = inserted.join('\n')
     check('CSS 含导航条目选择器', css.indexOf('[data-dsh-toolbox-entry]{') >= 0 && css.indexOf('.tb-nav-icon') >= 0)
-    check('CSS 含折叠 rail 变体', css.indexOf('[data-dsh-frame][data-sidebar-collapsed] [data-dsh-toolbox-entry]') >= 0)
+    check('CSS 含折叠 rail 变体', css.indexOf('[data-dsh-frame][data-sidebar-collapsed] [data-dsh-toolbox-entry]') >= 0
+      && css.indexOf('[data-sidebar-collapsed] [data-dsh-toolbox-entry]') >= 0
+      && css.indexOf('[data-sidebar-collapsed] .tb-nav-label{display:none}') >= 0)
     check('CSS 含 .tb-entry 与 .jr-drawer', css.indexOf('.tb-entry{') >= 0 && css.indexOf('.jr-drawer{') >= 0)
     check('CSS/源码含工具面板「回到最新」浮标', css.indexOf('.tb-jump-latest{') >= 0
       && src.indexOf('showJumpLatest') >= 0 && src.indexOf('↓ 回到最新') >= 0)
@@ -306,6 +308,11 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
       && src.indexOf('Array.from(rawFlowSessionIds)') >= 0 && src.indexOf('Object.keys(rawFlowSessionsById)') >= 0)
     check('Better Sidebar 嵌入态直接订阅 sessionsClient.list 补齐完整会话树', src.indexOf('serviceSessionsSnapshot') >= 0
       && src.indexOf('list.subscribe(sync)') >= 0 && src.indexOf('serviceSessionsSnapshot.ids') >= 0)
+    check('跨会话草稿写入双路径：uiSession 绑定优先，provideInfo 回退', src.indexOf("ctx.get('uiSession')") >= 0
+      && src.indexOf('uiSession.adapter.resolve') >= 0
+      && src.indexOf('resolveSessionProvideInfo') >= 0
+      && src.indexOf("typeof sessionsClient.provideInfo === 'function'") >= 0
+      && src.indexOf('sessionsClient.provideInfo(sessionId)') >= 0)
     check('Better Sidebar 会话回退严格限定 Flowglass，完整 Toolbox 不启用', src.indexOf("if (RT.bundleId !== 'flow') return undefined") >= 0
       && src.indexOf("RT.bundleId === 'flow' && serviceSessionsSnapshot") >= 0)
     check('Markdown 增强严格限定原生 Flow bundle，动态 Toolbox 保留原文 fallback',

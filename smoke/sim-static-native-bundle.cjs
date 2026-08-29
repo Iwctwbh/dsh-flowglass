@@ -25,11 +25,17 @@ const check = (label, cond, detail) => {
   const pkg = JSON.parse(files.get('package.json'))
   check('默认 Flow 构建产出 dsh-flowglass', pkg.name === 'dsh-flowglass', pkg.name)
   check('package 声明原生 dsh.client', pkg.dsh.client.platform === 'web' && pkg.exports['./client'] === './lib/client.js')
+  check('inject 指向 ui-session 且不含已删除的 client-runtime',
+    pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-session')
+      && pkg.dsh.client.inject.includes('@deepseek-ai/dsh-api-remotes')
+      && !pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-runtime'))
+  check('Host Typert 协议声明为 peer（含当前 Harness prerelease 通道）',
+    pkg.peerDependencies['@deepseek-ai/dsh-typert-protocol'] === '^0.1.1-rc.2 || ^0.1.2-alpha.1')
   check('Flow 包声明 optional better-sidebar peer',
     pkg.peerDependencies['dsh-better-sidebar'] === '>=0.4.0'
       && pkg.peerDependenciesMeta['dsh-better-sidebar'].optional === true)
   check('Flow 包声明官方 Markdown renderer 与 portal peer',
-    pkg.peerDependencies['@deepseek-ai/dsh-client-ui-primitives'] === '^0.1.1-rc.2'
+    pkg.peerDependencies['@deepseek-ai/dsh-client-ui-primitives'] === '^0.1.1-rc.2 || ^0.1.2-alpha.1'
       && pkg.peerDependencies['react-dom'] === '^18.3.1')
   const client = files.get('lib/client.js')
   const host = files.get('lib/index.js')
@@ -52,6 +58,9 @@ const check = (label, cond, detail) => {
     && client.includes('requestFullscreen') && client.includes('fullscreenchange')
     && client.includes('tb-flow-selection-bar') && client.includes('tb-flow-bring-popup') && client.includes('tb-flow-session-tree') && client.includes('fl-marquee')
     && client.includes('sessionsClient.fork') && client.includes('sessionsClient.create') && client.includes('inputActions'))
+  check('跨会话草稿写入走 uiSession 绑定并保留 provideInfo 回退', client.includes("ctx.get('uiSession')")
+    && client.includes('uiSession.adapter.resolve') && client.includes('resolveSessionProvideInfo')
+    && client.includes("typeof sessionsClient.provideInfo === 'function'"))
   check('框选矩形转换为 Flow 根局部坐标', client.includes('.fl-marquee{position:absolute') && client.includes('originX: origin.left') && client.includes('left - drag.originX'))
   check('框选超过移动阈值才起框，保留卡片单击', client.includes('box: null, moved: false') && client.includes('if (!drag.moved && (width > 3 || height > 3))'))
   check('工作区树默认收起并使用文件夹节点', client.includes('flowTreeOpen[group.cwd] ? group.sessions.map') && client.includes('tb-flow-tree-folder'))
@@ -120,7 +129,7 @@ const check = (label, cond, detail) => {
   check('selfview 模型工具改走原生 tools service',
     selfviewHost.includes("from '@deepseek-ai/dsh-tools'")
       && selfviewHost.includes("ctx.get('tools')")
-      && selfviewPkg.peerDependencies['@deepseek-ai/dsh-tools'] === '^0.1.0-rc.8')
+      && selfviewPkg.peerDependencies['@deepseek-ai/dsh-tools'] === '^0.1.0-rc.8 || ^0.1.2-alpha.1')
 
   const largeBuilt = buildBundle(loader, {
     features: ['jira', 'git', 'files', 'flow', 'flowedit', 'trace', 'http', 'ports', 'calc', 'usage', 'prompt', 'context', 'aiassist', 'tools', 'search', 'lineage', 'aiusage', 'quota', 'selfview'],

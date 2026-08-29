@@ -21,7 +21,12 @@ check('Host main/exports 指向 lib/index.js', pkg.type === 'module' && pkg.main
 check('导出原生 ./client 与 ./remote', pkg.exports && pkg.exports['./client'] === './lib/client.js' && pkg.exports['./remote'] === './lib/remote.js')
 check('声明 dsh.bundle.patch', pkg.dsh && pkg.dsh.bundle && pkg.dsh.bundle.patch === './cordis.patch.yml')
 check('声明原生 dsh.client web 入口', pkg.dsh && pkg.dsh.client && pkg.dsh.client.platform === 'web')
-check('Client 依赖原生 runtime/api-remotes', pkg.dsh && pkg.dsh.client && pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-runtime') && pkg.dsh.client.inject.includes('@deepseek-ai/dsh-api-remotes'))
+check('Client 依赖 api-remotes/ui-session 且不含已删除的 client-runtime',
+  pkg.dsh && pkg.dsh.client
+    && pkg.dsh.client.inject.includes('@deepseek-ai/dsh-api-remotes')
+    && pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-session')
+    && !pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-runtime'))
+check('Host Typert 协议声明为 peer', pkg.peerDependencies && typeof pkg.peerDependencies['@deepseek-ai/dsh-typert-protocol'] === 'string')
 check('不依赖动态 Host/Client runner', JSON.stringify(pkg).indexOf('cordis-host-runner') < 0 && JSON.stringify(pkg).indexOf('cordis-client-runner') < 0)
 
 const info = JSON.parse(read('BUILDINFO.json') || '{}')

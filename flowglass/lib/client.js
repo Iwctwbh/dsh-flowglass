@@ -366,8 +366,12 @@ return {
       '[data-dsh-toolbox-entry][data-active]{background:var(--dsw-specific-sidebar-nav-item-active,var(--dsw-alias-bg-layer-2,#31323b));color:var(--dsw-alias-label-primary);font-weight:600}',
       '.tb-nav-icon{flex:none;display:inline-flex;justify-content:center;align-items:center}',
       '.tb-nav-label{overflow:hidden;text-overflow:ellipsis}',
+      // Harness 宿主当前把收起状态标在 frame 上，但 frame 没有 data-dsh-frame。
+      // 保留旧选择器兼容带有该标记的宿主，同时直接匹配官方标记，避免收起 rail 露出文字。
       '[data-dsh-frame][data-sidebar-collapsed] [data-dsh-toolbox-entry]{justify-content:center;width:100%;padding:0}',
       '[data-dsh-frame][data-sidebar-collapsed] .tb-nav-label{display:none}',
+      '[data-sidebar-collapsed] [data-dsh-toolbox-entry]{justify-content:center;width:100%;padding:0}',
+      '[data-sidebar-collapsed] .tb-nav-label{display:none}',
       '.jr-drawer{position:fixed;right:24px;top:64px;z-index:1300;width:520px;max-width:94vw;max-height:calc(100vh - 96px);display:flex;flex-direction:column;background:var(--dsw-alias-bg-base,#17181d);border:1px solid var(--dsw-alias-border-l1,#3a3b44);border-radius:10px;color:var(--dsw-alias-label-primary,#e8e8ea);font-size:calc(13px*var(--tb-fs,1));pointer-events:auto;box-shadow:-14px 0 44px rgba(0,0,0,.24);animation:jrDrawerIn .16s ease-out;overflow:hidden}',
       // better-sidebar 嵌入态：只复用面板，不带 fixed 抽屉几何、阴影、拖拽 chrome。
       '.jr-drawer-embedded{position:relative;inset:auto;z-index:auto;width:100%;height:100%;min-height:0;max-width:none;max-height:none;border:0;border-radius:0;background:transparent;box-shadow:none;animation:none;overflow:hidden}',
@@ -844,6 +848,8 @@ return {
         nav + '[data-active]{background:var(--dsw-specific-sidebar-nav-item-active,var(--dsw-alias-bg-layer-2,#31323b));color:var(--dsw-alias-label-primary);font-weight:600}',
         '[data-dsh-frame][data-sidebar-collapsed] ' + nav + '{justify-content:center;width:100%;padding:0}',
         '[data-dsh-frame][data-sidebar-collapsed] ' + nav + ' .tb-nav-label{display:none}',
+        '[data-sidebar-collapsed] ' + nav + '{justify-content:center;width:100%;padding:0}',
+        '[data-sidebar-collapsed] ' + nav + ' .tb-nav-label{display:none}',
       ].join('\n')))
     }
 
@@ -2287,9 +2293,22 @@ return {
         return res.flowContext
       }
 
+      // 跨会话草稿写入读取目标会话的标准 props（inputActions）。新 Harness 把
+      // 会话标准 props 收进 Session Controller 绑定，经 ctx.uiSession 的
+      // adapter.resolve 按sessionId解析；旧 Harness 的 sessions.provideInfo
+      // 保留为回退路径，两版都能带入。
+      const resolveSessionProvideInfo = (sessionId) => {
+        const uiSession = ctx.get('uiSession')
+        if (uiSession && uiSession.adapter && typeof uiSession.adapter.resolve === 'function') {
+          const binding = uiSession.adapter.resolve(sessionId)
+          return binding ? { props: binding.props, hooks: binding.hooks } : undefined
+        }
+        if (sessionsClient && typeof sessionsClient.provideInfo === 'function') return sessionsClient.provideInfo(sessionId)
+        throw new Error('Harness 当前版本不支持跨会话草稿写入')
+      }
+
       const putFlowContextIntoDraft = (sessionId, text, append) => {
-        if (!sessionsClient || typeof sessionsClient.provideInfo !== 'function') throw new Error('Harness 当前版本不支持跨会话草稿写入')
-        const info = sessionsClient.provideInfo(sessionId)
+        const info = resolveSessionProvideInfo(sessionId)
         const actions = info && info.props && info.props.inputActions
         const input = info && info.hooks && info.hooks.input
         if (!actions || typeof actions.setDraft !== 'function') throw new Error('目标会话的输入区不可用')

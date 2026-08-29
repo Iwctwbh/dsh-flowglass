@@ -1,6 +1,6 @@
 {
   "name": "dsh-flowglass",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "流镜（DSH 原生静态插件）",
   "type": "module",
   "main": "./flowglass/lib/index.js",
@@ -29,7 +29,7 @@
     "client": {
       "platform": "web",
       "inject": [
-        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-session",
         "@deepseek-ai/dsh-api-remotes",
         "@deepseek-ai/dsh-client-ui-layout",
         "@deepseek-ai/dsh-client-ui-sidebar"
@@ -50,7 +50,8 @@
     "node": ">=22.19"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-typert-protocol": "^0.1.1-rc.2 || ^0.1.2-alpha.1",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.1-rc.2 || ^0.1.2-alpha.1",
     "dsh-better-sidebar": ">=0.4.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
