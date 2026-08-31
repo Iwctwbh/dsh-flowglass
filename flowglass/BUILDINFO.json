@@ -1,7 +1,7 @@
 {
   "bundleId": "flow",
   "packageName": "dsh-flowglass",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "displayName": "流镜",
   "mode": "native-static",
   "dynamicApprovalRequired": false,

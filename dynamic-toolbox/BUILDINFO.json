@@ -1,7 +1,7 @@
 {
   "bundleId": "dynamic-toolbox",
   "packageName": "dsh-dynamic-toolbox",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "displayName": "Jira + Git + 文件 + 流镜 + 工作流编辑 + 轨迹 + HTTP + 端口 + 计算 + 用量 + 提示词 + 上下文 + AI 助手 + 工具清单 + 搜索 + 血缘 + AI 台账 + 配额 + 界面自查 工具箱",
   "mode": "native-static",
   "dynamicApprovalRequired": false,
