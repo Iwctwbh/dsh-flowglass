@@ -26,6 +26,12 @@ return {
     // while the native Host half stays resident until process restart.
     const FLOW_COPY_ICON_HTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1.5"></rect><path d="M3 11H2.5A1.5 1.5 0 0 1 1 9.5v-7A1.5 1.5 0 0 1 2.5 1h7A1.5 1.5 0 0 1 11 2.5V3"></path></svg>'
     const FLOW_PREVIEW_ICON_HTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.3-4 6.5-4 6.5 4 6.5 4-2.3 4-6.5 4S1.5 8 1.5 8Z"></path><circle cx="8" cy="8" r="1.8"></circle></svg>'
+    // DSH alpha.2 uses labels.code while the rc.2 primitive uses codeLabels.
+    // Keep both shapes stable so the renderer can be shared across either host.
+    const FLOW_MARKDOWN_LABELS = Object.freeze({
+      code: Object.freeze({ copyLabel: '复制代码', copiedLabel: '已复制' }),
+      footnotes: '脚注',
+    })
     // 进程级单例（bundle 级）：页面已有本 bundle 主实例的抽屉时，本会话 Client 半空转——避免重复注册
     // sidebar.footer.action / shell.overlay 造成双抽屉。marker 值为空格分隔的 bundleId 列表
     // （多 bundle 同进程各挂各的抽屉，互不抢占）；标记随 fiber 卸载只移除自己那一份。
@@ -680,7 +686,7 @@ return {
       '.fl-rail-x:hover{background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b));color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
       '.fl-rail-body{flex:1;min-height:0;overflow:auto;padding:8px 10px;display:flex;flex-direction:column;gap:8px}',
       // 原生 Flowglass 按需用 React portal 把官方 MarkdownText 挂进 Host 详情 body；
-      // 默认显示原始 pre，用户点预览图标后才隐藏，避免详情打开时文本闪现。
+      // 助手详情默认显示 Markdown，用户点预览图标可切回原始 pre。
       '.fl-rail-body[data-flow-markdown-enhanced="1"] [data-flow-markdown-source]{display:none}',
       '.fl-markdown-rendered{min-width:0;border:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));border-radius:6px;padding:6px 8px;max-height:min(70vh,520px);overflow:auto;background:var(--dsw-alias-bg-base,#17181d);color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4));font-size:calc(13px*var(--tb-fs-detail,1));line-height:1.6}',
       '.fl-markdown-rendered>*{min-width:0}',
@@ -1962,8 +1968,8 @@ return {
           const copy = head && head.querySelector('[data-flow-copy]')
           if (head) head.insertBefore(previewButton, copy || null)
         }
-        // 新打开的助手详情默认预览；用户对当前详情显式切回文本后，
-        // 自动刷新保持文本，关闭详情后清掉该例外，下次打开恢复默认预览。
+        // 助手详情默认使用官方 Markdown 预览；用户显式切回原文后，
+        // 自动刷新保持原文，关闭详情后清掉例外，下次打开恢复预览。
         if (key && !flowMarkdownPreviewKey && flowMarkdownDisabledKeyRef.current !== key) {
           setFlowMarkdownPreviewKey(key)
         }
@@ -3620,7 +3626,8 @@ return {
           React.createElement(flowMarkdownText, {
             text: flowMarkdownPortal.text,
             streaming: flowMarkdownPortal.streaming,
-            codeLabels: { copyLabel: '复制代码', copiedLabel: '已复制' },
+            labels: FLOW_MARKDOWN_LABELS,
+            codeLabels: FLOW_MARKDOWN_LABELS.code,
           }),
         ), flowMarkdownPortal.mount || flowMarkdownPortal.target)
         : null

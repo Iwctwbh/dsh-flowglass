@@ -49,11 +49,13 @@ const check = (label, cond, detail) => {
       && client.includes('jr-drawer-embedded')
       && !client.includes('if (embedded) return drawerEl')
       && client.includes('props.visible !== false'))
-  check('Flow Client 加载官方 MarkdownText，并只在详情 body 建立 portal',
+  check('Flow Client 加载官方 MarkdownText，并兼容 alpha.2/rc.2 Markdown labels',
     client.includes("require('@deepseek-ai/dsh-client-ui-primitives')")
       && client.includes("require('react-dom')")
       && client.includes('data-flow-markdown-enhanced')
-      && client.includes('flowCreatePortal(React.createElement'))
+      && client.includes('flowCreatePortal(React.createElement')
+      && client.includes('labels: FLOW_MARKDOWN_LABELS')
+      && client.includes('codeLabels: FLOW_MARKDOWN_LABELS.code'))
   check('动态批准明确为 false', JSON.parse(files.get('BUILDINFO.json')).dynamicApprovalRequired === false)
   check('Flow 跟随指令穿过静态 Host 注册表', host.includes('out.navigateSession') && client.includes('sessionsClient.openSubagent(address)'))
   check('Flow Client 保留跟随返回链，且历史加载无顶部 loading 浮层', client.includes('flowFollowStateBySessionRef') && !client.includes('tb-flow-older-loading'))
