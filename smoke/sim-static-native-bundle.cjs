@@ -39,6 +39,10 @@ const check = (label, cond, detail) => {
       && pkg.peerDependencies['react-dom'] === '^18.3.1')
   const client = files.get('lib/client.js')
   const host = files.get('lib/index.js')
+  check('Flow Client 显式注入 sessions，并仅通过注入属性读取',
+    client.includes("const inject = ['slots', 'remote', 'timer', 'sessions']")
+      && client.includes('const sessionsClient = ctx.sessions')
+      && !client.includes("ctx.get('sessions') || ctx.sessions"))
   check('Flow Client 含 Sidebar Tab 与嵌入布局适配',
     client.includes("FLOW_TAB_ID = 'dsh-flowglass:flow'")
       && client.includes("ctx.inject(['betterSidebar']")

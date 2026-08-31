@@ -1,4 +1,4 @@
-// rc.2 真实组合冒烟（沿用 rc.7 改造 16.5）：不 mock 运行内核——直接装载已安装的 rc.2
+// alpha.2 真实组合冒烟（沿用 rc.7 改造 16.5）：不 mock 运行内核——直接装载已安装的 alpha.2
 // @deepseek-ai/cordis + dsh-cordis-host-runner + cordis-plugin-timer，走真实的
 // define（vm 预检）→ run（异步批准状态机）→ runHostHalf（批准手势）→ invoke（Remote
 // JSON codec）→ stopFromPanel（teardown）全链路，对象是本仓库真实 payload.json。
@@ -13,13 +13,13 @@
 // 与页面远端连接，npm 发行版不含可编程 Web 组合）——本套件以「产物核对」替代：断言所安装
 // rc.2 的 sidebar/layout 包真实声明 sidebar.footer.action / shell.overlay 两个 Slot。
 //
-// 版本门：要求全局 dsh 与 host-runner 均为 0.1.1-rc.2（旧版或混装依赖树 → fail loud）。
+// 版本门：要求全局 dsh 与 host-runner 均为 0.1.2-alpha.2（旧版或混装依赖树 → fail loud）。
 const fs = require('fs')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 
 const ROOT = path.resolve(__dirname, '..')
-const EXPECTED_VERSION = '0.1.1-rc.2'
+const EXPECTED_VERSION = '0.1.2-alpha.2'
 
 let failures = 0
 const check = (label, cond, detail) => {
@@ -49,29 +49,29 @@ function findDshRoot() {
   }
   console.log('# dsh 安装根: ' + dshRoot)
 
-  // ---- 版本门：rc.2 精确匹配；旧版/混装 fail loud ----
+  // ---- 版本门：alpha.2 精确匹配；旧版/混装 fail loud ----
   const dshPkg = JSON.parse(fs.readFileSync(path.join(dshRoot, 'package.json'), 'utf8'))
   check('全局 dsh 版本 = ' + EXPECTED_VERSION, dshPkg.version === EXPECTED_VERSION, '实际 ' + dshPkg.version)
   const runnerPkgPath = path.join(dshRoot, 'node_modules', '@deepseek-ai', 'dsh-cordis-host-runner', 'package.json')
   const runnerPkg = JSON.parse(fs.readFileSync(runnerPkgPath, 'utf8'))
   check('dsh-cordis-host-runner 版本一致（无混装）', runnerPkg.version === dshPkg.version, '实际 ' + runnerPkg.version)
   if (dshPkg.version !== EXPECTED_VERSION) {
-    console.log('>>> 版本门未通过，终止（本冒烟按 rc.2 契约断言）')
+    console.log('>>> 版本门未通过，终止（本冒烟按 alpha.2 契约断言）')
     process.exit(1)
   }
 
-  // ---- 装载真实 rc.2 模块（绝对路径 import；裸依赖在该树内自行解析）----
+  // ---- 装载真实 alpha.2 模块（绝对路径 import；裸依赖在该树内自行解析）----
   const lib = (p) => pathToFileURL(path.join(dshRoot, 'node_modules', '@deepseek-ai', p)).href
   const cordis = await import(lib('cordis/lib/index.js'))
   const hostRunner = await import(lib('dsh-cordis-host-runner/lib/index.js'))
   const timerPlugin = await import(lib('cordis-plugin-timer/lib/index.js'))
   check('真实 cordis/host-runner/timer 模块装载', Boolean(cordis.Context && hostRunner.DynamicCordisRunnerService && timerPlugin.TimerService))
 
-  // ---- Slot 产物核对：rc.2 sidebar/layout 包真实声明工具箱使用的两个 Slot ----
+  // ---- Slot 产物核对：alpha.2 sidebar/layout 包真实声明工具箱使用的两个 Slot ----
   const sidebarBundle = fs.readFileSync(path.join(dshRoot, 'node_modules', '@deepseek-ai', 'dsh-client-ui-sidebar', 'lib', 'client.js'), 'utf8')
   const layoutBundle = fs.readFileSync(path.join(dshRoot, 'node_modules', '@deepseek-ai', 'dsh-client-ui-layout', 'lib', 'client.js'), 'utf8')
-  check('rc.2 存在 sidebar.footer.action Slot', sidebarBundle.indexOf('sidebar.footer.action') >= 0)
-  check('rc.2 存在 shell.overlay Slot', layoutBundle.indexOf('shell.overlay') >= 0)
+  check('alpha.2 存在 sidebar.footer.action Slot', sidebarBundle.indexOf('sidebar.footer.action') >= 0)
+  check('alpha.2 存在 shell.overlay Slot', layoutBundle.indexOf('shell.overlay') >= 0)
 
   // ---- 组合装配：真实内核 + 真实 TimerService + 真实 Runner；外围服务最小桩 ----
   const root = new cordis.Context()
@@ -120,7 +120,7 @@ function findDshRoot() {
   for (let i = 0; i < 100 && !runner; i++) { runner = root.get('dynamicCordisRunner'); if (!runner) await new Promise((r) => setTimeout(r, 20)) }
   check('真实 DynamicCordisRunnerService 激活', Boolean(runner))
 
-  // ---- 能力检查（16.4 同构断言）：rc.2 runner 具备工具箱依赖的方法面 ----
+  // ---- 能力检查（16.4 同构断言）：alpha.2 runner 具备工具箱依赖的方法面 ----
   const requiredRunnerMethods = ['define', 'run', 'inventory', 'stopFromPanel', 'runHostHalf', 'invoke']
   const missingRunnerMethods = requiredRunnerMethods.filter((m) => typeof runner[m] !== 'function')
   check('runner 能力面完整（define/run/inventory/stopFromPanel/runHostHalf/invoke）', missingRunnerMethods.length === 0, missingRunnerMethods.join(','))
@@ -134,7 +134,7 @@ function findDshRoot() {
 
   // ---- Run：含 Client 半 → 异步批准状态机（awaiting-approval + 事件）----
   const runRes = await runner.run(agent, rec.pluginId, rec.packageId, 'run')
-  check('run 返回 awaiting-approval（rc.2 异步状态机）', Boolean(runRes && runRes.ok && runRes.status === 'awaiting-approval'), JSON.stringify(runRes))
+  check('run 返回 awaiting-approval（alpha.2 异步状态机）', Boolean(runRes && runRes.ok && runRes.status === 'awaiting-approval'), JSON.stringify(runRes))
   check('cordis/request-run 事件携带 requestId', requestEvents.length === 1 && Boolean(requestEvents[0].requestId), JSON.stringify(requestEvents[0] || null))
 
   // ---- 批准手势：runHostHalf（requestId 配对）启动真实 Host 半 ----

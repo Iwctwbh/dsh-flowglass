@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     const { MarkdownText: TOOLBOX_MARKDOWN_TEXT } = require('@deepseek-ai/dsh-client-ui-primitives')
     const { createPortal: TOOLBOX_CREATE_PORTAL } = require('react-dom')
     const name = "dsh-flowglass/client"
-    const inject = ['slots', 'remote', 'timer']
+    const inject = ['slots', 'remote', 'timer', 'sessions']
 
     const TOOLBOX_RUNTIME_OVERRIDES = {
   "mode": "static-bundle",
@@ -180,7 +180,7 @@ return {
     const slots = ctx.get('slots')
     if (slots === undefined) return
     const themeSvc = ctx.get('theme')
-    const sessionsClient = ctx.get('sessions') || ctx.sessions
+    const sessionsClient = ctx.sessions
 
     // Flowglass 的“子代理跟随”要走 Harness 正式会话导航，不直接改 localStorage。
     // 子代理优先使用 catalog 的精确 address；若 catalog 尚未拉取，先刷新父会话再解析。

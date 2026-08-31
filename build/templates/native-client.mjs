@@ -29,7 +29,7 @@ export const renderNativeClient = ({
     const React = require('react')
 ${markdownRuntime}
     const name = ${JSON.stringify(packageName + '/client')}
-    const inject = ['slots', 'remote', 'timer']
+    const inject = ['slots', 'remote', 'timer', 'sessions']
 
     const TOOLBOX_RUNTIME_OVERRIDES = ${JSON.stringify(profile, null, 2)}
 ${runtimeSource}
