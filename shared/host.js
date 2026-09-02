@@ -102,7 +102,8 @@ const b64decode = (input) => {
 }
 
 // ===== 会话日志读取（带缓存；日志只追加 ⇒ count 不变即命中）=====
-// 活会话读内存快照（零 IO）；持久化会话增量 readFrom，失败回退全量 readSession。
+// 活会话读内存快照（零 IO）；兼容 alpha.2 的 events 与 alpha.4 的
+// seq/snapshotEvents；持久化会话增量 readFrom，失败回退全量 readSession。
 // 返回 { events, header, count, changed }；changed=false 时上层可复用已构建的模型。
 // 用法：const readLog = makeSessionLogReader(ctx, ctx.get('sessionQuery'))
 const makeSessionLogReader = (ctx, sq) => {
@@ -112,6 +113,22 @@ const makeSessionLogReader = (ctx, sq) => {
     if (sessionsSvc) {
       try {
         const live = sessionsSvc.get(sid)
+        // DSH alpha.4 made Session.events private. seq is the log length, so
+        // unchanged live sessions avoid materializing another snapshot.
+        if (live && typeof live.snapshotEvents === 'function') {
+          const seq = typeof live.seq === 'number' && Number.isSafeInteger(live.seq) ? live.seq : null
+          if (seq != null && cache && cache.sid === sid && cache.count === seq) {
+            return { events: cache.events, header: cache.header, count: cache.count, changed: false }
+          }
+          const events = live.snapshotEvents()
+          if (Array.isArray(events)) {
+            const count = events.length
+            const hit = cache && cache.sid === sid && cache.count === count
+            if (!hit) cache = { sid, count, events, header: live.header }
+            return { events: cache.events, header: cache.header, count: cache.count, changed: !hit }
+          }
+        }
+        // DSH alpha.2 compatibility: Session.events was public then.
         if (live && live.events && typeof live.events.length === 'number') {
           const hit = cache && cache.sid === sid && cache.count === live.events.length
           if (!hit) cache = { sid, count: live.events.length, events: live.events, header: live.header }

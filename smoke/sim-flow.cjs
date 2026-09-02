@@ -21,6 +21,8 @@ const MAIN_EVENTS = [
   { seq: 10, time: 1600, type: 'tool/result', data: { message: { content: [{ type: 'tool-result', toolCallId: 'c3', content: [{ type: 'text', text: 'started subagent 228a8697-2b7a-422a-b3c0-1cf61c965d5c' }] }] } } },
   { seq: 11, time: 1610, type: 'tool/result', data: { message: { content: [{ type: 'tool-result', toolCallId: 'c4', content: [{ type: 'text', text: 'started subagent 338a8697-2b7a-422a-b3c0-1cf61c965d6d' }] }] } } },
   { seq: 12, time: 1700, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '子代理已启动' }] }, usage: { outputTokens: 5 } } },
+  { seq: 13, time: 1800, type: 'tool/call', data: { turn: 2, step: 1, name: 'send_message', callId: 'c5', arguments: JSON.stringify({ agent_id: '228a8697-2b7a-422a-b3c0-1cf61c965d5c', message: '请补充结论' }) } },
+  { seq: 14, time: 1810, type: 'tool/result', data: { message: { content: [{ type: 'tool-result', toolCallId: 'c5', content: [{ type: 'text', text: 'message delivered to agent 228a8697-2b7a-422a-b3c0-1cf61c965d5c' }] }] } } },
 ]
 // ---- 子代理会话事件样本 ----
 const CHILD_EVENTS = [
@@ -158,6 +160,7 @@ const check = (label, cond, detail) => {
   check('子代理出口卡（fl-sub-close）', r.html.indexOf('fl-sub-close') >= 0)
   check('子代理 入=任务 prompt（description: 调研）', r.html.indexOf('description: 调研') >= 0 || r.html.indexOf('入') >= 0)
   check('子代理 出=返回标记', r.html.indexOf('出') >= 0)
+  check('alpha.4 send_message 归入子代理并可钻取', r.html.indexOf('data-action="fenter" data-seq="13"') >= 0 && r.html.indexOf('请补充结论') >= 0)
   check('子代理 live 徽章（运行中）', r.html.indexOf('运行中') >= 0)
   check('子代理 id 截断显示', r.html.indexOf('228a8697') >= 0)
   check('同 step 并行子代理合并成组', r.html.indexOf('并行子代理 ×2') >= 0 && r.html.indexOf('fl-subgrp') >= 0)

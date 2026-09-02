@@ -5,7 +5,8 @@
 // ③Entry（Slot 兜底用）宽栏渲染「工具箱」、折叠 rail 渲染「箱」，点击切换开合；
 // ④注入 CSS 同时含导航条目选择器（[data-dsh-toolbox-entry]）与抽屉/入口样式；
 // ⑤「隐藏无界面」联动：Host-only 行打 data-tb-hide 隐藏（待审批行不隐藏）、计数 span 用
-//   面板 DOM「可见且 running」行覆盖（不信任单仓库 toolbox/plugins 清单）；开关关闭后恢复。
+//   面板 DOM「可见且 running」行覆盖（不信任单仓库 toolbox/plugins 清单）；开关关闭后恢复；
+// ⑥完整工具箱长名称在可见 chrome 使用紧凑标题，完整名称保留在 tooltip/aria-label。
 const fs = require('fs')
 const path = require('path')
 const ROOT = path.resolve(__dirname, '..')
@@ -175,6 +176,23 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     for (const dis of ctx.teardowns) dis()
   }
 
+  // —— 长 Bundle 名称：可见标题收敛，完整名称保留为 tooltip/aria-label ——
+  {
+    const longName = 'Jira + Git + 文件 + 流镜 + 工作流编辑 + 轨迹 + HTTP + 端口 + 计算 + 用量 + 提示词 + 上下文 + AI 助手 + 工具清单 + 搜索 + 血缘 + AI 台账 + 配额 + 界面自查 工具箱'
+    const staticSrc = 'const TOOLBOX_RUNTIME_OVERRIDES = { bundleId: \'dynamic-toolbox\', displayName: ' + JSON.stringify(longName) + ' }\n' + src
+    const slots = makeSlots()
+    const ctx = makeCtx(); ctx.slotsFor = slots
+    const impl = await evalClient(staticSrc, { ctx, styles: { insert() { return () => {} } } })
+    impl.apply(ctx)
+    slots.activateAll()
+    const sidebarReg = slots.registrations.find((r) => r.entry && r.entry.name === 'sidebar.footer.action')
+    const entryEl = sidebarReg.component({ wide: true })
+    const rendered = renderHooked(entryEl.type, { wide: true })
+    check('长 Bundle 名称：可见入口收敛为「完整工具箱」', rendered.children.indexOf('完整工具箱') >= 0)
+    check('长 Bundle 名称：完整名称保留在 title', rendered.props.title === longName + '（工具集）')
+    for (const dis of ctx.teardowns) dis()
+  }
+
   // —— 路径 B：有 DOM → 导航区注入，不注册 sidebar.footer.action ——
   {
     const dom = makeFakeDom()
@@ -278,6 +296,7 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
       && css.indexOf('[data-sidebar-collapsed] [data-dsh-toolbox-entry]') >= 0
       && css.indexOf('[data-sidebar-collapsed] .tb-nav-label{display:none}') >= 0)
     check('CSS 含 .tb-entry 与 .jr-drawer', css.indexOf('.tb-entry{') >= 0 && css.indexOf('.jr-drawer{') >= 0)
+    check('长 Bundle 标题单行省略，避免抽屉头部撑高', css.indexOf('.jr-drawer-title{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;') >= 0)
     check('CSS/源码含工具面板「回到最新」浮标', css.indexOf('.tb-jump-latest{') >= 0
       && src.indexOf('showJumpLatest') >= 0 && src.indexOf('↓ 回到最新') >= 0)
     check('源码保留 80px 历史预加载，不再渲染顶部 loading 浮层', src.indexOf('> 80') >= 0

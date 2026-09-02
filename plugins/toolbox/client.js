@@ -9,6 +9,13 @@ return {
   apply(ctx) {
     // ===== 命名空间（TOOLBOX_RUNTIME 由拼接的 shared/runtime.js 提供；动态默认=历史名称）=====
     const RT = TOOLBOX_RUNTIME
+    // Full bundle names are useful for tooltips and accessibility, but they
+    // are too long for the drawer/sidebar chrome. Keep the descriptive name
+    // as the accessible label and use a compact visible label in the UI.
+    const fullDisplayName = String(RT.displayName || '工具箱')
+    const compactDisplayName = fullDisplayName.length > 24
+      ? (RT.bundleId === 'dynamic-toolbox' ? '完整工具箱' : '工具箱')
+      : fullDisplayName
     // 原生 Flowglass bundle 注入 Harness 官方 Markdown renderer；其他静态合集与
     // 动态开发模式没有这两个词法绑定时保持纯文本详情，不改变 Toolbox 通用契约。
     const flowMarkdownText = RT.bundleId === 'flow'
@@ -259,7 +266,7 @@ return {
       '.jr-docked-full .jr-drawer-body{flex:1;min-height:0}',
       '@keyframes jrDrawerIn{from{transform:translateX(28px);opacity:.3}to{transform:translateX(0);opacity:1}}',
       '.jr-drawer-header{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--dsw-alias-border-l1,#3a3b44);background:var(--dsw-alias-bg-base,#17181d);cursor:move;user-select:none}',
-      '.jr-drawer-title{font-weight:600;flex:1;font-size:calc(14px*var(--tb-fs,1))}',
+      '.jr-drawer-title{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:calc(14px*var(--tb-fs,1))}',
       '.jr-overlay-close{width:30px;height:30px;flex:none;display:inline-flex;align-items:center;justify-content:center;border:none;background:transparent;color:var(--dsw-alias-label-secondary,#9a9aa5);cursor:pointer;border-radius:6px;padding:0}',
       '.jr-overlay-close:hover{color:var(--dsw-alias-label-primary,#e8e8ea);background:var(--dsw-alias-bg-layer-2,#30313a)}',
       '.jr-drawer-body{padding:14px;overflow:auto;display:flex;flex-direction:column;gap:12px}',
@@ -786,10 +793,10 @@ return {
         {
           type: 'button',
           className: 'tb-entry' + (isOpen ? ' tb-entry-active' : ''),
-          title: RT.displayName + '（工具集）',
+          title: fullDisplayName + '（工具集）',
           onClick: () => store.toggle(),
         },
-        props.wide ? RT.displayName : '箱',
+        props.wide ? compactDisplayName : '箱',
       )
     }
 
@@ -842,9 +849,9 @@ return {
       const entry = document.createElement('button')
       entry.type = 'button'
       entry.setAttribute('data-dsh-toolbox-entry', RT.domValue())
-      entry.setAttribute('aria-label', RT.displayName)
-      entry.setAttribute('title', RT.displayName)
-      const safeLabel = String(RT.displayName).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+      entry.setAttribute('aria-label', fullDisplayName)
+      entry.setAttribute('title', fullDisplayName)
+      const safeLabel = compactDisplayName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
       entry.innerHTML = '<span class="tb-nav-icon">' + NAV_ICON + '</span><span class="tb-nav-label">' + safeLabel + '</span>'
       const iconEl = entry.querySelector('.tb-nav-icon') // 单工具时替换此图标为工具图标
       sidebarIconEl = iconEl
@@ -1415,7 +1422,8 @@ return {
           barEl.className = 'jr-pip-bar'
           const barTitle = win.document.createElement('span')
           barTitle.className = 'jr-pip-bar-title'
-          barTitle.textContent = RT.displayName + ' · 画中画（内容与主窗口一致，操作实时同步）'
+          barTitle.textContent = compactDisplayName + ' · 画中画（内容与主窗口一致，操作实时同步）'
+          barTitle.title = fullDisplayName
           const btnMax = win.document.createElement('button')
           btnMax.className = 'jr-pip-bar-btn'
           btnMax.textContent = '⤢ 放大'
@@ -3588,7 +3596,10 @@ return {
           onPointerUp: onHeaderUp,
           onPointerCancel: onHeaderUp,
         },
-          React.createElement('span', { className: 'jr-drawer-title' }, managing ? RT.displayName + ' · 管理' : RT.displayName),
+          React.createElement('span', {
+            className: 'jr-drawer-title',
+            title: fullDisplayName + (managing ? ' · 管理' : ''),
+          }, managing ? compactDisplayName + ' · 管理' : compactDisplayName),
           themeButton,
           pipButton,
           gearButton,

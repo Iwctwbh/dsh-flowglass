@@ -53,12 +53,24 @@ const readFromLog = []
 const sessionPersistence = {
   async readFrom(sid, from) { readFromLog.push(sid + '@' + from); return { events: [], meta: { id: sid } } },
 }
+let alpha4LiveEvents = SA.slice()
+const sessions = {
+  get(sid) {
+    if (sid !== 's-alpha4-live') return undefined
+    return {
+      get seq() { return alpha4LiveEvents.length },
+      snapshotEvents() { return alpha4LiveEvents.slice() },
+      header: { id: sid },
+    }
+  },
+}
 
 const handlers = {}
 const ctx = {
   get(name) {
     if (name === 'sessionQuery') return sessionQuery
     if (name === 'sessionPersistence') return sessionPersistence
+    if (name === 'sessions') return sessions
     if (name === 'toolboxRegistry') return { register(d, h) { handlers[d.id] = h; return () => {} } }
     if (name === 'sandboxPolicy') return { workspaceRoot: ROOT }
     return undefined
@@ -127,6 +139,16 @@ const check = (label, cond, detail) => {
   check('L4 会话缓存：s-a 只全量读 1 次', (readSessionCalls['s-a'] || 0) === 1, JSON.stringify(readSessionCalls))
   check('L4 会话缓存：s-b 只全量读 1 次', (readSessionCalls['s-b'] || 0) === 1)
   check('L4 会话缓存：切回走 readFrom 增量', readFromLog.indexOf('s-a@' + SA.length) >= 0, readFromLog.join(','))
+
+  // ---- alpha.4：live Session.events 已私有，读取器必须走 seq/snapshotEvents ----
+  let live = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-alpha4-live' })
+  check('alpha.4 live snapshot：不退回 readSession', (readSessionCalls['s-alpha4-live'] || 0) === 0)
+  alpha4LiveEvents = alpha4LiveEvents.concat([{
+    seq: alpha4LiveEvents.length + 1, time: 2100, type: 'user/message',
+    data: { content: [{ type: 'text', text: 'alpha4 live append' }], source: { kind: 'user' } },
+  }])
+  live = await h({ action: 'filter', fields: { __el: { v: 'all' } }, state: live.state, root: ROOT, session: 's-alpha4-live' })
+  check('alpha.4 live snapshot：seq 增长后读到新事件', live.html.indexOf('alpha4 live append') >= 0)
 
   console.log(failures ? ('\n共 ' + failures + ' 项失败') : '\n全部通过')
   process.exit(failures ? 1 : 0)

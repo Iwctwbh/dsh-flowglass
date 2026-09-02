@@ -1,6 +1,6 @@
 {
   "name": "dsh-flowglass",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "流镜（DSH 原生静态插件）",
   "type": "module",
   "main": "./lib/index.js",

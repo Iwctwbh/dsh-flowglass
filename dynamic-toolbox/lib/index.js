@@ -231,7 +231,8 @@ const b64decode = (input) => {
 }
 
 // ===== 会话日志读取（带缓存；日志只追加 ⇒ count 不变即命中）=====
-// 活会话读内存快照（零 IO）；持久化会话增量 readFrom，失败回退全量 readSession。
+// 活会话读内存快照（零 IO）；兼容 alpha.2 的 events 与 alpha.4 的
+// seq/snapshotEvents；持久化会话增量 readFrom，失败回退全量 readSession。
 // 返回 { events, header, count, changed }；changed=false 时上层可复用已构建的模型。
 // 用法：const readLog = makeSessionLogReader(ctx, ctx.get('sessionQuery'))
 const makeSessionLogReader = (ctx, sq) => {
@@ -241,6 +242,22 @@ const makeSessionLogReader = (ctx, sq) => {
     if (sessionsSvc) {
       try {
         const live = sessionsSvc.get(sid)
+        // DSH alpha.4 made Session.events private. seq is the log length, so
+        // unchanged live sessions avoid materializing another snapshot.
+        if (live && typeof live.snapshotEvents === 'function') {
+          const seq = typeof live.seq === 'number' && Number.isSafeInteger(live.seq) ? live.seq : null
+          if (seq != null && cache && cache.sid === sid && cache.count === seq) {
+            return { events: cache.events, header: cache.header, count: cache.count, changed: false }
+          }
+          const events = live.snapshotEvents()
+          if (Array.isArray(events)) {
+            const count = events.length
+            const hit = cache && cache.sid === sid && cache.count === count
+            if (!hit) cache = { sid, count, events, header: live.header }
+            return { events: cache.events, header: cache.header, count: cache.count, changed: !hit }
+          }
+        }
+        // DSH alpha.2 compatibility: Session.events was public then.
         if (live && live.events && typeof live.events.length === 'number') {
           const hit = cache && cache.sid === sid && cache.count === live.events.length
           if (!hit) cache = { sid, count: live.events.length, events: live.events, header: live.header }
@@ -2170,7 +2187,7 @@ return {
     }
     const RE_SKILL = /^skill$/
     const RE_MCP = /mcp/i
-    const RE_SUBAGENT = /^(subagent|subagent_fork|workflow|ralph)$/
+    const RE_SUBAGENT = /^(subagent|subagent_fork|send_message|workflow|ralph)$/
     const RE_SHELL = /^(pwsh|bash|sh|terminal_(open|send|read|close|list|signal)|run_code)$/
     const RE_FILE = /^(read|write|edit|glob|grep|read_image)$/
     const kindOf = (name) => {
@@ -2398,10 +2415,19 @@ return {
       return nodes
     }
 
-    // ---- 子代理结果文本 → 子会话 id（"started subagent <uuid>" / 完成通知里的 id）----
+    // ---- 子代理调用 → 目标会话 id（旧版结果文本 / alpha.4 send_message）----
+    const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i
     const childIdOf = (call) => {
-      const m = /subagent\s+([0-9a-f]{8}-[0-9a-f-]{27,})/i.exec(call.resultText || '')
-      return m ? m[1] : null
+      const m = /(?:subagent|agent)\s+([0-9a-f]{8}-[0-9a-f-]{27,})/i.exec(call.resultText || '')
+      if (m) return m[1]
+      if (call && call.name === 'send_message') {
+        try {
+          const args = JSON.parse(call.argsRaw || '{}')
+          const id = args && typeof args.agent_id === 'string' ? args.agent_id.trim() : ''
+          if (SESSION_ID_RE.test(id)) return id
+        } catch (e) {}
+      }
+      return null
     }
     // 子代理分支：从子会话日志提取紧凑步骤流（限量；读失败/未启动给占位）
     const childRows = async (childId, cap) => {

@@ -1,7 +1,7 @@
 {
   "bundleId": "dynamic-toolbox",
   "packageName": "dsh-dynamic-toolbox",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "displayName": "Jira + Git + 文件 + 流镜 + 工作流编辑 + 轨迹 + HTTP + 端口 + 计算 + 用量 + 提示词 + 上下文 + AI 助手 + 工具清单 + 搜索 + 血缘 + AI 台账 + 配额 + 界面自查 工具箱",
   "mode": "native-static",
   "dynamicApprovalRequired": false,
@@ -51,7 +51,7 @@
       "selfview"
     ]
   },
-  "fingerprint": "907e4fa1ad7839fc",
+  "fingerprint": "19969fe797852d05",
   "builderVersion": "2",
   "sourceHashes": {
     "plugins/aiassist/tool.js": "d2ce410f437fe0d310e148a8b1252ff05868fc0a6987034e642674ff3f93002a",
@@ -59,24 +59,24 @@
     "plugins/calc/tool.js": "244ffb466f4dcb4007926f79c6bcccebb6c5fefb6143e1e8b1ac25e84bad085d",
     "plugins/context/tool.js": "093eb9d3db43739e1b1df3ec39cc191c34a2a4f5bdbc8fb7977dd30826f388a7",
     "plugins/files/tool.js": "5382259719a71f8c956a835e81f4d75634f30fcd27b31313b255b4041ddf8aeb",
-    "plugins/flow/tool.js": "3ec77f50dbc23fdde9bbfb6a782c38b877cd1e70d742caa7eb736076b0741b93",
+    "plugins/flow/tool.js": "fc99617e75e4f4b5c6875c5a557f45152a5abd5d080684af4b85f4c662038883",
     "plugins/flowedit/tool.js": "8568aa3163dcd701cd39d29e42423c41fe6c62f426e0d2b00a57bf13b6c23fed",
     "plugins/git/tool.js": "9eb26150da963b1d37533469eede994f2ce7976dd154eeec9599bb5c491263c2",
     "plugins/http/tool.js": "4a0f5c001a5b657ddfc68f72ae8a5613f03ee8f1beea8588cf423b3492a6fa13",
     "plugins/jira/tool.js": "7e788508c4035a67ca1269f911e72625f1c5a7942ec9ce0c04abb4695b9736ed",
     "plugins/lineage/tool.js": "c655de32a7b3e0eaca58e64747351ed3630a8f029104e4aa18bba031c2ce61f2",
-    "plugins/ports/tool.js": "5d0f2f7d9aae777e45cf8e08a9f8efc4935bf6a58b9a54f6e01dd4a878bddedc",
+    "plugins/ports/tool.js": "80941b5536c0d04a2a8a8d0c102a644cbef1e94cd30744dfa1b48f614877c96f",
     "plugins/prompt/tool.js": "b2e2feb7af90d6b91204dda12e843c4b4852cb7ece3f62bdbafbc4b663e1eb7e",
     "plugins/quota/tool.js": "72f18bc912de000eaf33f02fcecb7ac121d630785880c5d6b94c9d6f6e308e63",
     "plugins/search/tool.js": "2f4fa3fc7176873af32878d44eae0e7418e5e334b83e0cd66048bad2d5c0e71f",
     "plugins/selfview/client.js": "1e6d4f7189cbbce16a006d362cff05f600bdc4b9b8812e8f9c2a5ec5342e4e2c",
     "plugins/selfview/tool.js": "ecf9383ecebf3af6e70bc5b7179075df0a13f8d9961bb1fcffab38013b94e333",
-    "plugins/toolbox/client.js": "49e81e1c00cfc7e6127d8215b7136ece769bd230c7a79c4d9154913307698bb9",
+    "plugins/toolbox/client.js": "c8c49ef78a33a40d1e19eaee2aef4eea50d35cff8f63bea751e89c1dd276e417",
     "plugins/toolbox/host.js": "abb5ab10c04dd991645b3f8a5b0b82ffb40be511e927e21e5bbaf002ab0d1f35",
     "plugins/tools/tool.js": "36c18813aa99fe3e702b302e68a1592e006fbc4b25ffda1f77010c696d89dfa7",
     "plugins/trace/tool.js": "5c636ea60554a814f7f4b52a12c0aff3c525d0f5f31d5c47f5340404b7e7d230",
     "plugins/usage/tool.js": "bad4365783f336db72dce308e78b5c6261ebf47dbe586044c9bb777dfd82359b",
-    "shared/host.js": "80348f490a5639d27fc60d1b86192331558143ab72e8c732012cc2a3d65714c6",
+    "shared/host.js": "6eed72514f08634e9e85551220454dc5f74c618edf01ca0584c73e04b1f3ddd7",
     "shared/runtime.js": "75a6fc739f9e2e018d61c4ace46b24fbe9af8648ec24b549f4e84d2c68f375a5"
   },
   "profile": {

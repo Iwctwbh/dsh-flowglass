@@ -42,7 +42,7 @@ return {
     }
     const RE_SKILL = /^skill$/
     const RE_MCP = /mcp/i
-    const RE_SUBAGENT = /^(subagent|subagent_fork|workflow|ralph)$/
+    const RE_SUBAGENT = /^(subagent|subagent_fork|send_message|workflow|ralph)$/
     const RE_SHELL = /^(pwsh|bash|sh|terminal_(open|send|read|close|list|signal)|run_code)$/
     const RE_FILE = /^(read|write|edit|glob|grep|read_image)$/
     const kindOf = (name) => {
@@ -270,10 +270,19 @@ return {
       return nodes
     }
 
-    // ---- 子代理结果文本 → 子会话 id（"started subagent <uuid>" / 完成通知里的 id）----
+    // ---- 子代理调用 → 目标会话 id（旧版结果文本 / alpha.4 send_message）----
+    const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i
     const childIdOf = (call) => {
-      const m = /subagent\s+([0-9a-f]{8}-[0-9a-f-]{27,})/i.exec(call.resultText || '')
-      return m ? m[1] : null
+      const m = /(?:subagent|agent)\s+([0-9a-f]{8}-[0-9a-f-]{27,})/i.exec(call.resultText || '')
+      if (m) return m[1]
+      if (call && call.name === 'send_message') {
+        try {
+          const args = JSON.parse(call.argsRaw || '{}')
+          const id = args && typeof args.agent_id === 'string' ? args.agent_id.trim() : ''
+          if (SESSION_ID_RE.test(id)) return id
+        } catch (e) {}
+      }
+      return null
     }
     // 子代理分支：从子会话日志提取紧凑步骤流（限量；读失败/未启动给占位）
     const childRows = async (childId, cap) => {
