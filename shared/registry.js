@@ -58,6 +58,8 @@ const makeToolboxRegistry = () => {
           state: (call && call.state) || null,
           root: (typeof root === 'string' && root) ? root : undefined,
           session: (call && typeof call.session === 'string' && call.session) ? call.session : undefined,
+          // live 叠加层（Flowglass 实时流）：Client 事件窗快照透传给工具 handler，Host 侧校验形状
+          live: (call && call.live && typeof call.live === 'object') ? call.live : undefined,
         })
         // panel 永远校验 handler 返回 html 字符串
         if (!res || typeof res.html !== 'string') return { ok: false, error: '工具返回了无效的面板内容' }

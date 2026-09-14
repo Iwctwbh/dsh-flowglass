@@ -6,7 +6,13 @@
 //   · 插件/技能/MCP/命令/文件 等普通工具调用：同一步骤内的多个调用 → 平行卡片并排（调用并返回成组）
 // 实时：面板根带 data-autorefresh="2000"，框架抽屉每 2s 静默重拉（live 开关可暂停）。
 // 钻取：点子代理分支「进入 →」切换到该子会话的流程图（当前会话压 crumbs 栈，「← 返回」逐级退回）。
-// 数据源：sessionQuery（makeSessionLogReader 缓存；子代理会话按 id 各自缓存读取器）。
+// 数据源（DSH 0.1.5 统一折叠器，同一 parseItems 供两条来源）：
+//   · 当前会话实时：Client 订阅 Session Controller 事件窗（ctx.sessions.binding(sid).eventSource），
+//     把瞬时 assistant/live-chunk 折叠成 attempt 快照随面板 RPC 传入（live 叠加层）；结算由事件窗
+//     settle-assistant 自动去重，Client 只附最近结算 attempt 的 firstSeq 供 UI 连续性。
+//   · 冷会话/跨会话/子代理钻取：Host sessionQuery（makeSessionLogReader 缓存）读持久事件，
+//     assistant/message 与 assistant/attempt 的内嵌 stream 记录被精确重放出同样的卡片。
+//   · 旧 assistant/chunk 协议（0.1.2）不再被解析——0.1.5 日志不含该事件。
 // 状态：{ live, follow, limit, sid, home, expanded, crumbs }（轻量标量；事件本体与流程模型每次动作重建，不进 state）
 
 return {
@@ -81,11 +87,91 @@ return {
       return blocks.map((b) => (b && b.type === 'text' ? b.text : '')).filter(Boolean).join('\n')
     }
 
-    // ---- 事件流 → 基础条目（调用与结果按 callId 配对，同 trace）----
-    const parseItems = (events) => {
+    // ---- 0.1.5 统一流折叠器（同一逻辑供实时叠加层与持久事件两条来源）----
+    // AssistantStreamRecord[]（assistant/message / assistant/attempt 内嵌的紧凑流记录）
+    // → [{ time, chunk }] 精确重放；text-chunks/reasoning-chunks/tool-call-chunks 的
+    // time0+dt[] 前缀和还原每个 delta 的原始时间戳，'chunk' 记录原样透传。
+    const expandStreamRecords = (stream) => {
+      const out = []
+      if (!Array.isArray(stream)) return out
+      for (const rec of stream) {
+        if (!rec || typeof rec !== 'object') continue
+        if (rec.type === 'chunk') {
+          if (rec.chunk && typeof rec.chunk === 'object') out.push({ time: rec.time, chunk: rec.chunk })
+        } else if (rec.type === 'text-chunks' || rec.type === 'reasoning-chunks') {
+          const texts = Array.isArray(rec.texts) ? rec.texts : []
+          let t = typeof rec.time0 === 'number' ? rec.time0 : 0
+          for (let i = 0; i < texts.length; i++) {
+            if (i > 0 && Array.isArray(rec.dt)) t += typeof rec.dt[i - 1] === 'number' ? rec.dt[i - 1] : 0
+            out.push({ time: t, chunk: { type: rec.type === 'text-chunks' ? 'text-delta' : 'reasoning-delta', index: rec.index, text: String(texts[i]) } })
+          }
+        } else if (rec.type === 'tool-call-chunks') {
+          const args = Array.isArray(rec.args) ? rec.args : []
+          let t = typeof rec.time0 === 'number' ? rec.time0 : 0
+          for (let i = 0; i < args.length; i++) {
+            if (i > 0 && Array.isArray(rec.dt)) t += typeof rec.dt[i - 1] === 'number' ? rec.dt[i - 1] : 0
+            out.push({ time: t, chunk: { type: 'tool-call-delta', index: rec.index, id: rec.id, name: rec.name, argumentsDelta: String(args[i]) } })
+          }
+        }
+      }
+      return out
+    }
+
+    // 一个 attempt 的累计状态：assistant/live-chunk 瞬时累计与持久 stream 重放共用同一形状。
+    // attemptId 是实时节点身份（assistant-attempt:<id>）；seq（浮点或整数）只用于排序与 UI 定位。
+    const makeAttemptState = (attemptId, turn, step) => ({
+      attemptId: String(attemptId || ''), turn, step,
+      firstSeq: null, firstAt: null, lastAt: null,
+      text: '', reasoning: '', toolCall: false,
+      finishKind: '', failCode: '', failMsg: '', usage: null,
+    })
+    const applyChunkToAttempt = (a, time, chunk) => {
+      if (a.firstAt == null) a.firstAt = time
+      a.lastAt = time
+      if (!chunk || typeof chunk !== 'object') return
+      if (chunk.type === 'text-delta' && typeof chunk.text === 'string') a.text += chunk.text
+      else if (chunk.type === 'reasoning-delta' && typeof chunk.text === 'string') a.reasoning += chunk.text
+      else if (chunk.type === 'tool-call-delta') a.toolCall = true
+      else if (chunk.type === 'usage' && chunk.usage) a.usage = chunk.usage
+      else if (chunk.type === 'finish' && chunk.reason) {
+        a.finishKind = String(chunk.reason.kind || '')
+        const f = chunk.reason.failure
+        if (f && typeof f === 'object') {
+          a.failCode = typeof f.code === 'string' ? f.code : ''
+          a.failMsg = typeof f.message === 'string' ? f.message : ''
+        }
+      }
+    }
+    // Client 叠加层传入的 attempt 快照（eventSource 瞬时条目在 Client 预折叠）→ 同一 attempt 状态
+    const attemptFromSnapshot = (snap) => {
+      const a = makeAttemptState(
+        snap && snap.attemptId,
+        snap && typeof snap.turn === 'number' ? snap.turn : null,
+        snap && typeof snap.step === 'number' ? snap.step : null,
+      )
+      if (!snap) return a
+      a.firstSeq = typeof snap.firstSeq === 'number' ? snap.firstSeq : null
+      a.firstAt = typeof snap.firstAt === 'number' ? snap.firstAt : null
+      a.lastAt = typeof snap.lastAt === 'number' ? snap.lastAt : a.firstAt
+      a.text = String(snap.text || '')
+      a.reasoning = String(snap.reasoning || '')
+      a.toolCall = Boolean(snap.toolCall)
+      if (snap.finish && typeof snap.finish === 'object') {
+        a.finishKind = String(snap.finish.kind || '')
+        a.failCode = typeof snap.finish.code === 'string' ? snap.finish.code : ''
+        a.failMsg = typeof snap.finish.message === 'string' ? snap.finish.message : ''
+      }
+      return a
+    }
+
+    // ---- 事件流 → 基础条目（统一折叠：live 叠加层 + 持久事件进同一次扫描）----
+    // live = { sessionId, revision, attempts: [...], settled: [...] }：
+    //   attempts —— 事件窗内仍在途的 attempt 快照（实时增长）；
+    //   settled  —— 最近结算 attempt 的 { turn, step, firstSeq }（结算后卡片继承瞬时 firstSeq，
+    //                框选/详情/滚动等 UI 状态在 settle 替换时不丢）。
+    const parseItems = (events, live) => {
       const items = []
       const byCallId = {}
-      const streamingAi = {} // turn:step → 首个 chunk 建立的临时助手卡；最终 message 原位落定，保持卡片 key 稳定
       const stepStarts = {} // turn:step → step/start 时间；助手运行计时从请求步骤开始，而不是首个 token 才开始
       const stepEnds = {} // turn:step → step/end 时间；无最终 message 的草稿据此落定（请求失败/中断）
       const turnEnds = {} // turn → turn/end 时间；step/end 缺失时的兜底落定依据
@@ -93,6 +179,30 @@ return {
       const retryById = {} // retryId → 链上条目；llm/retry-started 按 id 回填起跳时间
       let route = '' // 最近 request/header 的 provider/model，贴给后续助手消息卡
       let curTurn = null // 最近 turn/start 的轮次：user/message 不带 turn，用它推算归属
+      // turn:step → 助手卡装配状态（durable message / durable attempts / 在途 live attempt 汇聚到同一张卡）
+      const stepCards = new Map()
+
+      const stepKey = (turn, step) => String(turn) + ':' + step
+      const cardOf = (turn, step) => {
+        const k = stepKey(turn, step)
+        let c = stepCards.get(k)
+        if (!c) {
+          c = { key: k, turn, step, uiSeq: null, attempts: [], message: null, live: null }
+          stepCards.set(k, c)
+        }
+        return c
+      }
+
+      // 先吸收 Client 叠加层的 attempt 快照（在途 attempt，重试换 attempt 归并同卡）
+      if (live && Array.isArray(live.attempts)) {
+        for (const snap of live.attempts) {
+          if (!snap || snap.attemptId == null) continue
+          const a = attemptFromSnapshot(snap)
+          if (a.turn == null || a.step == null) continue
+          cardOf(a.turn, a.step).live = a
+        }
+      }
+
       for (const ev of events) {
         if (!ev || typeof ev.seq !== 'number') continue
         const d = ev.data || {}
@@ -100,13 +210,14 @@ return {
         if (ev.type === 'step/start') {
           const turn = typeof d.turn === 'number' ? d.turn : curTurn
           const step = typeof d.step === 'number' ? d.step : 0
-          stepStarts[String(turn) + ':' + step] = ev.time
+          stepStarts[stepKey(turn, step)] = ev.time
+          cardOf(turn, step)
           continue
         }
         if (ev.type === 'step/end') {
           const turn = typeof d.turn === 'number' ? d.turn : curTurn
           const step = typeof d.step === 'number' ? d.step : 0
-          stepEnds[String(turn) + ':' + step] = ev.time
+          stepEnds[stepKey(turn, step)] = ev.time
           continue
         }
         if (ev.type === 'turn/end') {
@@ -168,86 +279,143 @@ return {
           // 空内容的上下文注入（subagent-settled 占位等）是噪声，不进流程图
           if (src !== 'user' && !preview) continue
           items.push({ kind: 'msg', role: src === 'user' ? 'user' : 'inject', seq: ev.seq, time: ev.time, turn: curTurn, preview, full: textOf(d.content) })
-        } else if (ev.type === 'assistant/chunk') {
+        } else if (ev.type === 'assistant/live-chunk') {
+          // 客户端瞬时事件（测试/整窗透传路径；常规面板走 live.attempts 快照）。
+          // 同一 attemptId 幂等累计；缺失 attemptId 的帧跳过（不产生重复卡）。
+          if (d.attemptId == null) continue
           const turn = typeof d.turn === 'number' ? d.turn : curTurn
           const step = typeof d.step === 'number' ? d.step : 0
-          const key = String(turn) + ':' + step
-          let it = streamingAi[key]
-          if (!it) {
-            it = { kind: 'msg', role: 'ai', seq: ev.seq, time: ev.time, turn, step, runStart: stepStarts[key] || ev.time, preview: '正在生成…', full: '', tok: null, route, streaming: true, chunks: [], reasoningChunks: [] }
-            streamingAi[key] = it
-            items.push(it)
+          const card = cardOf(turn, step)
+          let a = card.live && card.live.attemptId === String(d.attemptId) ? card.live : null
+          if (!a) {
+            a = makeAttemptState(d.attemptId, turn, step)
+            card.live = a
           }
-          const chunk = d.chunk || {}
-          if (chunk.type === 'text-delta' && typeof chunk.text === 'string') {
-            it.chunks.push(chunk.text)
-          } else if (chunk.type === 'reasoning-delta' && typeof chunk.text === 'string') {
-            it.reasoningChunks.push(chunk.text)
-          } else if (/tool-call/i.test(String(chunk.type || ''))) {
-            it.hasToolCallChunk = true
-          } else if (chunk.type === 'finish' && chunk.reason && chunk.reason.kind === 'error') {
-            // 终态失败块：留住真实错误码/消息——「生成已中断」是推断，这才是真因（如 PI_AI_ERROR）
-            const f = chunk.reason.failure || {}
-            if (typeof f.code === 'string' && f.code) { it.failCode = f.code; it.failMsg = typeof f.message === 'string' ? f.message : '' }
-          }
-        } else if (ev.type === 'assistant/message') {
-          const m = d.message || {}
-          const u = d.usage || null
+          if (a.firstSeq == null) a.firstSeq = ev.seq
+          applyChunkToAttempt(a, ev.time, d.chunk)
+        } else if (ev.type === 'assistant/message' || ev.type === 'assistant/attempt') {
+          // 持久结算事件：精确重放内嵌 stream；message 形成最终卡，attempt 形成失败/取消卡。
           const turn = typeof d.turn === 'number' ? d.turn : curTurn
           const step = typeof d.step === 'number' ? d.step : 0
-          const key = String(turn) + ':' + step
-          const finalText = textOf(m.content)
-          const draft = streamingAi[key]
-          if (draft) {
-            // 保留首 chunk 的 seq，避免轮询时临时卡被当成另一张新卡；内容与完成态原位更新。
-            draft.preview = oneLine(finalText, 110) || '（工具调用）'
-            draft.full = finalText
-            draft.tok = u ? (u.outputTokens || 0) : null
-            draft.route = route
-            draft.streaming = false
-            draft.finalSeq = ev.seq
-            draft.runDur = Math.max(0, ev.time - draft.runStart)
-            delete draft.chunks
-            delete draft.reasoningChunks
-            delete draft.hasToolCallChunk
-            delete draft.failCode
-            delete draft.failMsg
+          const card = cardOf(turn, step)
+          const a = makeAttemptState(null, turn, step)
+          for (const { time, chunk } of expandStreamRecords(d.stream)) applyChunkToAttempt(a, time, chunk)
+          if (ev.type === 'assistant/message') {
+            card.message = { ev, data: d, stream: a, route }
           } else {
-            const runStart = stepStarts[key] || ev.time
-            items.push({ kind: 'msg', role: 'ai', seq: ev.seq, time: ev.time, turn, step, runStart, runDur: Math.max(0, ev.time - runStart), preview: oneLine(finalText, 110) || '（工具调用）', full: finalText, tok: u ? (u.outputTokens || 0) : null, route, streaming: false })
+            card.attempts.push({ ev, stream: a })
           }
         }
       }
-      // 流式中的助手卡只在整轮扫描结束后合并一次，避免每个 chunk 都重拼全文造成 O(n²) 和面板超时。
-      for (const it of Object.values(streamingAi)) {
-        if (!it.streaming) continue
-        const text = Array.isArray(it.chunks) ? it.chunks.join('') : ''
-        const reasoning = Array.isArray(it.reasoningChunks) ? it.reasoningChunks.join('') : ''
-        it.full = text || reasoning
-        const key = String(it.turn) + ':' + it.step
-        const endedAt = stepEnds[key] != null ? stepEnds[key]
-          : (it.turn != null && turnEnds[it.turn] != null ? turnEnds[it.turn] : null)
-        if (endedAt != null) {
-          // 步骤/轮次已终结却始终没有最终 message → 模型请求失败/中断：
-          // 落定卡片（停止流光脉冲与耗时计时），标记中断并保留已生成片段
-          it.streaming = false
-          it.interrupted = true
-          it.runDur = Math.max(0, endedAt - it.runStart)
-          it.preview = (it.full ? oneLine(it.full, 100) + ' ' : '') + '（生成已中断）'
-        } else {
-          it.preview = oneLine(it.full, 110) || (it.hasToolCallChunk ? '正在准备工具调用…' : (reasoning ? '思考中…' : '正在生成…'))
+
+      // ---- 装配：turn:step → 一张助手卡（实时草稿 → 结算替换，保留 UI 连续性）----
+      for (const card of stepCards.values()) {
+        const k = card.key
+        // UI 连续性：结算事件继承在途/最近结算 attempt 的 firstSeq 作为卡片定位 seq
+        let uiSeq = null
+        if (card.live) uiSeq = card.live.firstSeq
+        if (uiSeq == null && live && Array.isArray(live.settled)) {
+          const hit = live.settled.find((s) => s && s.turn === card.turn && s.step === card.step && typeof s.firstSeq === 'number')
+          if (hit) uiSeq = hit.firstSeq
         }
-        delete it.chunks
-        delete it.reasoningChunks
-        delete it.hasToolCallChunk
-      }
-      // 重试链挂到对应助手卡（含重试后成功的卡与终局失败的中断卡）
-      for (const it of items) {
-        if (it.kind !== 'msg' || it.role !== 'ai' || it.turn == null) continue
-        const rs = retriesByStep[String(it.turn) + ':' + it.step]
+        let it
+        if (card.message) {
+          // 成功（或已中断但形成可见消息）的最终卡：durable message 是权威内容
+          const { ev, data, stream, route: msgRoute } = card.message
+          const m = data.message || {}
+          const u = data.usage || stream.usage || null
+          const finalText = textOf(m.content)
+          it = {
+            kind: 'msg', role: 'ai', seq: uiSeq != null ? uiSeq : ev.seq, time: ev.time, turn: card.turn, step: card.step,
+            attemptId: card.live ? card.live.attemptId : '',
+            akey: card.live ? 'assistant-attempt:' + card.live.attemptId : 'assistant-event:' + ev.seq,
+            finalSeq: ev.seq, runStart: stepStarts[k] != null ? stepStarts[k] : (stream.firstAt != null ? stream.firstAt : ev.time),
+            runDur: Math.max(0, ev.time - (stepStarts[k] != null ? stepStarts[k] : (stream.firstAt != null ? stream.firstAt : ev.time))),
+            preview: oneLine(finalText, 110) || (stream.toolCall ? '（工具调用）' : (stream.reasoning ? oneLine(stream.reasoning, 110) : '（工具调用）')),
+            full: finalText || stream.text || stream.reasoning,
+            tok: u ? (u.outputTokens || 0) : null, route: msgRoute || route,
+            streaming: false, settled: true,
+            interrupted: data.interrupted === true,
+            finishKind: stream.finishKind || (data.interrupted === true ? 'interrupted' : ''),
+            failCode: '', failMsg: '',
+          }
+        } else if (card.attempts.length && !card.live) {
+          // 已落定的失败/取消/重试前尝试：无在途 attempt、无 message → 失败终局卡
+          const last = card.attempts[card.attempts.length - 1]
+          const s = last.stream
+          const failed = s.finishKind === 'error' || s.finishKind === 'aborted' || Boolean(s.failCode)
+          const uiSeqFinal = uiSeq != null ? uiSeq : last.ev.seq
+          const runFrom = stepStarts[k] != null ? stepStarts[k] : (s.firstAt != null ? s.firstAt : last.ev.time)
+          const runTo = s.lastAt != null ? s.lastAt : last.ev.time
+          it = {
+            kind: 'msg', role: 'ai', seq: uiSeqFinal, time: last.ev.time, turn: card.turn, step: card.step,
+            attemptId: '', akey: 'assistant-event:' + last.ev.seq, finalSeq: last.ev.seq,
+            runStart: runFrom, runDur: Math.max(0, runTo - runFrom),
+            preview: (s.text || s.reasoning ? oneLine(s.text || s.reasoning, 100) + ' ' : '') + (s.finishKind === 'aborted' ? '（已取消）' : '（生成失败）'),
+            full: s.text || s.reasoning,
+            tok: null, route, streaming: false, settled: true,
+            interrupted: false, failed: s.finishKind === 'error' || Boolean(s.failCode),
+            abandoned: s.finishKind === 'aborted',
+            finishKind: s.finishKind, failCode: s.failCode || '', failMsg: s.failMsg || '',
+          }
+          if (!failed && !s.failCode && s.finishKind !== 'aborted') it.preview = oneLine(s.text || s.reasoning, 110) || '（尝试未形成消息）'
+          // 步骤仍在开（无 step/end、无在途 live）且重试已调度未起跳 → 等待重试态：
+          // 卡片落定但徽标显示退避倒计时（下一次 live attempt 到来时替换为流式卡）
+          const rsEarly = retriesByStep[k]
+          const stepOpen = stepEnds[k] == null && (card.turn == null || turnEnds[card.turn] == null)
+          const pendRetry = rsEarly && rsEarly.length && !rsEarly[rsEarly.length - 1].startedAt
+          if (rsEarly && rsEarly.length) it.retries = rsEarly
+          if (stepOpen) {
+            it.interrupted = !pendRetry // 步骤没结束也没有等待中的重试 → 视作被中断（兜底语义）
+            it.awaitingRetry = Boolean(pendRetry)
+          } else {
+            it.interrupted = true
+          }
+          items.push(it)
+          continue
+        } else {
+          // 实时草稿（事件窗在途 attempt）：无 durable message/attempt 落定
+          const a = card.live
+          if (!a) continue
+          it = {
+            kind: 'msg', role: 'ai', seq: a.firstSeq != null ? a.firstSeq : (a.firstAt != null ? a.firstAt : Date.now()),
+            time: a.firstAt, turn: card.turn, step: card.step,
+            attemptId: a.attemptId, akey: 'assistant-attempt:' + a.attemptId, finalSeq: null,
+            runStart: stepStarts[k] != null ? stepStarts[k] : (a.firstAt != null ? a.firstAt : Date.now()),
+            preview: '', full: a.text || a.reasoning,
+            tok: null, route, streaming: true, settled: false,
+            finishKind: a.finishKind, failCode: a.failCode || '', failMsg: a.failMsg || '',
+          }
+          const endedAt = stepEnds[k] != null ? stepEnds[k]
+            : (card.turn != null && turnEnds[card.turn] != null ? turnEnds[card.turn] : null)
+          if (endedAt != null && !a.text && !a.reasoning && !a.toolCall && a.finishKind === '') {
+            // 步骤终结但没看到任何帧（事件窗断连且 baseline 未覆盖）→ 不凭空造卡
+            continue
+          }
+          if (endedAt != null || a.finishKind === 'error' || a.finishKind === 'aborted') {
+            // 步骤/轮次已终结（或收到终态失败帧）却没有 durable 结算 → 请求失败/中断/被重试调度：
+            // 落定卡片（停止流光脉冲与耗时计时），标记中断并保留已生成片段
+            it.streaming = false
+            it.interrupted = true
+            it.failed = a.finishKind === 'error' || Boolean(a.failCode)
+            it.abandoned = a.finishKind === 'aborted'
+            it.settled = a.finishKind !== ''
+            const endRef = endedAt != null ? endedAt : (a.lastAt != null ? a.lastAt : it.runStart)
+            it.runDur = Math.max(0, endRef - it.runStart)
+            it.preview = (it.full ? oneLine(it.full, 100) + ' ' : '') + (it.abandoned ? '（已取消）' : '（生成已中断）')
+          } else {
+            it.preview = oneLine(it.full, 110) || (a.toolCall ? '正在准备工具调用…' : (a.reasoning ? '思考中…' : '正在生成…'))
+          }
+        }
+        // 重试链挂卡（含重试后成功的卡与终局失败的中断卡）
+        const rs = retriesByStep[k]
         if (rs && rs.length) it.retries = rs
+        items.push(it)
       }
-      return items
+      // 统一按 seq 稳定排序：live 草稿的浮点 seq 天然落在相邻持久事件之间
+      const order = items.map((it, i) => [it.seq, i, it])
+      order.sort((x, y) => (x[0] - y[0]) || (x[1] - y[1]))
+      return order.map((e) => e[2])
     }
 
     // ---- 条目 → 流程节点：消息各成节点；同步骤连续普通调用合成平行卡片组；子代理调用独立成分支节点 ----
@@ -404,7 +572,7 @@ return {
         const last = rs[rs.length - 1]
         const max = typeof last.maxRetries === 'number' ? '/' + last.maxRetries : ''
         const tip = esc((last.code || '') + (last.message ? '：' + last.message : ''))
-        if (it.streaming && !last.startedAt) {
+        if ((it.streaming || it.awaitingRetry) && !last.startedAt) {
           const remain = Math.max(0, Math.ceil((last.time + (last.delayMs || 0) - Date.now()) / 1000))
           out += '<span class="fl-retry fl-retry-wait" title="' + tip + '">⟳ 等待重试 ' + last.retry + max + (remain ? ' · ' + remain + 's' : '') + '</span>'
         } else if (it.streaming) {
@@ -420,6 +588,9 @@ return {
       if (it.interrupted && it.failCode) {
         out += '<span class="fl-retry fl-retry-fail" title="' + esc(it.failMsg || '') + '">✗ ' + esc(it.failCode) + '</span>'
       }
+      if (it.finishKind === 'max-tokens') {
+        out += '<span class="fl-retry fl-retry-cancel" title="输出因 max-tokens 长度上限截断">⤒ 已达上限</span>'
+      }
       return out
     }
 
@@ -431,12 +602,14 @@ return {
       const label = isUser ? '用户' : isAi ? '助手' : '注入'
       // 卡片统一面片底色（fl-node），角色色只落在左侧色条 + 几何符号/tag 上，避免整卡彩色半透明的杂乱感
       // 用户/助手/注入卡均可点开右侧详情浮层看完整内容（与工具卡同一交互）；live=进行中 → 与工具卡同款流光脉冲
+      // data-flow-state 暴露折叠器终态（streaming/settled/failed/abandoned）；data-flow-attempt 带实时 attempt 身份
       const branchSeq = it.finalSeq != null ? it.finalSeq : it.seq
+      const flowState = it.streaming ? 'streaming' : (it.abandoned ? 'abandoned' : (it.failed || (it.interrupted && it.failCode) ? 'failed' : 'settled'))
       const branch = isAi && !it.streaming
         ? '<button type="button" class="fl-branch-btn" data-flow-branch data-seq="' + branchSeq + '" title="从这条助手消息在 Harness 中创建新分支" aria-label="在新对话中分支">' +
           '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3v5a3 3 0 0 0 3 3h4"/><path d="M8 5l3-3 3 3"/><path d="M11 2v4"/><path d="M9 9l2 2-2 2"/></svg></button>'
         : ''
-      return '<div class="fl-node' + (expandedSeq === it.seq ? ' fl-on' : '') + (live ? ' fl-live' : '') + '" style="border-left-color:' + color + '" data-flow-main-card="' + it.seq + '" data-flow-role="' + it.role + '" data-flow-select-seq="' + it.seq + '" data-action="fdetail" data-seq="' + it.seq + '" title="点击查看完整消息">' +
+      return '<div class="fl-node' + (expandedSeq === it.seq ? ' fl-on' : '') + (live ? ' fl-live' : '') + '" style="border-left-color:' + color + '" data-flow-main-card="' + it.seq + '" data-flow-role="' + it.role + '" data-flow-state="' + flowState + '"' + (isAi && it.attemptId ? ' data-flow-attempt="' + esc(it.attemptId) + '"' : '') + ' data-flow-select-seq="' + it.seq + '" data-action="fdetail" data-seq="' + it.seq + '" title="点击查看完整消息">' +
         '<div class="fl-node-head"><span class="fl-glyph" style="color:' + color + '">' + (isUser ? '▲' : isAi ? '◆' : '■') + '</span><span class="fl-tag" style="color:' + color + '">' + label + '</span>' +
         (isAi && it.route ? '<span class="fl-model">' + esc(it.route) + '</span>' : '') +
         (fmtTime(it.time) ? '<span class="fl-time">' + fmtTime(it.time) + '</span>' : '') +
@@ -482,7 +655,9 @@ return {
       const meta = []
       if (fmtTime(it.time)) meta.push('时间 ' + fmtTime(it.time))
       if (it.route) meta.push('模型 ' + it.route)
+      if (it.attemptId) meta.push('attempt ' + String(it.attemptId).slice(0, 12))
       if (it.tok) meta.push('输出 +' + it.tok + ' tok')
+      if (it.finishKind && it.finishKind !== 'stop') meta.push('结束 ' + it.finishKind)
       if (it.failCode) meta.push('错误 ' + it.failCode + (it.failMsg ? '：' + oneLine(it.failMsg, 80) : ''))
       if (it.retries && it.retries.length) meta.push('重试 ' + it.retries.length + ' 次（' + it.retries.map((r) => r.code || '?').join(' → ') + '）')
       // 与外层助手卡同款分支按钮：详情头部可直接从这条消息创建新分支（复用 data-flow-branch 委托）
@@ -574,14 +749,16 @@ return {
 
     const subColHtml = (node, html) => '<div class="fl-subcol' + (node.calls.length > 1 ? ' fl-subgrp' : '') + '">' + html + '</div>'
 
-    const render = async (st, sid) => {
+    const render = async (st, sid, live) => {
       const r = await readLog(sid)
       // 活跃度：日志条数较上轮渲染增长 = 会话正在工作（用于助手卡流光；静止会话/他人会话不误亮）
       const prevCount = growth[sid]
       const active = prevCount != null && (r.count || 0) > prevCount
       growth[sid] = r.count || 0
       await loadManifestTools()
-      const items = parseItems(r.events || [])
+      // 事件窗在途 attempt（live 叠加层）= 会话正在生成的最直接信号
+      const overlayLive = Boolean(live && Array.isArray(live.attempts) && live.attempts.some((a) => a && a.attemptId != null))
+      const items = parseItems(r.events || [], live)
       const nodes = buildNodes(items)
       // 会话仍在运行且最新事件是一条助手消息 → 该助手卡持续流光；日志增长作为 sessions 服务缺失时的兜底。
       const lastIt = items.length ? items[items.length - 1] : null
@@ -597,7 +774,9 @@ return {
       } catch (e) {}
       // provider/配额等请求错误有时先把 agent 置 idle，step/end / turn/end 尚未进入本次日志快照。
       // agent 状态是权威终态：强制结算残留流式草稿，避免“正在生成”和客户端计时无限增长。
-      if (hasAgentStatus && !sessionLive) {
+      // 例外：事件窗在途 attempt（live 叠加层）就是当前进行中的最直接证据——窗口说在生成，
+      // 就不按 agent idle 强制结算（跨会话查看/agents 不认识该会话时尤为重要）。
+      if (hasAgentStatus && !sessionLive && !overlayLive) {
         const tail = r.events && r.events.length ? r.events[r.events.length - 1] : null
         const settledAt = tail && Number.isFinite(Number(tail.time)) ? Number(tail.time) : null
         for (const it of items) {
@@ -608,7 +787,7 @@ return {
           it.preview = (it.full ? oneLine(it.full, 100) + ' ' : '') + '（生成失败或已中断）'
         }
       }
-      const liveAiSeq = (hasAgentStatus ? sessionLive : active) && lastIt && lastIt.kind === 'msg' && lastIt.role === 'ai' && !lastIt.interrupted ? lastIt.seq : null
+      const liveAiSeq = (overlayLive || (hasAgentStatus ? sessionLive : active)) && lastIt && lastIt.kind === 'msg' && lastIt.role === 'ai' && !lastIt.interrupted ? lastIt.seq : null
       const PAGE = 60
       const limit = Number.isFinite(Number(st.limit)) ? Math.max(PAGE, Math.floor(Number(st.limit) / PAGE) * PAGE) : PAGE
       st.limit = limit
@@ -710,7 +889,7 @@ return {
       return parts.join('')
     }
 
-    const handler = async ({ action, fields, state, session }) => {
+    const handler = async ({ action, fields, state, session, live }) => {
       if (!sq) return { ok: false, error: 'sessionQuery 服务不可用', html: '' }
       const st = (state && typeof state === 'object' && state) ? state : { live: true, follow: true, limit: 60, sid: null, home: null, expanded: null, crumbs: [] }
       if (typeof st.follow !== 'boolean') st.follow = true
@@ -728,13 +907,23 @@ return {
       if (!st.sid) st.sid = home
       let navigateSession = null
       let flowContext = null
+      // live 叠加层归一：只接受属于当前查看会话的窗快照（钻取到子会话时忽略）；
+      // attempts = 在途 attempt；settled = 最近结算 attempt 的 firstSeq（UI 连续性）。
+      const liveOverlay = live && typeof live === 'object' && typeof live.sessionId === 'string' && live.sessionId === st.sid
+        ? {
+          sessionId: live.sessionId,
+          revision: typeof live.revision === 'number' ? live.revision : 0,
+          attempts: Array.isArray(live.attempts) ? live.attempts : [],
+          settled: Array.isArray(live.settled) ? live.settled : [],
+        }
+        : null
       if (action === 'toggle-live') st.live = !st.live
       else if (action === 'toggle-follow') st.follow = !st.follow
       else if (action === 'fmore') st.limit = Math.min(100000, Number(st.limit) + 60)
       else if (action === 'fcontext' && typeof el.seqs === 'string') {
         const seqs = el.seqs.split(',').map((v) => Number(v)).filter((v) => Number.isFinite(v))
         const r = await readLog(st.sid)
-        flowContext = flowContextOf(parseItems(r.events || []), seqs, st.sid)
+        flowContext = flowContextOf(parseItems(r.events || [], liveOverlay), seqs, st.sid)
       }
       else if (action === 'fdetail' && el.seq != null) {
         const seq = Number(el.seq)
@@ -763,7 +952,7 @@ return {
       }
       const sid = st.sid
       try {
-        const html = await render(st, sid)
+        const html = await render(st, sid, liveOverlay)
         return { ok: true, html, state: st, navigateSession, flowContext }
       } catch (e) {
         return { ok: false, error: String((e && e.message) || e), html: '', state: st }

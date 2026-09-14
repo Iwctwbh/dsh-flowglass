@@ -82,6 +82,8 @@ const makeRegistry = () => {
           state: (call && call.state) || null,
           root: (typeof root === 'string' && root) ? root : undefined,
           session: (call && typeof call.session === 'string' && call.session) ? call.session : undefined,
+          // live 叠加层（Flowglass 实时流）：与 shared/registry.js 同步的面板契约
+          live: (call && call.live && typeof call.live === 'object') ? call.live : undefined,
         })
         if (!res || typeof res.html !== 'string') return { ok: false, error: '工具返回了无效的面板内容' }
         const out = { ok: true, html: res.html, state: res.state == null ? null : res.state }
