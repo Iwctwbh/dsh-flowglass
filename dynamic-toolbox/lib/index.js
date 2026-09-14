@@ -1,4 +1,4 @@
-// ===== Jira + Git + 文件 + 流镜 + 工作流编辑 + 轨迹 + HTTP + 端口 + 计算 + 用量 + 提示词 + 上下文 + AI 助手 + 工具清单 + 搜索 + 血缘 + AI 台账 + 配额 + 界面自查 工具箱 · DSH 原生静态 Host（构建生成，勿手改） =====
+// ===== 工具箱 · DSH 原生静态 Host（构建生成，勿手改） =====
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
@@ -8,7 +8,7 @@ export const inject = ["fs","credentials","subprocess","timer","sessionQuery","s
 const TOOLBOX_RUNTIME_OVERRIDES = {
   "mode": "static-bundle",
   "bundleId": "dynamic-toolbox",
-  "displayName": "Jira + Git + 文件 + 流镜 + 工作流编辑 + 轨迹 + HTTP + 端口 + 计算 + 用量 + 提示词 + 上下文 + AI 助手 + 工具清单 + 搜索 + 血缘 + AI 台账 + 配额 + 界面自查 工具箱",
+  "displayName": "工具箱",
   "registryService": "toolboxRegistryDynamicToolbox",
   "artifactService": "toolboxArtifactsDynamicToolbox",
   "remoteService": "toolboxNativeDynamicToolbox",
@@ -2298,8 +2298,11 @@ return {
       a.firstSeq = typeof snap.firstSeq === 'number' ? snap.firstSeq : null
       a.firstAt = typeof snap.firstAt === 'number' ? snap.firstAt : null
       a.lastAt = typeof snap.lastAt === 'number' ? snap.lastAt : a.firstAt
-      a.text = String(snap.text || '')
-      a.reasoning = String(snap.reasoning || '')
+      // Remote JSON is a trust boundary. The Client normally applies the same
+      // cap, but a stale or modified caller must not make the Host render an
+      // unbounded live overlay.
+      a.text = String(snap.text || '').slice(0, 8000)
+      a.reasoning = String(snap.reasoning || '').slice(0, 8000)
       a.toolCall = Boolean(snap.toolCall)
       if (snap.finish && typeof snap.finish === 'object') {
         a.finishKind = String(snap.finish.kind || '')
@@ -3058,8 +3061,8 @@ return {
         ? {
           sessionId: live.sessionId,
           revision: typeof live.revision === 'number' ? live.revision : 0,
-          attempts: Array.isArray(live.attempts) ? live.attempts : [],
-          settled: Array.isArray(live.settled) ? live.settled : [],
+          attempts: Array.isArray(live.attempts) ? live.attempts.slice(-8) : [],
+          settled: Array.isArray(live.settled) ? live.settled.slice(-8) : [],
         }
         : null
       if (action === 'toggle-live') st.live = !st.live

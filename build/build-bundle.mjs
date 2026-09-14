@@ -36,9 +36,11 @@ export const buildBundle = (loader, opts) => {
   const isFlowglass = bundleId === 'flow' && featureEntries.length === 1 && featureEntries[0].key === 'flow'
   const packageName = opts.name || (isFlowglass ? 'dsh-flowglass' : 'dsh-' + bundleId + '-toolbox')
   if (!PACKAGE_NAME_RE.test(packageName) || packageName.length > 214) errors.push('npm package name 不合法: ' + packageName)
-  const label = opts.label || (featureEntries.length === 1
-    ? featureEntries[0].bundle.defaultLabel
-    : featureEntries.map((entry) => entry.bundle.defaultLabel).join(' + ') + ' 工具箱')
+  const label = opts.label || (bundleId === 'dynamic-toolbox' || packageName === 'dsh-dynamic-toolbox'
+    ? '工具箱'
+    : featureEntries.length === 1
+      ? featureEntries[0].bundle.defaultLabel
+      : featureEntries.map((entry) => entry.bundle.defaultLabel).join(' + ') + ' 工具箱')
   if (!label || /[\u0000\r\n]/.test(label)) errors.push('label 不合法：不能为空或包含换行/控制字符')
   const version = opts.version || '0.0.0-dev'
   if (!SEMVER_RE.test(version)) errors.push('version 不合法: ' + version)

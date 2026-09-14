@@ -6,9 +6,9 @@
 // ④注入 CSS 同时含导航条目选择器（[data-dsh-toolbox-entry]）与抽屉/入口样式；
 // ⑤「隐藏无界面」联动：Host-only 行打 data-tb-hide 隐藏（待审批行不隐藏）、计数 span 用
 //   面板 DOM「可见且 running」行覆盖（不信任单仓库 toolbox/plugins 清单）；开关关闭后恢复；
-// ⑥完整工具箱长名称在可见 chrome 使用紧凑标题，完整名称保留在 tooltip/aria-label；
+// ⑥工具箱长名称在可见 chrome 统一使用「工具箱」，完整名称保留在 tooltip/aria-label；
 // ⑦DSH 0.1.5 原生右侧栏（bundleId=flow）：sidebarRightTabs 两段式注册（page type + body Slot）、
-//   自有入口 openTab、原生接管时撤销 better-sidebar 桥、注册失败恢复 Drawer、drawer 模式不注册、
+//   自有入口 openTab、原生接管时撤销 better-sidebar 桥、注册失败恢复固定右侧兜底、旧 drawer 偏好忽略、
 //   原生 Tab body 透传 Slot 标准属性（sessionId/useSessions/useTabInfo→visible）。
 const fs = require('fs')
 const path = require('path')
@@ -208,7 +208,7 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     const sidebarReg = slots.registrations.find((r) => r.entry && r.entry.name === 'sidebar.footer.action')
     const entryEl = sidebarReg.component({ wide: true })
     const rendered = renderHooked(entryEl.type, { wide: true })
-    check('长 Bundle 名称：可见入口收敛为「完整工具箱」', rendered.children.indexOf('完整工具箱') >= 0)
+    check('长 Bundle 名称：可见入口收敛为「工具箱」', rendered.children.indexOf('工具箱') >= 0)
     check('长 Bundle 名称：完整名称保留在 title', rendered.props.title === longName + '（工具集）')
     for (const dis of ctx.teardowns) dis()
   }
@@ -316,6 +316,9 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
       && css.indexOf('[data-sidebar-collapsed] [data-dsh-toolbox-entry]') >= 0
       && css.indexOf('[data-sidebar-collapsed] .tb-nav-label{display:none}') >= 0)
     check('CSS 含 .tb-entry 与 .jr-drawer', css.indexOf('.tb-entry{') >= 0 && css.indexOf('.jr-drawer{') >= 0)
+    check('Flowglass 固定右侧兜底不再挤压 Harness 主会话列',
+      src.indexOf("RT.bundleId === 'flow' || embedded || !isOpen || dockMode !== 'full'") >= 0
+        && src.indexOf("if (RT.bundleId === 'flow') return 'right'") >= 0)
     check('长 Bundle 标题单行省略，避免抽屉头部撑高', css.indexOf('.jr-drawer-title{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;') >= 0)
     check('CSS/源码含工具面板「回到最新」浮标', css.indexOf('.tb-jump-latest{') >= 0
       && src.indexOf('showJumpLatest') >= 0 && src.indexOf('↓ 回到最新') >= 0)
@@ -428,7 +431,8 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     const bodyWrap = bodyReg.component({ useTabInfo: () => ({ tab: { visible: true } }), sessionId: 's-1', useSessions: (sel) => sel({ ids: ['s-1'], byId: {}, current: 's-1' }) })
     const bodyNode = bodyWrap.type(bodyWrap.props)
     check('D: Tab body 嵌入 Drawer（embedded + visible + sessionId 权威）',
-      bodyNode && bodyNode.props && bodyNode.props.embedded === true && bodyNode.props.visible === true && bodyNode.props.sessionId === 's-1')
+      bodyNode && bodyNode.props && bodyNode.props.embedded === true
+        && bodyNode.props.visible === true && bodyNode.props.sessionId === 's-1')
     const hiddenWrap = bodyReg.component({ useTabInfo: () => ({ tab: { visible: false } }), sessionId: 's-1', useSessions: () => undefined })
     const hiddenNode = hiddenWrap.type(hiddenWrap.props)
     check('D: tab.visible=false → Drawer 进入不可见暂停态', hiddenNode && hiddenNode.props && hiddenNode.props.visible === false)
@@ -441,6 +445,29 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     check('D: 点击入口 → ctx.sidebarRight.openTab(dsh-flowglass:flow)', openTabCalls.length === 1 && openTabCalls[0] === 'dsh-flowglass:flow')
     for (const dis of ctx.teardowns) dis()
     check('D: teardown 撤销 page type 注册', definitions.length === 0)
+  }
+
+  // registry 与 controller 是两个服务边：只到 registry 时不得提前激活并捕获空 controller。
+  {
+    const flowSrc = 'const TOOLBOX_RUNTIME_OVERRIDES = { bundleId: \'flow\', displayName: \'流镜\' }\n' + src
+    const slots = makeSlots()
+    const ctx = makeCtx(); ctx.slotsFor = slots
+    const definitions = []
+    const openTabCalls = []
+    ctx.services.sidebarRightTabs = { register(def) { definitions.push(def); return () => {} } }
+    const impl = await evalClient(flowSrc, { ctx, styles: { insert() { return () => {} } }, localStorage: makeLocalStorage({}) })
+    impl.apply(ctx)
+    ctx.runInject()
+    check('D2: 仅 registry 到达时不提前激活原生入口', definitions.length === 0)
+    ctx.services.sidebarRight = { openTab(kind) { openTabCalls.push(kind) } }
+    ctx.runInject()
+    slots.activateAll()
+    check('D2: controller 到达后完成原生注册', definitions.length === 1)
+    const entryReg = slots.registrations.find((r) => r.entry && r.entry.name === 'sidebar.footer.action')
+    const rendered = renderHooked(entryReg.component({ wide: true }).type, { wide: true })
+    rendered.props.onClick()
+    check('D2: 晚到 controller 被原生入口正确调用', openTabCalls[0] === 'dsh-flowglass:flow')
+    for (const dis of ctx.teardowns) dis()
   }
 
   // —— 路径 E（层级切换）：先 better-sidebar 桥接管，原生服务后到 → 原生接管并撤销桥 ——
@@ -478,7 +505,7 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     check('E: teardown 后两条路径全部清空', definitions.length === 0 && bsTabs.length === 0)
   }
 
-  // —— 路径 F（降级）：原生注册抛错 / 用户选 drawer 模式 ——
+  // —— 路径 F（降级）：原生注册抛错 / 旧 drawer 偏好被忽略 ——
   {
     const flowSrc = 'const TOOLBOX_RUNTIME_OVERRIDES = { bundleId: \'flow\', displayName: \'流镜\' }\n' + src
     const slots = makeSlots()
@@ -495,8 +522,8 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     slots.activateAll()
     const entryReg = slots.registrations.find((r) => r.entry && r.entry.name === 'sidebar.footer.action')
     const rendered = renderHooked(entryReg.component({ wide: true }).type, { wide: true })
-    check('F: 注册失败 → Entry 可见（回到独立抽屉路径）', rendered && rendered.children.length > 0)
-    // 用户显式 drawer 模式：初始 apply 时偏好生效 → 原生 Tab 不注册
+    check('F: 注册失败 → Entry 可见（回到固定右侧兜底路径）', rendered && rendered.children.length > 0)
+    // 历史版本留下的 drawer 偏好不再影响自动兼容承载。
     const slots2 = makeSlots()
     const ctx2 = makeCtx(); ctx2.slotsFor = slots2
     const definitions2 = []
@@ -506,7 +533,7 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     const impl2 = await evalClient(flowSrc, { ctx: ctx2, styles: { insert() { return () => {} } }, localStorage: localStorage2 })
     impl2.apply(ctx2)
     ctx2.runInject()
-    check('F: 用户显式 drawer 模式 → 原生 Tab 不注册', definitions2.length === 0, 'count=' + definitions2.length)
+    check('F: 旧 drawer 偏好被忽略 → 原生 Tab 正常注册', definitions2.length === 1, 'count=' + definitions2.length)
     for (const dis of ctx.teardowns) dis()
     for (const dis of ctx2.teardowns) dis()
   }
@@ -524,8 +551,17 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
       && src.indexOf('sessionsClient.provideInfo') < 0)
     check('原生 body 权威属性（sessionId/useSessions/useTabInfo→visible）', src.indexOf('function FlowglassNativeTabBody') >= 0
       && src.indexOf('props.useTabInfo') >= 0 && src.indexOf('visible = !(info && info.tab && info.tab.visible === false)') >= 0)
-    check('显示方式偏好双源镜像（pluginSettings + localStorage）', src.indexOf('readFlowDisplayMode') >= 0
-      && src.indexOf('writeFlowDisplayMode') >= 0 && src.indexOf("RT.storageKey('flow.display')") >= 0)
+    check('Flowglass 不再暴露显示方式选择或独立悬浮入口',
+      src.indexOf('FlowDisplayModeSelect') < 0 && src.indexOf("RT.storageKey('flow.display')") < 0
+        && src.indexOf("const dockButton = RT.bundleId === 'flow' ? null") >= 0
+        && src.indexOf("onPointerDown: RT.bundleId === 'flow' ? undefined : onHeaderDown") >= 0)
+    check('Flowglass 导航入口首帧使用流镜图标而非工具箱图标',
+      src.indexOf("const ENTRY_NAV_ICON = RT.bundleId === 'flow' ? FLOW_NAV_ICON : NAV_ICON") >= 0
+        && src.indexOf("'<span class=\"tb-nav-icon\">' + ENTRY_NAV_ICON") >= 0
+        && src.indexOf('replaceSidebarIcon(solo || ENTRY_NAV_ICON)') >= 0)
+    check('事件窗后续更新按 change 增量折叠且严格截断单块文本',
+      src.indexOf("change.kind === 'append'") >= 0 && src.indexOf("change.kind === 'settle-assistant'") >= 0
+        && src.indexOf('String(delta).slice(0, room)') >= 0)
     check('面板 RPC 契约透传 live（registry 同步见 sim-flow）', src.indexOf('live && typeof live === \'object\'') >= 0
       || read('shared/registry.js').indexOf('call.live') >= 0)
   }

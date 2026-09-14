@@ -1,6 +1,6 @@
-# Jira + Git + 文件 + 流镜 + 工作流编辑 + 轨迹 + HTTP + 端口 + 计算 + 用量 + 提示词 + 上下文 + AI 助手 + 工具清单 + 搜索 + 血缘 + AI 台账 + 配额 + 界面自查 工具箱（dsh-dynamic-toolbox）
+# 工具箱（dsh-dynamic-toolbox）
 
-这是 dsh-flowglass 仓库提供的**可选完整工具箱产品**，与默认的流镜包独立。只需要会话流程图时，请安装 `dsh-flowglass`；只有需要下列整套工具时才安装本包。
+这是 dsh-flowglass 仓库提供的**可选工具箱产品**，与默认的流镜包独立。只需要会话流程图时，请安装 `dsh-flowglass`；只有需要下列整套工具时才安装本包。
 
 本包是 DSH 原生静态 Host/Client 插件。
 

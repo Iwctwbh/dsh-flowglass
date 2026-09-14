@@ -52,7 +52,7 @@ const check = (label, cond, detail) => {
       && !client.includes('if (embedded) return drawerEl')
       && client.includes('props.visible !== false'))
   check('Flow Client 注册 Harness 原生右侧栏（两段式 + 层级切换）',
-    client.includes("ctx.inject(['sidebarRightTabs']")
+    client.includes("ctx.inject(['sidebarRightTabs', 'sidebarRight']")
       && client.includes("FLOW_NATIVE_ID = 'dsh-flowglass/native'")
       && client.includes("sidebar.right.pane.tab")
       && client.includes('FlowglassNativeTabBody')

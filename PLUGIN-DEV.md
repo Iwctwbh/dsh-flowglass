@@ -70,7 +70,7 @@ return {
 
 1. `ctx.inject(['sidebarRightTabs'])` → `tabs.register({ id: 'dsh-flowglass/native', kind: 'dsh-flowglass:flow', title, guide })` 注册原生 page type；同一 definition id 在 `sidebar.right.pane.tab` Slot 注册 body（`FlowglassNativeTabBody`，props：`sessionId`/`useSessions`/`useTabInfo()`→`tab.visible`）。自有入口点击 → `ctx.sidebarRight.openTab(kind)` 自动展开。
 2. 原生不可用时 `ctx.inject(['betterSidebar'])` → `service.registerTab(descriptor)`（descriptor 带 `description`；`single: true` 只保证目标 pane 内去重）。原生接管时该桥自动撤销、原生消失时自动恢复。
-3. 都不可用 / 注册抛错 / 用户选 `drawer` 模式 → 独立 Drawer（唯一兜底，永不消失）。显示方式偏好双源：better-sidebar `pluginSettings.displayMode` + localStorage `RT.storageKey('flow.display')`。
+3. 都不可用 / 注册抛错 → 固定右侧兜底面板（覆盖显示、不挤压主会话、不可拖成悬浮窗）。承载方式固定按上述优先级自动适配，不再暴露显示方式偏好。
 
 ## 必踩的坑（实战血泪）
 

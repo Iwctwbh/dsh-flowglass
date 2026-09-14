@@ -47,9 +47,9 @@ dsh plugin --profile web remove dsh-flowglass
 
 1. **Harness 原生右侧栏**（DSH 0.1.5+）：注册原生 page type `dsh-flowglass:flow`（definition id `dsh-flowglass/native`），出现在右侧栏 guide 的「流镜」入口；从流镜自有入口点击会 `openTab` 自动展开并聚焦。原生 Tab 按会话隔离（`props.sessionId` 是权威来源），Tab 不可见时自动暂停刷新。
 2. **dsh-better-sidebar 原生桥**（可选依赖 `>=0.19.0`）：原生右侧栏不可用时，若安装了 better-sidebar，则注册其「流镜」Tab。
-3. **独立抽屉**：以上都不可用、注册失败或被禁用时，始终保留自带入口与抽屉（Zen/拖拽/停靠记忆属于抽屉独有）。
+3. **固定右侧兜底面板**：以上都不可用、注册失败或被禁用时，保留自带入口，以覆盖方式固定在右侧，不挤压主会话，也不支持拖拽悬浮。
 
-显示方式可在设置里切换：`auto`（默认，按上述优先级）、`sidebar`（右侧栏优先）、`drawer`（只使用独立抽屉，不注册任何右侧栏 Tab）。偏好同时持久化到 better-sidebar 设置与本地，任一来源生效。
+承载方式不再需要手动选择，始终按上述优先级自动适配；历史版本保存的 `drawer` 显示偏好会被忽略。
 
 ```powershell
 dsh plugin --profile web add dsh-better-sidebar   # 可选；仅在原生右侧栏不可用时需要
@@ -103,9 +103,9 @@ Flowglass 的静态产物位于 [`flowglass/`](flowglass/)，核心功能实现�
 dsh plugin --profile web add dsh-dynamic-toolbox
 ```
 
-完整工具箱的重建、开发和历史说明单独维护：
+工具箱的重建、开发和历史说明单独维护：
 
-- [`dynamic-toolbox/README.md`](dynamic-toolbox/README.md) — 完整工具箱包
+- [`dynamic-toolbox/README.md`](dynamic-toolbox/README.md) — 工具箱包
 - [`REBUILD.md`](REBUILD.md) — 动态工具箱重建与自举
 - [`PLUGIN-DEV.md`](PLUGIN-DEV.md) — 工具箱插件开发
 - [`插件.md`](插件.md) — 动态插件架构与经验记录

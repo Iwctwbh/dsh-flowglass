@@ -153,8 +153,11 @@ return {
       a.firstSeq = typeof snap.firstSeq === 'number' ? snap.firstSeq : null
       a.firstAt = typeof snap.firstAt === 'number' ? snap.firstAt : null
       a.lastAt = typeof snap.lastAt === 'number' ? snap.lastAt : a.firstAt
-      a.text = String(snap.text || '')
-      a.reasoning = String(snap.reasoning || '')
+      // Remote JSON is a trust boundary. The Client normally applies the same
+      // cap, but a stale or modified caller must not make the Host render an
+      // unbounded live overlay.
+      a.text = String(snap.text || '').slice(0, 8000)
+      a.reasoning = String(snap.reasoning || '').slice(0, 8000)
       a.toolCall = Boolean(snap.toolCall)
       if (snap.finish && typeof snap.finish === 'object') {
         a.finishKind = String(snap.finish.kind || '')
@@ -913,8 +916,8 @@ return {
         ? {
           sessionId: live.sessionId,
           revision: typeof live.revision === 'number' ? live.revision : 0,
-          attempts: Array.isArray(live.attempts) ? live.attempts : [],
-          settled: Array.isArray(live.settled) ? live.settled : [],
+          attempts: Array.isArray(live.attempts) ? live.attempts.slice(-8) : [],
+          settled: Array.isArray(live.settled) ? live.settled.slice(-8) : [],
         }
         : null
       if (action === 'toggle-live') st.live = !st.live

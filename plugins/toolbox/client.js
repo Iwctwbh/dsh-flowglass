@@ -14,7 +14,7 @@ return {
     // as the accessible label and use a compact visible label in the UI.
     const fullDisplayName = String(RT.displayName || '工具箱')
     const compactDisplayName = fullDisplayName.length > 24
-      ? (RT.bundleId === 'dynamic-toolbox' ? '完整工具箱' : '工具箱')
+      ? '工具箱'
       : fullDisplayName
     // 原生 Flowglass bundle 注入 Harness 官方 Markdown renderer；其他静态合集与
     // 动态开发模式没有这两个词法绑定时保持纯文本详情，不改变 Toolbox 通用契约。
@@ -745,50 +745,25 @@ return {
       subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn) },
     }
 
-    // ===== 右侧栏承载选择（仅原生 flow bundle；一次只激活一条注册路径）=====
+    // ===== 右侧栏兼容承载（仅原生 flow bundle；一次只激活一条注册路径）=====
     // 接入层级（0.1.5 计划）：Harness 原生 sidebarRightTabs + slots
-    //   > Better Sidebar >= 0.19 原生桥 > 独立 Drawer。
+    //   > Better Sidebar >= 0.19 原生桥 > 固定右侧兜底面板。
     // 服务可晚于流镜出现/被 HMR 替换，所以两条桥都用 ctx.inject 驱动，并用这个
     // 小 store 让已挂载的独立入口/Drawer 同步让位/恢复。完整 dynamic-toolbox 不接管为“流镜” Tab。
     const FLOW_TAB_ID = 'dsh-flowglass:flow'
     const FLOW_NATIVE_ID = 'dsh-flowglass/native' // 原生 page type 的 definition id（body/title 同 id 注册）
     const FLOW_NATIVE_KIND = 'dsh-flowglass:flow' // openTab 寻址的 kind
-    // 显示方式偏好双源：better-sidebar pluginSettings（有桥时）+ localStorage（原生模式/无桥时）
-    const readFlowDisplayMode = () => {
-      try {
-        const raw = localStorage.getItem(RT.storageKey('flow.display'))
-        const p = JSON.parse(raw)
-        if (p && (p.displayMode === 'auto' || p.displayMode === 'sidebar' || p.displayMode === 'drawer')) return p.displayMode
-      } catch (e) {}
-      return 'auto'
-    }
-    const writeFlowDisplayMode = (mode) => {
-      try { localStorage.setItem(RT.storageKey('flow.display'), JSON.stringify({ displayMode: mode })) } catch (e) {}
-      integration.sync(integration.service)
-    }
     const integrationListeners = new Set()
     const integration = {
       service: null, // betterSidebar 服务
       native: false, // Harness 原生右侧栏注册生效（最高层）
-      mode: 'auto',
       enabled: true,
-      active() { return this.mode !== 'drawer' && (this.native || (Boolean(this.service) && this.enabled)) },
+      active() { return this.native || (Boolean(this.service) && this.enabled) },
       emit() { integrationListeners.forEach((fn) => { try { fn() } catch (e) {} }) },
       subscribe(fn) { integrationListeners.add(fn); return () => integrationListeners.delete(fn) },
-      // 显示方式偏好：better-sidebar pluginSettings 优先（有桥时），localStorage 兜底（原生模式/无桥时）
-      loadMode() {
-        let mode = readFlowDisplayMode()
-        try {
-          const snap = this.service && typeof this.service.getSnapshot === 'function' ? this.service.getSnapshot() : null
-          const saved = snap && snap.prefs && snap.prefs.pluginSettings && snap.prefs.pluginSettings[FLOW_TAB_ID]
-          if (saved && (saved.displayMode === 'auto' || saved.displayMode === 'sidebar' || saved.displayMode === 'drawer')) mode = saved.displayMode
-        } catch (e) {}
-        this.mode = mode
-      },
       sync(service) {
         this.service = service || null
         this.enabled = !service || typeof service.isTabEnabled !== 'function' || service.isTabEnabled(FLOW_TAB_ID) !== false
-        this.loadMode()
         if (this.active()) store.close()
         this.emit()
       },
@@ -820,7 +795,7 @@ return {
       const sidebarActive = useIntegrationActive()
       const nativeActive = integration.native
       // 原生右侧栏生效时入口保留：点击 openTab（自动展开侧栏并聚焦流镜 Tab）；
-      // Better Sidebar 桥生效时入口让位（Tab 已在其面板内）；两者都不可用 → 独立抽屉。
+      // Better Sidebar 桥生效时入口让位（Tab 已在其面板内）；两者都不可用 → 固定右侧兜底面板。
       if (sidebarActive && !nativeActive) return null
       return React.createElement(
         'button',
@@ -845,15 +820,17 @@ return {
     // 自愈插件重插后顺序稳定。纯 DOM（不进 React 树），不会干扰宿主 reconciliation。
     // 无 DOM 环境（headless）退回官方 Slot 兜底。
     const NAV_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="12" height="8.5" rx="1.5"/><path d="M5.5 5V3.8A1.3 1.3 0 0 1 6.8 2.5h2.4A1.3 1.3 0 0 1 10.5 3.8V5"/><path d="M2 8.2h12"/></svg>'
+    const FLOW_NAV_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="3" r="1.5"/><circle cx="4" cy="12.5" r="1.5"/><circle cx="12" cy="12.5" r="1.5"/><path d="M8 4.5v2.2M8 6.7L4 11M8 6.7l4 4.3"/></svg>'
+    const ENTRY_NAV_ICON = RT.bundleId === 'flow' ? FLOW_NAV_ICON : NAV_ICON
     const NAV_FAMILY_SEL = '[data-dsh-taskboard-entry], [data-dsh-ssh-entry], [data-dsh-toolbox-entry]'
     // 侧边栏入口图标引用（mountSidebarEntry 注入后绑定；无 DOM 环境走 Slot 兜底无图标，保持 null）。
     // Drawer 在只剩一个工具时经 replaceSidebarIcon 把工具箱图标临时换成该工具的图标。
     // desiredSidebarIcon 记录「最近希望显示的图标」：入口绑定晚于 Drawer effect 时，绑定后补刷一次，
     // 顺序无关（先想显示后绑定 / 先绑定后想显示都收敛到同一结果）。
     let sidebarIconEl = null
-    let desiredSidebarIcon = NAV_ICON
+    let desiredSidebarIcon = ENTRY_NAV_ICON
     const applySidebarIcon = () => { if (sidebarIconEl) { try { sidebarIconEl.innerHTML = desiredSidebarIcon } catch (e) {} } }
-    const replaceSidebarIcon = (html) => { desiredSidebarIcon = html || NAV_ICON; applySidebarIcon() }
+    const replaceSidebarIcon = (html) => { desiredSidebarIcon = html || ENTRY_NAV_ICON; applySidebarIcon() }
 
     function mountSidebarEntry() {
       function sidebarRoot() {
@@ -889,13 +866,13 @@ return {
       entry.setAttribute('aria-label', fullDisplayName)
       entry.setAttribute('title', fullDisplayName)
       const safeLabel = compactDisplayName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-      entry.innerHTML = '<span class="tb-nav-icon">' + NAV_ICON + '</span><span class="tb-nav-label">' + safeLabel + '</span>'
+      entry.innerHTML = '<span class="tb-nav-icon">' + ENTRY_NAV_ICON + '</span><span class="tb-nav-label">' + safeLabel + '</span>'
       const iconEl = entry.querySelector('.tb-nav-icon') // 单工具时替换此图标为工具图标
       sidebarIconEl = iconEl
       applySidebarIcon() // 补刷：Drawer 可能已在图标绑定前记录过单工具意图
       entry.addEventListener('click', () => {
         // 原生右侧栏生效：openTab 自动展开并聚焦流镜（Harness 保证 pane 内单例聚焦）；
-        // 否则切换独立抽屉。
+        // 否则切换固定右侧兜底面板。
         if (integration.native && nativeOpenTab) { try { nativeOpenTab() } catch (e) {} return }
         store.toggle()
       })
@@ -927,7 +904,7 @@ return {
         if (store.isOpen()) entry.setAttribute('data-active', 'true')
         else entry.removeAttribute('data-active')
         if (!entry.style) return
-        // 原生生效：入口保留（点击 openTab）；Better Sidebar 桥生效：让位；其余：独立抽屉入口
+        // 原生生效：入口保留（点击 openTab）；Better Sidebar 桥生效：让位；其余：固定兜底入口
         if (integration.active() && !integration.native) entry.style.display = 'none'
         else entry.style.display = ''
       }
@@ -1230,34 +1207,10 @@ return {
       )
     }
 
-    // better-sidebar 流镜 Tab 设置页：显示方式（原 pluginToggles 声明改为自绘 select）+ 外观面板
-    function BetterSidebarFlowSettings(props) {
-      const saved = (props && props.pluginSettings && props.pluginSettings.displayMode) || readFlowDisplayMode()
-      const [mode, setMode] = React.useState(saved === 'sidebar' || saved === 'drawer' ? saved : 'auto')
-      // 原生 <option> 弹出不继承页面深色样式（白底 + 继承浅色字 → 白底白字不可读），
-      // 显式按 DSH 明暗主题给 select/option 配色，colorScheme 让原生弹层跟随
-      const dark = (() => { try { return typeof document === 'undefined' || document.body.hasAttribute('data-ds-dark-theme') } catch (e) { return true } })()
-      const selBg = dark ? '#26272e' : '#ffffff'
-      const selFg = dark ? '#e8e8ea' : '#1f2024'
-      const selStyle = { height: '26px', padding: '0 8px', borderRadius: '6px', border: '1px solid rgba(128,128,128,.45)', background: selBg, color: selFg, fontSize: '12px', fontFamily: 'inherit', cursor: 'pointer', colorScheme: dark ? 'dark' : 'light' }
-      const optStyle = { background: selBg, color: selFg }
+    // better-sidebar 流镜 Tab 设置页只保留外观；承载方式由兼容层自动选择。
+    function BetterSidebarFlowSettings() {
       const headStyle = { fontSize: '11px', fontWeight: 600, opacity: 0.7, letterSpacing: '.4px' }
       return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12.5px' } },
-        React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '5px' } },
-          React.createElement('span', { style: headStyle }, '显示方式'),
-          React.createElement('select', {
-            value: mode, style: selStyle,
-            onChange: (e) => {
-              setMode(e.target.value)
-              try { props.updatePluginSetting('displayMode', e.target.value) } catch (err) {}
-              writeFlowDisplayMode(e.target.value) // 双源镜像：原生模式/无桥时同样生效
-            },
-          },
-            React.createElement('option', { value: 'auto', style: optStyle }, '自动 — 优先右侧栏（原生，其次 better-sidebar），都不可用时用抽屉'),
-            React.createElement('option', { value: 'sidebar', style: optStyle }, '右侧栏 — 原生右侧栏优先，缺失时用 better-sidebar 的流镜 Tab'),
-            React.createElement('option', { value: 'drawer', style: optStyle }, '独立抽屉 — 不注册右侧栏，保留流镜独立入口与抽屉'),
-          ),
-        ),
         React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
           React.createElement('span', { style: headStyle }, '外观（主题 / 主色 / 字号）'),
           React.createElement(AppearancePanel, null),
@@ -1291,8 +1244,11 @@ return {
       // 三态停靠：right 右侧栏 / full 全占右侧（贴侧边栏右缘起占满）/ float 浮动
       // 兼容旧版 docked 布尔（docked:false → float；docked:true/无 → right）与已移除的 bottom → right
       const [dockMode, setDockMode] = React.useState(() => {
+        if (RT.bundleId === 'flow') return 'right'
         const s = lsRead()
-        if (s && (s.dockMode === 'right' || s.dockMode === 'full' || s.dockMode === 'float')) return s.dockMode
+        if (s && (s.dockMode === 'right' || s.dockMode === 'full' || s.dockMode === 'float')) {
+          return s.dockMode
+        }
         return (s && s.docked === false) ? 'float' : 'right'
       })
       const docked = dockMode !== 'float' // 右/底都算停靠（不用浮动 pos）
@@ -1621,7 +1577,7 @@ return {
       managingRef.current = managing
       const activeRef = React.useRef(null) // 延迟回调里取最新 active（重启落定后的面板刷新）
       activeRef.current = active
-      const openRef = React.useRef(isOpen) // 独立抽屉或嵌入 Tab 的统一可见状态
+      const openRef = React.useRef(isOpen) // 固定右侧兜底面板或嵌入 Tab 的统一可见状态
       openRef.current = isOpen
       const retryCountRef = React.useRef({}) // toolId -> 面板加载失败重试次数（一次性重试，非轮询；成功清零）
       const attemptedRef = React.useRef({}) // toolId -> 面板请求已发起（首开死锁兜底用：tools 补齐后补打一次，之后不再重复）
@@ -1667,11 +1623,13 @@ return {
         return typeof off === 'function' ? off : undefined
       }, [])
 
-      // 挤压三栏：full 模式给主内容列（DSH grid 的 centerCol）加 margin-right 让出抽屉宽度，
+      // 完整工具箱的挤压三栏：full 模式给主内容列（DSH grid 的 centerCol）加 margin-right 让出抽屉宽度，
       // 聊天区收缩而非被覆盖（grid 项 margin 在轨道内生效，不影响侧边栏轨道）；
       // 关闭抽屉/切模式还原，拖拽调宽实时跟随；React 不管该列内联 style，不会被覆盖
       React.useEffect(() => {
-        if (embedded || !isOpen || dockMode !== 'full') return undefined
+        // Flowglass 固定右侧兜底面板必须是纯 overlay；Harness 已拥有右侧栏列，
+        // 再改 centerCol 会把主会话二次挤到左侧。
+        if (RT.bundleId === 'flow' || embedded || !isOpen || dockMode !== 'full') return undefined
         const col = typeof document !== 'undefined' ? document.querySelector('[class*="centerCol"]') : null
         if (!col) return undefined
         const w = width || 560
@@ -2068,7 +2026,7 @@ return {
 
       // —— 当前会话/工作区解析（v6.5；0.1.5 原生 Tab 优先）——
       // 原生右侧栏 Tab：props.sessionId（Slot 标准属性）是权威来源，永远最先命中；
-      // 独立抽屉（宿主会话下）才用 localStorage['dsh.sessions.current'] 事件桥（SESSION_EVENT，
+      // 固定右侧兜底面板（宿主会话下）才用 localStorage['dsh.sessions.current'] 事件桥（SESSION_EVENT，
       // 切会话零延迟）+ useSessions hook（响应式兜底）+ useState 初始化读取（无轮询）。
       // better-sidebar 嵌入态走 props.scope.sessionId（兼容路径，见 FlowglassSidebarView）。
       const readLsSession = () => {
@@ -2152,62 +2110,84 @@ return {
         setLiveRevision(0)
         if (!sessionsClient || typeof sessionsClient.binding !== 'function' || !currentSessionId) return undefined
         let attempts = new Map()
-        const foldWindow = (win) => {
-          const prev = attempts
-          const seen = new Set()
-          const next = new Map()
-          for (const entry of (win && Array.isArray(win.entries) && win.entries) || []) {
-            if (!entry || entry.type !== 'transient' || !entry.event) continue
-            const ev = entry.event
-            if (ev.type !== 'assistant/live-chunk') continue
-            const d = ev.data || {}
-            const id = String(d.attemptId == null ? '' : d.attemptId)
-            if (!id) continue
-            seen.add(id)
-            let a = next.get(id)
-            if (!a) {
-              a = {
-                attemptId: id,
-                turn: typeof d.turn === 'number' ? d.turn : null,
-                step: typeof d.step === 'number' ? d.step : null,
-                firstSeq: ev.seq, firstAt: ev.time, lastAt: ev.time,
-                text: '', reasoning: '', toolCall: false, finish: null,
-              }
-              next.set(id, a)
+        let initialized = false
+        const appendCapped = (current, delta) => {
+          const room = Math.max(0, LIVE_TEXT_CAP - current.length)
+          return room === 0 ? current : current + String(delta).slice(0, room)
+        }
+        const acceptTransient = (entry, target) => {
+          if (!entry || entry.type !== 'transient' || !entry.event) return
+          const ev = entry.event
+          if (ev.type !== 'assistant/live-chunk') return
+          const d = ev.data || {}
+          const id = String(d.attemptId == null ? '' : d.attemptId)
+          if (!id) return
+          let a = target.get(id)
+          if (!a) {
+            a = {
+              attemptId: id,
+              turn: typeof d.turn === 'number' ? d.turn : null,
+              step: typeof d.step === 'number' ? d.step : null,
+              firstSeq: ev.seq, firstAt: ev.time, lastAt: ev.time,
+              text: '', reasoning: '', toolCall: false, finish: null,
             }
-            const chunk = d.chunk || {}
-            if (chunk.type === 'text-delta' && typeof chunk.text === 'string') {
-              if (a.text.length < LIVE_TEXT_CAP) a.text += chunk.text
-            } else if (chunk.type === 'reasoning-delta' && typeof chunk.text === 'string') {
-              if (a.reasoning.length < LIVE_TEXT_CAP) a.reasoning += chunk.text
-            } else if (chunk.type === 'tool-call-delta') {
-              a.toolCall = true
-            } else if (chunk.type === 'finish' && chunk.reason) {
-              const f = chunk.reason.failure || {}
-              a.finish = {
-                kind: String(chunk.reason.kind || ''),
-                code: typeof f.code === 'string' ? f.code : '',
-                message: typeof f.message === 'string' ? f.message : '',
-              }
-            }
-            a.lastAt = ev.time
+            target.set(id, a)
           }
-          // 结算检测：上一轮在途、本轮从窗内消失的 attempt → 记录 UI 连续性（环形截断）
-          for (const id of prev.keys()) {
-            if (!seen.has(id)) {
-              const a = prev.get(id)
-              liveSettledRef.current.push({ attemptId: id, turn: a.turn, step: a.step, firstSeq: a.firstSeq })
+          const chunk = d.chunk || {}
+          if (chunk.type === 'text-delta' && typeof chunk.text === 'string') {
+            a.text = appendCapped(a.text, chunk.text)
+          } else if (chunk.type === 'reasoning-delta' && typeof chunk.text === 'string') {
+            a.reasoning = appendCapped(a.reasoning, chunk.text)
+          } else if (chunk.type === 'tool-call-delta') {
+            a.toolCall = true
+          } else if (chunk.type === 'finish' && chunk.reason) {
+            const f = chunk.reason.failure || {}
+            a.finish = {
+              kind: String(chunk.reason.kind || ''),
+              code: typeof f.code === 'string' ? f.code : '',
+              message: typeof f.message === 'string' ? f.message : '',
             }
           }
-          if (liveSettledRef.current.length > 24) liveSettledRef.current = liveSettledRef.current.slice(-24)
-          attempts = next
+          a.lastAt = ev.time
+        }
+        const publishWindow = (win) => {
           liveOverlayRef.current = {
             sessionId: currentSessionId,
-            revision: typeof win.revision === 'number' ? win.revision : 0,
-            attempts: [...next.values()],
+            revision: win && typeof win.revision === 'number' ? win.revision : 0,
+            attempts: [...attempts.values()],
             settled: liveSettledRef.current.slice(-8),
           }
           setLiveRevision((r) => r + 1)
+        }
+        const rebuildWindow = (win) => {
+          const next = new Map()
+          for (const entry of (win && Array.isArray(win.entries) && win.entries) || []) acceptTransient(entry, next)
+          attempts = next
+        }
+        const foldWindow = (win) => {
+          const change = win && win.change
+          // First attachment must rebuild even when the source's latest change
+          // was only an append; otherwise earlier chunks of an in-flight baseline
+          // would be lost. Subsequent publications use the exact window delta.
+          if (!initialized || !change || change.kind === 'replace') {
+            rebuildWindow(win)
+            initialized = true
+          } else if (change.kind === 'append') {
+            for (const entry of Array.isArray(change.entries) ? change.entries : []) acceptTransient(entry, attempts)
+          } else if (change.kind === 'settle-assistant') {
+            const id = String(change.attemptId == null ? '' : change.attemptId)
+            const a = attempts.get(id)
+            attempts.delete(id)
+            // Only a durable settlement needs an occurrence bridge. An
+            // abandonment has no replacement card and must not poison a later
+            // attempt in the same turn/step.
+            if (a && change.entry) {
+              liveSettledRef.current.push({ attemptId: id, turn: a.turn, step: a.step, firstSeq: a.firstSeq })
+              if (liveSettledRef.current.length > 24) liveSettledRef.current = liveSettledRef.current.slice(-24)
+            }
+          }
+          // prepend carries durable history only, so the active attempt map is unchanged.
+          publishWindow(win)
         }
         let off = null
         const attach = () => {
@@ -3009,7 +2989,7 @@ return {
       React.useEffect(() => {
         const solo = !managing && tools.length === 1 && tools[0] && tools[0].icon
           ? tools[0].icon : null
-        replaceSidebarIcon(solo || NAV_ICON)
+        replaceSidebarIcon(solo || ENTRY_NAV_ICON)
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [tools, managing])
 
@@ -3391,12 +3371,15 @@ return {
         ),
       )
 
-      const dockButton = React.createElement('button', {
+      const dockButton = RT.bundleId === 'flow' ? null : React.createElement('button', {
         type: 'button',
         className: 'jr-overlay-close',
         title: dockMode === 'right' ? '切换到三栏停靠（挤压聊天区，左中右并列）' : dockMode === 'full' ? '切换为浮动' : '停靠到右侧',
         onPointerDown: (ev) => ev.stopPropagation(),
-        onClick: (ev) => { ev.stopPropagation(); setDockMode(dockMode === 'right' ? 'full' : dockMode === 'full' ? 'float' : 'right') },
+        onClick: (ev) => {
+          ev.stopPropagation()
+          setDockMode(dockMode === 'right' ? 'full' : dockMode === 'full' ? 'float' : 'right')
+        },
       },
         dockMode === 'right'
           ? React.createElement('svg', { width: 14, height: 14, viewBox: '0 0 14 14', fill: 'currentColor' },
@@ -3770,10 +3753,11 @@ return {
       },
         embedded ? null : React.createElement('div', {
           className: 'jr-drawer-header',
-          onPointerDown: onHeaderDown,
-          onPointerMove: onHeaderMove,
-          onPointerUp: onHeaderUp,
-          onPointerCancel: onHeaderUp,
+          style: RT.bundleId === 'flow' ? { cursor: 'default' } : undefined,
+          onPointerDown: RT.bundleId === 'flow' ? undefined : onHeaderDown,
+          onPointerMove: RT.bundleId === 'flow' ? undefined : onHeaderMove,
+          onPointerUp: RT.bundleId === 'flow' ? undefined : onHeaderUp,
+          onPointerCancel: RT.bundleId === 'flow' ? undefined : onHeaderUp,
         },
           React.createElement('span', {
             className: 'jr-drawer-title',
@@ -3851,7 +3835,7 @@ return {
         return React.createElement('div', {
           'data-dsh-toolbox-scope': RT.domValue(),
           style: { width: '100%', height: '100%' },
-        }, React.createElement('div', { className: 'tb-notice' }, '流镜当前设置为独立抽屉模式。'))
+        }, React.createElement('div', { className: 'tb-notice' }, '流镜右侧栏承载暂不可用。'))
       }
       return React.createElement(Drawer, {
         embedded: true,
@@ -3868,11 +3852,10 @@ return {
     //   props.useSessions：全局会话列表 hook（工作区会话树/cwd 兜底）；
     //   props.useTabInfo()：tab.visible 驱动不可见暂停（定时刷新/动画计时/Markdown 重渲染停摆）。
     function FlowglassNativeTabBody(props) {
-      let visible = true
-      try {
-        const info = typeof props.useTabInfo === 'function' ? props.useTabInfo() : null
-        visible = !(info && info.tab && info.tab.visible === false)
-      } catch (e) {}
+      // 原生 Slot 契约保证该 hook 存在；保持无条件调用，避免在 try/条件分支
+      // 内调用 hook 导致渲染间 hook 顺序漂移。
+      const info = props.useTabInfo()
+      const visible = !(info && info.tab && info.tab.visible === false)
       return React.createElement(Drawer, {
         embedded: true,
         visible,
@@ -3905,10 +3888,11 @@ return {
     // ===== Harness 原生右侧栏注册（0.1.5+，最高层；仅原生 flow bundle）=====
     // 两段式公开契约：sidebarRightTabs.register 注册 page type（guide 入口随定义），
     // 同一个 definition id 在 sidebar.right.pane.tab 声明 body。服务不存在时 inject
-    // fiber 保持等待（旧 Harness 无感降级到 better-sidebar / Drawer）。
-    // 用户显式选择 drawer 模式 → 不注册（integration.mode 订阅驱动撤销/重挂）。
+    // fiber 保持等待（旧 Harness 无感降级到 better-sidebar / 固定右侧兜底面板）。
     if (RT.bundleId === 'flow' && typeof ctx.inject === 'function') {
-      ctx.inject(['sidebarRightTabs'], (nativeCtx) => {
+      // 两个服务由宿主相邻 provide，但晚加载/HMR 时仍是两个独立可见性边；
+      // 同时等待，避免 registry 先到时永久捕获 undefined controller。
+      ctx.inject(['sidebarRightTabs', 'sidebarRight'], (nativeCtx) => {
         const tabs = nativeCtx.get('sidebarRightTabs')
         if (!tabs || typeof tabs.register !== 'function') return
         const controller = nativeCtx.get('sidebarRight')
@@ -3937,7 +3921,6 @@ return {
         let disposeType = null
         let disposeBody = null
         const nativeSlots = nativeCtx.get('slots')
-        const wanted = () => integration.mode !== 'drawer'
         const retract = () => {
           if (disposeBody) { try { disposeBody() } catch (e) {} disposeBody = null }
           if (disposeType) { try { disposeType() } catch (e) {} disposeType = null }
@@ -3945,9 +3928,7 @@ return {
           integration.setNative(false)
         }
         const applyNative = () => {
-          // 决策前刷新显示方式偏好（无桥环境以 localStorage 为准）
-          integration.loadMode()
-          if (wanted()) {
+          {
             if (!disposeType) {
               try { disposeType = tabs.register(definition) } catch (e) { retract(); return }
               disposeBody = nativeSlots && typeof nativeSlots.inject === 'function'
@@ -3962,8 +3943,6 @@ return {
               }
               integration.setNative(true)
             }
-          } else if (disposeType) {
-            retract()
           }
         }
         applyNative()
@@ -3985,7 +3964,7 @@ return {
       let bsDispose = null
       const syncBsRegistration = () => {
         if (!bsService || typeof bsService.registerTab !== 'function' || !bsDescriptor) return
-        const want = !integration.native && integration.mode !== 'drawer' && integration.enabled !== false
+        const want = !integration.native && integration.enabled !== false
         if (want && !bsDispose) {
           try {
             const d = bsService.registerTab(bsDescriptor)
@@ -4023,8 +4002,7 @@ return {
             React.createElement('path', { d: 'M8 4.5v2.2M8 6.7L4 11M8 6.7l4 4.3' }),
           ),
           settings: features.indexOf('pluginSettings') < 0 ? undefined : {
-            // 自绘设置面板：显示方式（pluginSettings.displayMode + localStorage 双源镜像）
-            // + 外观（主题/主色/字号，与管理页「外观」分区同源）
+            // 外观（主题/主色/字号，与管理页「外观」分区同源）
             render: (sprops) => React.createElement(BetterSidebarFlowSettings, sprops),
           },
           component: (tabProps) => React.createElement(FlowglassSidebarView, tabProps),
