@@ -117,6 +117,26 @@ AI 助手（Tab「AI 助手」）：preset 芯片切换 问答/翻译/优化/评
 
 编辑 `plugins/<key>/tool.js`（或 framework 的 host/client、shared/host.js、loader.js）→ 抽屉齿轮管理视图点该行的「**重跑**」按钮即生效（桩重读磁盘；也可 `cordis_run(mode: run)` 重跑对应插件），**不用重新 define、不用重新批准**。批量改完点「**全部重跑**」一键重启所有运行中的 Host-only 插件（停着的不动；含 Client 半的仍需 Cordis 面板）。重跑类操作后客户端会等注册表 500ms 重试落定再自动刷新工具列表与当前面板（不再把 active Tab 挤走）。改完先 `node make-payloads.mjs` 语法检查，再 `node smoke.mjs` 跑契约冒烟（改动 shared/host.js / framework / 面板协议时必跑）。
 
+流镜（flow 工具）在 DSH 0.1.5+ 上的数据协议：
+
+- **统一折叠器**（`plugins/flow/tool.js` 的 `parseItems`）同时吃两种来源——① Client 订阅 Session Controller 事件窗（`ctx.sessions.binding(sid).eventSource`），把瞬时 `assistant/live-chunk` 折叠成 attempt 快照随 `toolbox/panel` 的 `live` 参数带给 Host；② Host `sessionQuery` 的持久事件（`assistant/message` / `assistant/attempt` 内嵌 `stream` 记录被精确重放）。旧 `assistant/chunk`（0.1.2）不再解析。
+- **结算去重**：事件窗 `settle-assistant` 把瞬时条目替换为持久结算；Client 附最近结算 attempt 的 `firstSeq`，Host 结算卡继承该 seq——框选、详情、分支按钮在结算替换时不丢。
+- **冷会话/跨会话/子代理钻取**仍走 `sessionQuery`（无 live 叠加层，折叠器等价处理）。
+
+## 真实组合冒烟（0.1.5-rc.2）
+
+`smoke/sim-rc2-composition.cjs` 装载**真实** cordis + dsh-cordis-host-runner（不走 mock 内核）跑 define→批准状态机→runHostHalf→invoke→stopFromPanel 全链路，并核对 0.1.5 原生能力在发行包中真实存在（右侧栏 `sidebarRightTabs` / `sidebar.right.pane.tab`、事件窗 `binding` / `settleAssistant` / `assistant/live-chunk`、better-sidebar 0.19.1 `registerTab`）。它需要一个 0.1.5-rc.2 安装树（优先级：`DSH_INSTALL_ROOT` 环境变量 → 仓库 `.scratch/dsh-rc2-composition/` → 全局安装）：
+
+```powershell
+New-Item -ItemType Directory -Force .scratch\dsh-rc2-composition | Out-Null
+Push-Location .scratch\dsh-rc2-composition ; npm init -y
+npm install @deepseek-ai/dsh@0.1.5-rc.2 dsh-better-sidebar@0.19.1
+Pop-Location
+node smoke.mjs   # sim-rc2-composition 随全套件运行；版本不匹配时 fail loud
+```
+
+浏览器侧（原生右侧栏 Tab / 事件窗实时流）无法在 Node 内装载——以发行包产物核对 + `sim-flow` / `sim-toolbox-client` 协议仿真覆盖；真实页面挂载按 README「开发与验证」构建后 `npm pack` + `dsh plugin --profile web add` 验证。
+
 ## 元数据变化
 
 插件增减/改 inject/改文件名 → 编辑 `build/plugin-catalog.mjs` 的 PLUGINS 表 → `node make-payloads.mjs` 重新生成全部 `plugin.json` / `payload.json` / `plugins.json` → 新插件 cordis_define + run，已有插件不用动。`node scripts/verify-generated.mjs` 可守门生成物漂移（改 catalog/源码忘重跑会报）。

@@ -61,7 +61,16 @@ return {
 | 下拉联动 | select 加 `data-action-onchange="xxx"`：change 即自动触发该动作（无需切换按钮）；provider→模型列表联动就用它。联动请求在途时面板内 select 自动锁定（失败自动恢复）；Client 壳按工具发请求序号，过期响应直接丢弃——handler 无需关心并发乱序。**注意：面板是 innerHTML 裸 DOM，React 合成 onChange 对它永不派发，壳用的是抽屉根节点上的原生 change 监听——新事件类型别想当然走 React onXxx** |
 | 分类归属 | 导航是「搜索 / 分类 / 工具」三行：工具经 `DEFAULT_CAT`（toolbox/client.js）归入 AI/开发/会话/系统，**新工具默认落「开发」**，要归别的类就改 DEFAULT_CAT；终端用户可在管理树（齿轮）里把节点拖到别的分类（覆盖存 localStorage `dsh.toolbox.cats`，优先级高于 DEFAULT_CAT） |
 | 环境 | 每次动作透传 `root`（当前工作区路径）与 `session`（当前会话 ID，轨迹类工具用） |
+| live 叠加层（0.1.5） | Client → Host 额外透传 `live`（仅流镜使用）：`{ sessionId, revision, attempts, settled }`——Session Controller 事件窗的瞬时 `assistant/live-chunk` 在 Client 预折叠成 attempt 快照，Host 折叠器与持久事件走同一逻辑；`settled` 携带最近结算 attempt 的 `firstSeq` 供 UI 连续性。经 `shared/registry.js` 的 `panel()` 透传，工具 handler 自行校验形状（见 `plugins/flow/tool.js`） |
 | state | 纯 JSON，宿主侧按工具持有，每次动作原样回传 |
+
+## 右侧栏承载（流镜专属，0.1.5）
+
+`plugins/toolbox/client.js`（仅 `bundleId === 'flow'`）按层级注册承载面，同一时刻只有一条路径生效：
+
+1. `ctx.inject(['sidebarRightTabs'])` → `tabs.register({ id: 'dsh-flowglass/native', kind: 'dsh-flowglass:flow', title, guide })` 注册原生 page type；同一 definition id 在 `sidebar.right.pane.tab` Slot 注册 body（`FlowglassNativeTabBody`，props：`sessionId`/`useSessions`/`useTabInfo()`→`tab.visible`）。自有入口点击 → `ctx.sidebarRight.openTab(kind)` 自动展开。
+2. 原生不可用时 `ctx.inject(['betterSidebar'])` → `service.registerTab(descriptor)`（descriptor 带 `description`；`single: true` 只保证目标 pane 内去重）。原生接管时该桥自动撤销、原生消失时自动恢复。
+3. 都不可用 / 注册抛错 / 用户选 `drawer` 模式 → 独立 Drawer（唯一兜底，永不消失）。显示方式偏好双源：better-sidebar `pluginSettings.displayMode` + localStorage `RT.storageKey('flow.display')`。
 
 ## 必踩的坑（实战血泪）
 

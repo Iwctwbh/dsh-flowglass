@@ -16,9 +16,12 @@
 - **Markdown 助手详情**：默认使用 Harness 官方 Markdown renderer 展示表格、代码块、列表和数学公式；点击预览图标可切回原始文本，复制始终保留原始 Markdown，无 renderer 的动态 Toolbox 保持纯文本。
 - **详情侧栏可调宽**：左缘拖拽或外观设置「详情宽度」滑杆，自动记忆；助手消息详情头部带与卡片同款的分支按钮。
 - **一键复制**：详情各内容框标题行「复制」按钮，直接写系统剪贴板。
-- **实时刷新**：默认每 2 秒静默刷新；页面不可见时暂停，回到页面后继续。
+- **实时刷新**：默认每 2 秒静默刷新；DSH 0.1.5+ 上额外订阅 Harness 原生会话事件窗，模型生成期间按事件即时刷新（不必等轮询）；页面/Tab 不可见时暂停，回到页面后继续。
+- **生成过程可见**（DSH 0.1.5+）：模型流式输出实时增长；成功、失败、取消、重试与中断都以确定的结算态展示（真实错误码、重试链、max-tokens 截断标记），刷新或重连后与历史视图一致，不产生重复卡片。
 
 ## 安装
+
+要求 DeepSeek Harness `0.1.5-rc.1` 或更高（`dsh --version` 查看）。
 
 ```powershell
 dsh plugin --profile web add dsh-flowglass
@@ -38,17 +41,18 @@ dsh plugin --profile web remove dsh-flowglass
 
 `dsh-flowglass` 是本仓库的默认产品和默认构建目标。它是原生静态 Host/Client 插件，不使用 `dynamicCordisRunner`，也不产生 `dyn/*`。
 
-## 与 dsh-better-sidebar 集成
+## 右侧栏承载与降级
 
-`dsh-better-sidebar` 是可选依赖：
+流镜的承载面按以下优先级自动选择（同一时刻只有一条注册路径生效）：
 
-- 已安装时，流镜注册为按会话隔离的原生「流镜」Tab；默认 `auto` 模式优先使用这个 Tab。
-- 未安装、Tab 被禁用或选择「独立抽屉」时，流镜继续使用自带入口和抽屉。
+1. **Harness 原生右侧栏**（DSH 0.1.5+）：注册原生 page type `dsh-flowglass:flow`（definition id `dsh-flowglass/native`），出现在右侧栏 guide 的「流镜」入口；从流镜自有入口点击会 `openTab` 自动展开并聚焦。原生 Tab 按会话隔离（`props.sessionId` 是权威来源），Tab 不可见时自动暂停刷新。
+2. **dsh-better-sidebar 原生桥**（可选依赖 `>=0.19.0`）：原生右侧栏不可用时，若安装了 better-sidebar，则注册其「流镜」Tab。
+3. **独立抽屉**：以上都不可用、注册失败或被禁用时，始终保留自带入口与抽屉（Zen/拖拽/停靠记忆属于抽屉独有）。
 
-可先安装侧边栏，再安装流镜：
+显示方式可在设置里切换：`auto`（默认，按上述优先级）、`sidebar`（右侧栏优先）、`drawer`（只使用独立抽屉，不注册任何右侧栏 Tab）。偏好同时持久化到 better-sidebar 设置与本地，任一来源生效。
 
 ```powershell
-dsh plugin --profile web add dsh-better-sidebar
+dsh plugin --profile web add dsh-better-sidebar   # 可选；仅在原生右侧栏不可用时需要
 dsh plugin --profile web add dsh-flowglass
 ```
 
@@ -57,8 +61,8 @@ dsh plugin --profile web add dsh-flowglass
 不传功能参数，或显式传入 `--flow`，都会构建 `dsh-flowglass`：
 
 ```powershell
-node scripts/build-toolbox-bundle.mjs --version 0.4.0 --clean
-# 等价：node scripts/build-toolbox-bundle.mjs --flow --version 0.4.0 --clean
+node scripts/build-toolbox-bundle.mjs --version 0.5.0 --clean
+# 等价：node scripts/build-toolbox-bundle.mjs --flow --version 0.5.0 --clean
 
 node scripts/verify-bundle.mjs dist/toolbox-bundles/flow --pack
 Push-Location dist/toolbox-bundles/flow
@@ -66,14 +70,25 @@ npm pack
 Pop-Location
 ```
 
-默认输出目录为 `dist/toolbox-bundles/flow/`，默认 npm 包名为 `dsh-flowglass`。只有构建其他功能组合时，才使用 `dsh-<bundleId>-toolbox` 命名；仍可通过 `--name` 显式覆盖。
+默认输出目录为 `dist/toolbox-bundles/flow/`，默认 npm 包名为 `dsh-flowglass`。只有构建其他功能组合时，才使用 `dsh-<bundleId>-toolbox` 命名；仍可通过 `--name` 显式覆盖。构建产物回填到 [`flowglass/`](flowglass/)（`Copy-Item dist/toolbox-bundles/flow/* flowglass/ -Recurse -Force`）。
 
 ## 开发与验证
 
 ```powershell
-node scripts/verify-generated.mjs
+node make-payloads.mjs            # 动态桩/清单再生成（改 catalog 后）
+node scripts/verify-generated.mjs # 生成物漂移检查
 node scripts/verify-bundle.mjs flowglass --pack
-node smoke.mjs
+node smoke.mjs                    # 全部契约冒烟（含 0.1.5-rc.2 真实组合，见下）
+```
+
+真实组合冒烟（`smoke/sim-rc2-composition.cjs`）装载真实 cordis/host-runner 走 define→批准→invoke→teardown 全链路，并核对 0.1.5 原生右侧栏/事件窗/better-sidebar 0.19.1 的发行包契约。它需要一个 0.1.5-rc.2 安装树（按优先级：`DSH_INSTALL_ROOT` → 仓库 `.scratch/dsh-rc2-composition/` → 全局）：
+
+```powershell
+New-Item -ItemType Directory -Force .scratch\dsh-rc2-composition | Out-Null
+Push-Location .scratch\dsh-rc2-composition
+npm init -y
+npm install @deepseek-ai/dsh@0.1.5-rc.2 dsh-better-sidebar@0.19.1
+Pop-Location
 ```
 
 Flowglass 的静态产物位于 [`flowglass/`](flowglass/)，核心功能实现位于 [`plugins/flow/`](plugins/flow/)，共享界面框架位于 [`plugins/toolbox/`](plugins/toolbox/)。内部保留 `toolboxRegistry`、`toolbox.*` RPC 与 `.dsh-dynamic-toolbox/` 数据路径，以兼容现有框架和历史数据；这些内部名称不改变默认安装入口。
