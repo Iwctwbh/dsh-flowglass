@@ -876,32 +876,63 @@ return {
       subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn) },
     }
 
-    // ===== better-sidebar 可选适配（仅原生 flow bundle） =====
-    // 服务可晚于流镜出现/被 HMR 替换，所以用 ctx.inject 驱动，并用这个小 store
-    // 让已挂载的独立入口/Drawer 同步让位。完整 dynamic-toolbox 不接管为“流镜” Tab。
+    // ===== 右侧栏承载选择（仅原生 flow bundle；一次只激活一条注册路径）=====
+    // 接入层级（0.1.5 计划）：Harness 原生 sidebarRightTabs + slots
+    //   > Better Sidebar >= 0.19 原生桥 > 独立 Drawer。
+    // 服务可晚于流镜出现/被 HMR 替换，所以两条桥都用 ctx.inject 驱动，并用这个
+    // 小 store 让已挂载的独立入口/Drawer 同步让位/恢复。完整 dynamic-toolbox 不接管为“流镜” Tab。
     const FLOW_TAB_ID = 'dsh-flowglass:flow'
+    const FLOW_NATIVE_ID = 'dsh-flowglass/native' // 原生 page type 的 definition id（body/title 同 id 注册）
+    const FLOW_NATIVE_KIND = 'dsh-flowglass:flow' // openTab 寻址的 kind
+    // 显示方式偏好双源：better-sidebar pluginSettings（有桥时）+ localStorage（原生模式/无桥时）
+    const readFlowDisplayMode = () => {
+      try {
+        const raw = localStorage.getItem(RT.storageKey('flow.display'))
+        const p = JSON.parse(raw)
+        if (p && (p.displayMode === 'auto' || p.displayMode === 'sidebar' || p.displayMode === 'drawer')) return p.displayMode
+      } catch (e) {}
+      return 'auto'
+    }
+    const writeFlowDisplayMode = (mode) => {
+      try { localStorage.setItem(RT.storageKey('flow.display'), JSON.stringify({ displayMode: mode })) } catch (e) {}
+      integration.sync(integration.service)
+    }
     const integrationListeners = new Set()
     const integration = {
-      service: null,
+      service: null, // betterSidebar 服务
+      native: false, // Harness 原生右侧栏注册生效（最高层）
       mode: 'auto',
       enabled: true,
-      active() { return Boolean(this.service) && this.enabled && this.mode !== 'drawer' },
+      active() { return this.mode !== 'drawer' && (this.native || (Boolean(this.service) && this.enabled)) },
       emit() { integrationListeners.forEach((fn) => { try { fn() } catch (e) {} }) },
       subscribe(fn) { integrationListeners.add(fn); return () => integrationListeners.delete(fn) },
-      sync(service) {
-        this.service = service || null
-        this.enabled = !service || typeof service.isTabEnabled !== 'function' || service.isTabEnabled(FLOW_TAB_ID) !== false
-        let mode = 'auto'
+      // 显示方式偏好：better-sidebar pluginSettings 优先（有桥时），localStorage 兜底（原生模式/无桥时）
+      loadMode() {
+        let mode = readFlowDisplayMode()
         try {
-          const snap = service && typeof service.getSnapshot === 'function' ? service.getSnapshot() : null
+          const snap = this.service && typeof this.service.getSnapshot === 'function' ? this.service.getSnapshot() : null
           const saved = snap && snap.prefs && snap.prefs.pluginSettings && snap.prefs.pluginSettings[FLOW_TAB_ID]
           if (saved && (saved.displayMode === 'auto' || saved.displayMode === 'sidebar' || saved.displayMode === 'drawer')) mode = saved.displayMode
         } catch (e) {}
         this.mode = mode
+      },
+      sync(service) {
+        this.service = service || null
+        this.enabled = !service || typeof service.isTabEnabled !== 'function' || service.isTabEnabled(FLOW_TAB_ID) !== false
+        this.loadMode()
+        if (this.active()) store.close()
+        this.emit()
+      },
+      setNative(on) {
+        const next = Boolean(on)
+        if (this.native === next) return
+        this.native = next
         if (this.active()) store.close()
         this.emit()
       },
     }
+    // 原生 openTab 句柄（sidebarRightTabs 注入回调内置位；null = 原生不可用）
+    let nativeOpenTab = null
 
     function useIntegrationActive() {
       const [, force] = React.useState(0)
@@ -918,14 +949,20 @@ return {
     function Entry(props) {
       const isOpen = useOpenState()
       const sidebarActive = useIntegrationActive()
-      if (sidebarActive) return null
+      const nativeActive = integration.native
+      // 原生右侧栏生效时入口保留：点击 openTab（自动展开侧栏并聚焦流镜 Tab）；
+      // Better Sidebar 桥生效时入口让位（Tab 已在其面板内）；两者都不可用 → 独立抽屉。
+      if (sidebarActive && !nativeActive) return null
       return React.createElement(
         'button',
         {
           type: 'button',
-          className: 'tb-entry' + (isOpen ? ' tb-entry-active' : ''),
-          title: fullDisplayName + '（工具集）',
-          onClick: () => store.toggle(),
+          className: 'tb-entry' + (isOpen && !nativeActive ? ' tb-entry-active' : ''),
+          title: fullDisplayName + (nativeActive ? '（在右侧栏打开流镜）' : '（工具集）'),
+          onClick: () => {
+            if (nativeActive && nativeOpenTab) { try { nativeOpenTab() } catch (e) {} return }
+            store.toggle()
+          },
         },
         props.wide ? compactDisplayName : '箱',
       )
@@ -987,7 +1024,12 @@ return {
       const iconEl = entry.querySelector('.tb-nav-icon') // 单工具时替换此图标为工具图标
       sidebarIconEl = iconEl
       applySidebarIcon() // 补刷：Drawer 可能已在图标绑定前记录过单工具意图
-      entry.addEventListener('click', () => store.toggle())
+      entry.addEventListener('click', () => {
+        // 原生右侧栏生效：openTab 自动展开并聚焦流镜（Harness 保证 pane 内单例聚焦）；
+        // 否则切换独立抽屉。
+        if (integration.native && nativeOpenTab) { try { nativeOpenTab() } catch (e) {} return }
+        store.toggle()
+      })
 
       let root
       let placed = false
@@ -1015,7 +1057,10 @@ return {
       const syncActive = () => {
         if (store.isOpen()) entry.setAttribute('data-active', 'true')
         else entry.removeAttribute('data-active')
-        if (entry.style) entry.style.display = integration.active() ? 'none' : ''
+        if (!entry.style) return
+        // 原生生效：入口保留（点击 openTab）；Better Sidebar 桥生效：让位；其余：独立抽屉入口
+        if (integration.active() && !integration.native) entry.style.display = 'none'
+        else entry.style.display = ''
       }
       const unsubscribe = store.subscribe(syncActive)
       const unsubscribeIntegration = integration.subscribe(syncActive)
@@ -1318,7 +1363,7 @@ return {
 
     // better-sidebar 流镜 Tab 设置页：显示方式（原 pluginToggles 声明改为自绘 select）+ 外观面板
     function BetterSidebarFlowSettings(props) {
-      const saved = props && props.pluginSettings && props.pluginSettings.displayMode
+      const saved = (props && props.pluginSettings && props.pluginSettings.displayMode) || readFlowDisplayMode()
       const [mode, setMode] = React.useState(saved === 'sidebar' || saved === 'drawer' ? saved : 'auto')
       // 原生 <option> 弹出不继承页面深色样式（白底 + 继承浅色字 → 白底白字不可读），
       // 显式按 DSH 明暗主题给 select/option 配色，colorScheme 让原生弹层跟随
@@ -1333,11 +1378,15 @@ return {
           React.createElement('span', { style: headStyle }, '显示方式'),
           React.createElement('select', {
             value: mode, style: selStyle,
-            onChange: (e) => { setMode(e.target.value); try { props.updatePluginSetting('displayMode', e.target.value) } catch (err) {} },
+            onChange: (e) => {
+              setMode(e.target.value)
+              try { props.updatePluginSetting('displayMode', e.target.value) } catch (err) {}
+              writeFlowDisplayMode(e.target.value) // 双源镜像：原生模式/无桥时同样生效
+            },
           },
-            React.createElement('option', { value: 'auto', style: optStyle }, '自动 — 可用时使用侧边卡片'),
-            React.createElement('option', { value: 'sidebar', style: optStyle }, '侧边卡片 — 使用 better-sidebar 的流镜 Tab'),
-            React.createElement('option', { value: 'drawer', style: optStyle }, '独立抽屉 — 保留流镜原来的独立入口与抽屉'),
+            React.createElement('option', { value: 'auto', style: optStyle }, '自动 — 优先右侧栏（原生，其次 better-sidebar），都不可用时用抽屉'),
+            React.createElement('option', { value: 'sidebar', style: optStyle }, '右侧栏 — 原生右侧栏优先，缺失时用 better-sidebar 的流镜 Tab'),
+            React.createElement('option', { value: 'drawer', style: optStyle }, '独立抽屉 — 不注册右侧栏，保留流镜独立入口与抽屉'),
           ),
         ),
         React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
@@ -2148,11 +2197,11 @@ return {
         }
       }, [isOpen, active, html, flowMarkdownPreviewKey])
 
-      // —— 当前会话/工作区解析（v6.5）——
-      // 抽屉主实例挂在宿主会话（toolbox-host-*）下，其 useSessions 不响应浏览器 UI 切会话；
-      // app-shell 会把当前会话写入 localStorage['dsh.sessions.current']（浏览器全局权威）。
-      // 来源：localStorage 事件桥（SESSION_EVENT，切会话零延迟，主路径）
-      // + useSessions hook（响应式兜底）+ useState 初始化读取（无轮询）。
+      // —— 当前会话/工作区解析（v6.5；0.1.5 原生 Tab 优先）——
+      // 原生右侧栏 Tab：props.sessionId（Slot 标准属性）是权威来源，永远最先命中；
+      // 独立抽屉（宿主会话下）才用 localStorage['dsh.sessions.current'] 事件桥（SESSION_EVENT，
+      // 切会话零延迟）+ useSessions hook（响应式兜底）+ useState 初始化读取（无轮询）。
+      // better-sidebar 嵌入态走 props.scope.sessionId（兼容路径，见 FlowglassSidebarView）。
       const readLsSession = () => {
         try {
           if (typeof localStorage === 'undefined') return undefined
@@ -2216,6 +2265,119 @@ return {
       // 不随渲染赋值——否则 effect 里比较恒等永远不会触发）
       const handledCwdRef = React.useRef(currentCwd || '')
       const handledSessionRef = React.useRef(currentSessionId || '')
+
+      // ===== DSH 0.1.5 原生事件窗订阅（实时流叠加层，仅当前会话）=====
+      // sessions.binding(sid).eventSource 订阅 SessionEventWindow：瞬时 assistant/live-chunk
+      // 条目在 Client 预折叠成 attempt 快照，随每次流镜面板请求带给 Host 统一折叠器；
+      // settle-assistant 把瞬时条目替换为持久结算 → 本轮消失的 attempt 记入 settled，
+      // Host 结算卡继承该 firstSeq，框选/详情/分支等 UI 状态在结算替换时不丢。
+      // 窗 revision 变化驱动一次防抖静默刷新（不必等 2s 轮询）。重连 baseline 由
+      // Session Controller 重建为瞬时条目，本订阅天然覆盖（折叠器幂等，无重复卡）。
+      const LIVE_TEXT_CAP = 8000
+      const liveOverlayRef = React.useRef(null)
+      const [liveRevision, setLiveRevision] = React.useState(0)
+      const liveSettledRef = React.useRef([])
+      React.useEffect(() => {
+        liveOverlayRef.current = null
+        liveSettledRef.current = []
+        setLiveRevision(0)
+        if (!sessionsClient || typeof sessionsClient.binding !== 'function' || !currentSessionId) return undefined
+        let attempts = new Map()
+        const foldWindow = (win) => {
+          const prev = attempts
+          const seen = new Set()
+          const next = new Map()
+          for (const entry of (win && Array.isArray(win.entries) && win.entries) || []) {
+            if (!entry || entry.type !== 'transient' || !entry.event) continue
+            const ev = entry.event
+            if (ev.type !== 'assistant/live-chunk') continue
+            const d = ev.data || {}
+            const id = String(d.attemptId == null ? '' : d.attemptId)
+            if (!id) continue
+            seen.add(id)
+            let a = next.get(id)
+            if (!a) {
+              a = {
+                attemptId: id,
+                turn: typeof d.turn === 'number' ? d.turn : null,
+                step: typeof d.step === 'number' ? d.step : null,
+                firstSeq: ev.seq, firstAt: ev.time, lastAt: ev.time,
+                text: '', reasoning: '', toolCall: false, finish: null,
+              }
+              next.set(id, a)
+            }
+            const chunk = d.chunk || {}
+            if (chunk.type === 'text-delta' && typeof chunk.text === 'string') {
+              if (a.text.length < LIVE_TEXT_CAP) a.text += chunk.text
+            } else if (chunk.type === 'reasoning-delta' && typeof chunk.text === 'string') {
+              if (a.reasoning.length < LIVE_TEXT_CAP) a.reasoning += chunk.text
+            } else if (chunk.type === 'tool-call-delta') {
+              a.toolCall = true
+            } else if (chunk.type === 'finish' && chunk.reason) {
+              const f = chunk.reason.failure || {}
+              a.finish = {
+                kind: String(chunk.reason.kind || ''),
+                code: typeof f.code === 'string' ? f.code : '',
+                message: typeof f.message === 'string' ? f.message : '',
+              }
+            }
+            a.lastAt = ev.time
+          }
+          // 结算检测：上一轮在途、本轮从窗内消失的 attempt → 记录 UI 连续性（环形截断）
+          for (const id of prev.keys()) {
+            if (!seen.has(id)) {
+              const a = prev.get(id)
+              liveSettledRef.current.push({ attemptId: id, turn: a.turn, step: a.step, firstSeq: a.firstSeq })
+            }
+          }
+          if (liveSettledRef.current.length > 24) liveSettledRef.current = liveSettledRef.current.slice(-24)
+          attempts = next
+          liveOverlayRef.current = {
+            sessionId: currentSessionId,
+            revision: typeof win.revision === 'number' ? win.revision : 0,
+            attempts: [...next.values()],
+            settled: liveSettledRef.current.slice(-8),
+          }
+          setLiveRevision((r) => r + 1)
+        }
+        let off = null
+        const attach = () => {
+          let binding
+          try { binding = sessionsClient.binding(currentSessionId) } catch (e) { binding = null }
+          const src = binding && binding.eventSource
+          if (!src || typeof src.getSnapshot !== 'function') return false
+          foldWindow(src.getSnapshot())
+          if (typeof src.subscribe === 'function') off = src.subscribe(() => foldWindow(src.getSnapshot()))
+          return true
+        }
+        let retryTimer = null
+        if (!attach()) {
+          // binding 可能晚于会话列表就绪（冷启动/列表刷新）：限时重试挂接
+          let tries = 0
+          retryTimer = setInterval(() => {
+            tries += 1
+            if (off || attach() || tries > 20) { try { clearInterval(retryTimer) } catch (e) {} }
+          }, 800)
+        }
+        return () => {
+          try { if (off) off() } catch (e) {}
+          try { if (retryTimer) clearInterval(retryTimer) } catch (e) {}
+        }
+      }, [currentSessionId, flowSessionIds.join('\u0001')])
+
+      // 实时增长：事件窗 revision 变化 → 防抖静默重拉（流镜激活且可见时），不等 2s 轮询。
+      // live 关（data-autorefresh 消失）/管理视图/不可见时不触发；暂停后重新可见的同步刷新
+      // 由 isOpen effect 承接（active/open 变化重载面板）。
+      React.useEffect(() => {
+        if (!liveRevision) return undefined
+        const t = setTimeout(() => {
+          const st = stateRef.current.flow
+          if (activeRef.current !== 'flow' || !openRef.current || managingRef.current) return
+          if (!st || st.live === false) return
+          if (typeof loadPanelRef.current === 'function') loadPanelRef.current('flow', '__refresh', null, { silent: true })
+        }, 150)
+        return () => { try { clearTimeout(t) } catch (e) {} }
+      }, [liveRevision])
 
       React.useEffect(() => {
         if (!flowTargetSession || !flowSessionIds.includes(flowTargetSession)) setFlowTargetSession(currentSessionId || flowSessionIds[0] || '')
@@ -2307,22 +2469,32 @@ return {
         return res.flowContext
       }
 
-      // 跨会话草稿写入读取目标会话的标准 props（inputActions）。新 Harness 把
-      // 会话标准 props 收进 Session Controller 绑定，经 ctx.uiSession 的
-      // adapter.resolve 按sessionId解析；旧 Harness 的 sessions.provideInfo
-      // 保留为回退路径，两版都能带入。
+      // 跨会话草稿写入（DSH 0.1.5 基线）：会话标准 props 收进 Session Controller 绑定，
+      // 经 ctx.uiSession 的 adapter.resolve(sessionId) 解析 { props.inputActions, hooks.input }。
+      // 旧 Harness 的 sessions.provideInfo 回退已删除（0.1.5 无该接口；不可解析时明确报错）。
+      // sessions.create() 的解析保证：promise 落定时 binding 可同步寻址——仍保留短重试，
+      // 容错列表投影尚未刷到的瞬间。
       const resolveSessionProvideInfo = (sessionId) => {
         const uiSession = ctx.get('uiSession')
-        if (uiSession && uiSession.adapter && typeof uiSession.adapter.resolve === 'function') {
-          const binding = uiSession.adapter.resolve(sessionId)
-          return binding ? { props: binding.props, hooks: binding.hooks } : undefined
+        if (!uiSession || !uiSession.adapter || typeof uiSession.adapter.resolve !== 'function') {
+          throw new Error('当前 Harness 不支持跨会话草稿写入（缺少 uiSession 绑定服务）')
         }
-        if (sessionsClient && typeof sessionsClient.provideInfo === 'function') return sessionsClient.provideInfo(sessionId)
-        throw new Error('Harness 当前版本不支持跨会话草稿写入')
+        const binding = uiSession.adapter.resolve(sessionId)
+        return binding ? { props: binding.props, hooks: binding.hooks } : undefined
       }
 
-      const putFlowContextIntoDraft = (sessionId, text, append) => {
-        const info = resolveSessionProvideInfo(sessionId)
+      const resolveSessionProvideInfoWithRetry = async (sessionId) => {
+        let last = undefined
+        for (let i = 0; i < 3; i++) {
+          last = resolveSessionProvideInfo(sessionId)
+          if (last) return last
+          await new Promise((r) => setTimeout(r, 120))
+        }
+        return last
+      }
+
+      const putFlowContextIntoDraft = async (sessionId, text, append) => {
+        const info = await resolveSessionProvideInfoWithRetry(sessionId)
         const actions = info && info.props && info.props.inputActions
         const input = info && info.hooks && info.hooks.input
         if (!actions || typeof actions.setDraft !== 'function') throw new Error('目标会话的输入区不可用')
@@ -2342,7 +2514,7 @@ return {
         try {
           const context = await fetchSelectedFlowContext()
           const sessionId = await sessionsClient.create(currentCwd ? { cwd: currentCwd } : {})
-          putFlowContextIntoDraft(sessionId, context.text, false)
+          await putFlowContextIntoDraft(sessionId, context.text, false)
           sessionsClient.open(sessionId)
           setFlowSelectedSeqs([])
           setFlowBringPopup(false)
@@ -2359,7 +2531,7 @@ return {
         setFlowUiBusy(true); setFlowUiNotice('正在整理并带入选中内容…')
         try {
           const context = await fetchSelectedFlowContext()
-          putFlowContextIntoDraft(target, context.text, true)
+          await putFlowContextIntoDraft(target, context.text, true)
           sessionsClient.open(target)
           setFlowSelectedSeqs([])
           setFlowBringPopup(false)
@@ -2520,6 +2692,13 @@ return {
             state: stateRef.current[toolId] || null,
             root: currentCwd || undefined,
             session: currentSessionId || undefined,
+            // 实时流叠加层（仅流镜）：事件窗在途 attempt + 最近结算 firstSeq。
+            // 只在确有内容时随请求携带，避免空壳 JSON 每 2s 往返。
+            live: toolId === 'flow' && liveOverlayRef.current
+              && ((liveOverlayRef.current.attempts && liveOverlayRef.current.attempts.length)
+                || (liveOverlayRef.current.settled && liveOverlayRef.current.settled.length))
+              ? liveOverlayRef.current
+              : undefined,
           })
           const timeoutP = new Promise((_, reject) => {
             try { ctx.timeout(() => reject(new Error('面板请求超时（5s）')), 5000) } catch (e) {}
@@ -3815,6 +3994,24 @@ return {
       })
     }
 
+    // 原生右侧栏 Tab body（0.1.5+）：Slot 标准属性是权威来源——
+    //   props.sessionId：Tab 所属会话（不读 localStorage / DOM 会话标记）；
+    //   props.useSessions：全局会话列表 hook（工作区会话树/cwd 兜底）；
+    //   props.useTabInfo()：tab.visible 驱动不可见暂停（定时刷新/动画计时/Markdown 重渲染停摆）。
+    function FlowglassNativeTabBody(props) {
+      let visible = true
+      try {
+        const info = typeof props.useTabInfo === 'function' ? props.useTabInfo() : null
+        visible = !(info && info.tab && info.tab.visible === false)
+      } catch (e) {}
+      return React.createElement(Drawer, {
+        embedded: true,
+        visible,
+        sessionId: props.sessionId,
+        useSessions: typeof props.useSessions === 'function' ? props.useSessions : () => undefined,
+      })
+    }
+
     if (typeof document !== 'undefined' && typeof MutationObserver !== 'undefined') {
       // 侧边栏导航区无官方 Slot：DOM 注入导航条目（新会话下方、SSH 之后），disposer 随插件停止清理
       ctx.effect(() => mountSidebarEntry())
@@ -3836,23 +4033,117 @@ return {
       (props) => React.createElement(Drawer, props),
     ))
 
-    // better-sidebar 自身也通过同一个服务注册内置 Tab；流镜只消费公开契约，
-    // 不 value-import 对方代码。服务缺失时 inject fiber 保持等待，独立抽屉照常工作。
+    // ===== Harness 原生右侧栏注册（0.1.5+，最高层；仅原生 flow bundle）=====
+    // 两段式公开契约：sidebarRightTabs.register 注册 page type（guide 入口随定义），
+    // 同一个 definition id 在 sidebar.right.pane.tab 声明 body。服务不存在时 inject
+    // fiber 保持等待（旧 Harness 无感降级到 better-sidebar / Drawer）。
+    // 用户显式选择 drawer 模式 → 不注册（integration.mode 订阅驱动撤销/重挂）。
     if (RT.bundleId === 'flow' && typeof ctx.inject === 'function') {
+      ctx.inject(['sidebarRightTabs'], (nativeCtx) => {
+        const tabs = nativeCtx.get('sidebarRightTabs')
+        if (!tabs || typeof tabs.register !== 'function') return
+        const controller = nativeCtx.get('sidebarRight')
+        const flowGlyph = (p) => React.createElement('svg', {
+          width: (p && p.size) || 16, height: (p && p.size) || 16, viewBox: '0 0 16 16', fill: 'none',
+          stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round',
+          className: p && p.className, 'aria-hidden': true,
+        },
+          React.createElement('circle', { cx: 8, cy: 3, r: 1.5 }),
+          React.createElement('circle', { cx: 4, cy: 12.5, r: 1.5 }),
+          React.createElement('circle', { cx: 12, cy: 12.5, r: 1.5 }),
+          React.createElement('path', { d: 'M8 4.5v2.2M8 6.7L4 11M8 6.7l4 4.3' }),
+        )
+        // page type：无 resource patterns（按 kind 打开）；guide 项排在文件等常用入口之后
+        const definition = {
+          id: FLOW_NATIVE_ID,
+          kind: FLOW_NATIVE_KIND,
+          title: () => '流镜',
+          guide: [{
+            order: 40,
+            title: () => '流镜',
+            description: () => '查看当前会话、工具调用与子代理执行流程',
+            icon: flowGlyph,
+          }],
+        }
+        let disposeType = null
+        let disposeBody = null
+        const nativeSlots = nativeCtx.get('slots')
+        const wanted = () => integration.mode !== 'drawer'
+        const retract = () => {
+          if (disposeBody) { try { disposeBody() } catch (e) {} disposeBody = null }
+          if (disposeType) { try { disposeType() } catch (e) {} disposeType = null }
+          nativeOpenTab = null
+          integration.setNative(false)
+        }
+        const applyNative = () => {
+          // 决策前刷新显示方式偏好（无桥环境以 localStorage 为准）
+          integration.loadMode()
+          if (wanted()) {
+            if (!disposeType) {
+              try { disposeType = tabs.register(definition) } catch (e) { retract(); return }
+              disposeBody = nativeSlots && typeof nativeSlots.inject === 'function'
+                ? nativeCtx.effect(() => nativeSlots.inject('sidebar.right.pane.tab', () => nativeSlots.register(
+                  { name: 'sidebar.right.pane.tab', key: FLOW_NATIVE_ID },
+                  (tabProps) => React.createElement(FlowglassNativeTabBody, tabProps),
+                )))
+                : null
+              // 自有入口 → openTab：自动展开右侧栏；同 pane 重复打开聚焦既有 Tab（Harness 单例语义）
+              nativeOpenTab = () => {
+                if (controller && typeof controller.openTab === 'function') controller.openTab(FLOW_NATIVE_KIND)
+              }
+              integration.setNative(true)
+            }
+          } else if (disposeType) {
+            retract()
+          }
+        }
+        applyNative()
+        const offMode = integration.subscribe(applyNative)
+        nativeCtx.effect(() => () => {
+          try { if (typeof offMode === 'function') offMode() } catch (e) {}
+          retract()
+        })
+      })
+    }
+
+    // ===== Better Sidebar 兼容桥（次层；仅原生 flow bundle）=====
+    // 原生右侧栏接管时撤销本桥注册，原生消失/被禁用时自动恢复——同一时刻只有一条
+    // 注册路径生效。只有 registerTab 成功并取得 disposer 后 integration 才视为 active
+    // 并隐藏 Drawer 入口；注册抛错/服务卸载/HMR 替换立即恢复 Drawer。
+    if (RT.bundleId === 'flow' && typeof ctx.inject === 'function') {
+      let bsService = null
+      let bsDescriptor = null
+      let bsDispose = null
+      const syncBsRegistration = () => {
+        if (!bsService || typeof bsService.registerTab !== 'function' || !bsDescriptor) return
+        const want = !integration.native && integration.mode !== 'drawer' && integration.enabled !== false
+        if (want && !bsDispose) {
+          try {
+            const d = bsService.registerTab(bsDescriptor)
+            bsDispose = () => { try { d() } catch (e) {} }
+          } catch (e) {
+            bsDispose = null
+            integration.sync(null) // 注册失败：恢复 Drawer 入口，不让用户失去唯一入口
+            return
+          }
+        } else if (!want && bsDispose) {
+          const d = bsDispose
+          bsDispose = null
+          try { d() } catch (e) {}
+        }
+      }
       ctx.inject(['betterSidebar'], (sidebarCtx) => {
         const service = sidebarCtx.get('betterSidebar')
         if (!service || typeof service.registerTab !== 'function') return
         const features = Array.isArray(service.features) ? service.features : []
-        const sync = () => integration.sync(service)
-        sync()
-        const offState = features.indexOf('stateSubscription') >= 0 && typeof service.subscribeState === 'function'
-          ? service.subscribeState(sync)
-          : null
-        const descriptor = {
+        bsService = service
+        bsDescriptor = {
           id: FLOW_TAB_ID,
           title: '流镜',
           order: 35,
+          // 原生多 pane 语义下 single 只保证目标 pane 内去重（0.19 契约）
           single: true,
+          description: '查看当前会话、工具调用与子代理执行流程',
           icon: (size) => React.createElement('svg', {
             width: size || 16, height: size || 16, viewBox: '0 0 16 16', fill: 'none',
             stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round',
@@ -3863,15 +4154,24 @@ return {
             React.createElement('path', { d: 'M8 4.5v2.2M8 6.7L4 11M8 6.7l4 4.3' }),
           ),
           settings: features.indexOf('pluginSettings') < 0 ? undefined : {
-            // 自绘设置面板：显示方式（持久化走 pluginSettings.displayMode）+ 外观（主题/主色/字号，
-            // 读写流镜自身 localStorage store，与管理页「外观」分区同源）
+            // 自绘设置面板：显示方式（pluginSettings.displayMode + localStorage 双源镜像）
+            // + 外观（主题/主色/字号，与管理页「外观」分区同源）
             render: (sprops) => React.createElement(BetterSidebarFlowSettings, sprops),
           },
           component: (tabProps) => React.createElement(FlowglassSidebarView, tabProps),
         }
-        sidebarCtx.effect(() => service.registerTab(descriptor))
+        const sync = () => { integration.sync(service); syncBsRegistration() }
+        sync()
+        const offState = features.indexOf('stateSubscription') >= 0 && typeof service.subscribeState === 'function'
+          ? service.subscribeState(sync)
+          : null
+        const offIntegration = integration.subscribe(syncBsRegistration)
         sidebarCtx.effect(() => () => {
           try { if (typeof offState === 'function') offState() } catch (e) {}
+          try { if (typeof offIntegration === 'function') offIntegration() } catch (e) {}
+          if (bsDispose) { const d = bsDispose; bsDispose = null; try { d() } catch (e) {} }
+          bsService = null
+          bsDescriptor = null
           integration.sync(null)
         })
       })
