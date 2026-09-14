@@ -1,4 +1,4 @@
-// toolbox client.js 仿真（rc.7 改造 16.2 + 用户决策回导航区 + v6.6 Cordis 面板隐藏联动）：
+// toolbox client.js 仿真（rc.7 改造 16.2 + 用户决策回导航区 + v6.6 Cordis 面板隐藏联动 + 0.1.5 原生右侧栏）：
 // ①有 DOM 环境：导航区 DOM 注入（新会话下方、插件族块末尾），不注册 sidebar.footer.action；
 //   body 级 MutationObserver watcher 自愈；teardown 断开 watcher 并移除条目；
 // ②无 DOM 环境（headless）：退回官方 footer Slot 注册（sidebar.footer.action + shell.overlay）；
@@ -6,7 +6,10 @@
 // ④注入 CSS 同时含导航条目选择器（[data-dsh-toolbox-entry]）与抽屉/入口样式；
 // ⑤「隐藏无界面」联动：Host-only 行打 data-tb-hide 隐藏（待审批行不隐藏）、计数 span 用
 //   面板 DOM「可见且 running」行覆盖（不信任单仓库 toolbox/plugins 清单）；开关关闭后恢复；
-// ⑥完整工具箱长名称在可见 chrome 使用紧凑标题，完整名称保留在 tooltip/aria-label。
+// ⑥完整工具箱长名称在可见 chrome 使用紧凑标题，完整名称保留在 tooltip/aria-label；
+// ⑦DSH 0.1.5 原生右侧栏（bundleId=flow）：sidebarRightTabs 两段式注册（page type + body Slot）、
+//   自有入口 openTab、原生接管时撤销 better-sidebar 桥、注册失败恢复 Drawer、drawer 模式不注册、
+//   原生 Tab body 透传 Slot 标准属性（sessionId/useSessions/useTabInfo→visible）。
 const fs = require('fs')
 const path = require('path')
 const ROOT = path.resolve(__dirname, '..')
@@ -43,13 +46,30 @@ const makeSlots = () => ({
 
 const makeCtx = () => {
   const teardowns = []
-  return {
+  const injectCalls = []
+  const ctx = {
     teardowns,
+    injectCalls,
     slotsFor: null,
-    get(name) { if (name === 'slots') return this.slotsFor; return undefined },
+    services: {},
+    get(name) { if (name === 'slots') return this.slotsFor; if (Object.prototype.hasOwnProperty.call(this.services, name)) return this.services[name]; return undefined },
     effect(fn) { const dis = fn(); if (typeof dis === 'function') teardowns.push(dis); return () => {} },
+    inject(names, cb) { injectCalls.push({ names, cb, done: false }) },
     timeout(fn) { return () => {} },
+    // 模拟 cordis inject fiber：依赖可满足时执行回调（每条至多一次），服务后到时再次调用补跑
+    runInject() {
+      for (const rec of injectCalls) {
+        if (rec.done) continue
+        if (!rec.names.every((n) => ctx.get(n) !== undefined)) continue
+        rec.done = true
+        const child = Object.create(ctx)
+        child.get = (name) => (name === 'slots' ? ctx.slotsFor : (Object.prototype.hasOwnProperty.call(ctx.services, name) ? ctx.services[name] : undefined))
+        child.effect = (fn) => { const dis = fn(); if (typeof dis === 'function') teardowns.push(dis); return () => {} }
+        rec.cb(child)
+      }
+    },
   }
+  return ctx
 }
 
 // ---- 最小假 DOM：支持 client.js 用到的属性读写 + 后代查询（querySelector/querySelectorAll）。
@@ -327,11 +347,11 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
       && src.indexOf('Array.from(rawFlowSessionIds)') >= 0 && src.indexOf('Object.keys(rawFlowSessionsById)') >= 0)
     check('Better Sidebar 嵌入态直接订阅 sessionsClient.list 补齐完整会话树', src.indexOf('serviceSessionsSnapshot') >= 0
       && src.indexOf('list.subscribe(sync)') >= 0 && src.indexOf('serviceSessionsSnapshot.ids') >= 0)
-    check('跨会话草稿写入双路径：uiSession 绑定优先，provideInfo 回退', src.indexOf("ctx.get('uiSession')") >= 0
+    check('跨会话草稿写入单路径：uiSession 绑定（provideInfo 回退已按 0.1.5 基线删除）', src.indexOf("ctx.get('uiSession')") >= 0
       && src.indexOf('uiSession.adapter.resolve') >= 0
       && src.indexOf('resolveSessionProvideInfo') >= 0
-      && src.indexOf("typeof sessionsClient.provideInfo === 'function'") >= 0
-      && src.indexOf('sessionsClient.provideInfo(sessionId)') >= 0)
+      && src.indexOf("typeof sessionsClient.provideInfo === 'function'") < 0
+      && src.indexOf('sessionsClient.provideInfo(sessionId)') < 0)
     check('Better Sidebar 会话回退严格限定 Flowglass，完整 Toolbox 不启用', src.indexOf("if (RT.bundleId !== 'flow') return undefined") >= 0
       && src.indexOf("RT.bundleId === 'flow' && serviceSessionsSnapshot") >= 0)
     check('Markdown 增强严格限定原生 Flow bundle，动态 Toolbox 保留原文 fallback',
@@ -377,6 +397,137 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
       && css.indexOf('.tb-frame:has(.tb-pane)>div{') < 0 && src.indexOf("className: 'tb-panel-html'") >= 0)
     check('CSS 含隐藏行与计数覆盖规则', css.indexOf('li[data-cordis-row][data-tb-hide~="1"]{display:none!important}') >= 0
       && css.indexOf('button[data-cordis-badge] span[data-tb-count]::after') >= 0)
+  }
+
+  // —— 路径 D（0.1.5 原生右侧栏，bundleId=flow）：两段式注册 + 自有入口 openTab ——
+  {
+    const flowSrc = 'const TOOLBOX_RUNTIME_OVERRIDES = { bundleId: \'flow\', displayName: \'流镜\' }\n' + src
+    const slots = makeSlots()
+    const ctx = makeCtx(); ctx.slotsFor = slots
+    const localStorage = makeLocalStorage({})
+    const definitions = []
+    const openTabCalls = []
+    ctx.services.sidebarRightTabs = { register(def) { definitions.push(def); return () => { const i = definitions.indexOf(def); if (i >= 0) definitions.splice(i, 1) } } }
+    ctx.services.sidebarRight = { openTab(kind) { openTabCalls.push(kind) } }
+    const impl = await evalClient(flowSrc, { ctx, styles: { insert() { return () => {} } }, localStorage })
+    impl.apply(ctx)
+    ctx.runInject()
+    check('D: 原生服务就绪 → page type 注册恰好一次', definitions.length === 1, 'count=' + definitions.length)
+    const def = definitions[0]
+    check('D: definition id/kind 符合约定（dsh-flowglass/native + dsh-flowglass:flow）',
+      def && def.id === 'dsh-flowglass/native' && def.kind === 'dsh-flowglass:flow')
+    check('D: page type 不声明 resource patterns（按 kind 打开）', def && def.patterns === undefined)
+    check('D: 标题与 guide 项（标题/描述/图标/顺序）',
+      def && def.title() === '流镜' && def.guide && def.guide.length === 1
+        && def.guide[0].order === 40 && def.guide[0].title() === '流镜'
+        && def.guide[0].description().indexOf('子代理') >= 0 && typeof def.guide[0].icon === 'function')
+    slots.activateAll()
+    const bodyReg = slots.registrations.find((r) => r.entry && r.entry.name === 'sidebar.right.pane.tab' && r.entry.key === 'dsh-flowglass/native')
+    check('D: body 以同一 definition id 注册 sidebar.right.pane.tab', Boolean(bodyReg))
+    // body 组件只透传 Slot 标准属性：sessionId 权威 + useSessions + useTabInfo 的 visible
+    const bodyWrap = bodyReg.component({ useTabInfo: () => ({ tab: { visible: true } }), sessionId: 's-1', useSessions: (sel) => sel({ ids: ['s-1'], byId: {}, current: 's-1' }) })
+    const bodyNode = bodyWrap.type(bodyWrap.props)
+    check('D: Tab body 嵌入 Drawer（embedded + visible + sessionId 权威）',
+      bodyNode && bodyNode.props && bodyNode.props.embedded === true && bodyNode.props.visible === true && bodyNode.props.sessionId === 's-1')
+    const hiddenWrap = bodyReg.component({ useTabInfo: () => ({ tab: { visible: false } }), sessionId: 's-1', useSessions: () => undefined })
+    const hiddenNode = hiddenWrap.type(hiddenWrap.props)
+    check('D: tab.visible=false → Drawer 进入不可见暂停态', hiddenNode && hiddenNode.props && hiddenNode.props.visible === false)
+    // 无 DOM → footer Entry 兜底：原生激活时点击走 openTab（自动展开），不开独立抽屉
+    const entryReg = slots.registrations.find((r) => r.entry && r.entry.name === 'sidebar.footer.action')
+    check('D: 无 DOM 时 footer Entry 仍注册（原生激活不隐藏入口）', Boolean(entryReg))
+    const rendered = renderHooked(entryReg.component({ wide: true }).type, { wide: true })
+    check('D: 原生激活 → Entry 可见且标题指向右侧栏', rendered.children.indexOf('流镜') >= 0 && String(rendered.props.title).indexOf('右侧栏') >= 0)
+    rendered.props.onClick()
+    check('D: 点击入口 → ctx.sidebarRight.openTab(dsh-flowglass:flow)', openTabCalls.length === 1 && openTabCalls[0] === 'dsh-flowglass:flow')
+    for (const dis of ctx.teardowns) dis()
+    check('D: teardown 撤销 page type 注册', definitions.length === 0)
+  }
+
+  // —— 路径 E（层级切换）：先 better-sidebar 桥接管，原生服务后到 → 原生接管并撤销桥 ——
+  {
+    const flowSrc = 'const TOOLBOX_RUNTIME_OVERRIDES = { bundleId: \'flow\', displayName: \'流镜\' }\n' + src
+    const slots = makeSlots()
+    const ctx = makeCtx(); ctx.slotsFor = slots
+    const localStorage = makeLocalStorage({})
+    const definitions = []
+    const bsTabs = []
+    let bsRegisterCalls = 0
+    const bsService = {
+      features: ['stateSubscription', 'pluginSettings'],
+      registerTab(d) { bsRegisterCalls += 1; bsTabs.push(d); return () => { const i = bsTabs.indexOf(d); if (i >= 0) bsTabs.splice(i, 1) } },
+      subscribeState() { return () => {} },
+      isTabEnabled() { return true },
+      getSnapshot() { return null },
+    }
+    ctx.services.betterSidebar = bsService
+    const impl = await evalClient(flowSrc, { ctx, styles: { insert() { return () => {} } }, localStorage })
+    impl.apply(ctx)
+    // 先只有 betterSidebar：桥注册接管
+    ctx.runInject()
+    check('E: 无原生服务 → better-sidebar 桥注册 Tab', bsTabs.length === 1 && definitions.length === 0,
+      'bs=' + bsTabs.length + ' native=' + definitions.length)
+    check('E: 桥 descriptor 带 description（0.19 契约）', bsTabs[0] && typeof bsTabs[0].description === 'string' && bsTabs[0].description.indexOf('子代理') >= 0)
+    // 原生服务后到：inject 补跑 → 原生接管 → 桥撤销（同一时刻只有一条注册路径）
+    ctx.services.sidebarRightTabs = { register(def) { definitions.push(def); return () => { const i = definitions.indexOf(def); if (i >= 0) definitions.splice(i, 1) } } }
+    ctx.services.sidebarRight = { openTab() {} }
+    ctx.runInject()
+    check('E: 原生服务后到 → 原生接管 + 桥撤销', definitions.length === 1 && bsTabs.length === 0,
+      'bs=' + bsTabs.length + ' native=' + definitions.length)
+    check('E: 桥注册恰好一次后撤销（无重复注册）', bsRegisterCalls === 1, 'calls=' + bsRegisterCalls)
+    for (const dis of ctx.teardowns) dis()
+    check('E: teardown 后两条路径全部清空', definitions.length === 0 && bsTabs.length === 0)
+  }
+
+  // —— 路径 F（降级）：原生注册抛错 / 用户选 drawer 模式 ——
+  {
+    const flowSrc = 'const TOOLBOX_RUNTIME_OVERRIDES = { bundleId: \'flow\', displayName: \'流镜\' }\n' + src
+    const slots = makeSlots()
+    const ctx = makeCtx(); ctx.slotsFor = slots
+    const localStorage = makeLocalStorage({})
+    let failRegister = true
+    const definitions = []
+    ctx.services.sidebarRightTabs = { register(def) { if (failRegister) throw new Error('registry busy'); definitions.push(def); return () => { const i = definitions.indexOf(def); if (i >= 0) definitions.splice(i, 1) } } }
+    ctx.services.sidebarRight = { openTab() {} }
+    const impl = await evalClient(flowSrc, { ctx, styles: { insert() { return () => {} } }, localStorage })
+    impl.apply(ctx)
+    ctx.runInject()
+    check('F: 原生注册抛错 → 不产生注册（Drawer 入口不消失）', definitions.length === 0)
+    slots.activateAll()
+    const entryReg = slots.registrations.find((r) => r.entry && r.entry.name === 'sidebar.footer.action')
+    const rendered = renderHooked(entryReg.component({ wide: true }).type, { wide: true })
+    check('F: 注册失败 → Entry 可见（回到独立抽屉路径）', rendered && rendered.children.length > 0)
+    // 用户显式 drawer 模式：初始 apply 时偏好生效 → 原生 Tab 不注册
+    const slots2 = makeSlots()
+    const ctx2 = makeCtx(); ctx2.slotsFor = slots2
+    const definitions2 = []
+    ctx2.services.sidebarRightTabs = { register(def) { definitions2.push(def); return () => { const i = definitions2.indexOf(def); if (i >= 0) definitions2.splice(i, 1) } } }
+    ctx2.services.sidebarRight = { openTab() {} }
+    const localStorage2 = makeLocalStorage({ 'dsh.toolbox.flow.display': '{"displayMode":"drawer"}' })
+    const impl2 = await evalClient(flowSrc, { ctx: ctx2, styles: { insert() { return () => {} } }, localStorage: localStorage2 })
+    impl2.apply(ctx2)
+    ctx2.runInject()
+    check('F: 用户显式 drawer 模式 → 原生 Tab 不注册', definitions2.length === 0, 'count=' + definitions2.length)
+    for (const dis of ctx.teardowns) dis()
+    for (const dis of ctx2.teardowns) dis()
+  }
+
+  // —— 静态断言：0.1.5 原生事件窗订阅 / 会话操作对齐 ——
+  {
+    check('源码含原生事件窗订阅（binding().eventSource + settle 记录）', src.indexOf('sessionsClient.binding') >= 0
+      && src.indexOf('eventSource') >= 0 && src.indexOf('assistant/live-chunk') >= 0
+      && src.indexOf('liveSettledRef') >= 0 && src.indexOf('firstSeq') >= 0)
+    check('实时叠加层随流镜面板请求透传（live 参数）', src.indexOf('live: toolId === \'flow\'') >= 0
+      && src.indexOf('liveOverlayRef.current') >= 0)
+    check('事件窗 revision 驱动防抖静默刷新', src.indexOf('setLiveRevision') >= 0
+      && src.indexOf('liveRevision') >= 0 && src.indexOf("loadPanelRef.current('flow', '__refresh', null, { silent: true })") >= 0)
+    check('跨会话草稿写入走 uiSession 绑定（provideInfo 回退已删除）', src.indexOf('uiSession.adapter.resolve') >= 0
+      && src.indexOf('sessionsClient.provideInfo') < 0)
+    check('原生 body 权威属性（sessionId/useSessions/useTabInfo→visible）', src.indexOf('function FlowglassNativeTabBody') >= 0
+      && src.indexOf('props.useTabInfo') >= 0 && src.indexOf('visible = !(info && info.tab && info.tab.visible === false)') >= 0)
+    check('显示方式偏好双源镜像（pluginSettings + localStorage）', src.indexOf('readFlowDisplayMode') >= 0
+      && src.indexOf('writeFlowDisplayMode') >= 0 && src.indexOf("RT.storageKey('flow.display')") >= 0)
+    check('面板 RPC 契约透传 live（registry 同步见 sim-flow）', src.indexOf('live && typeof live === \'object\'') >= 0
+      || read('shared/registry.js').indexOf('call.live') >= 0)
   }
 
   console.log(failures ? ('\n共 ' + failures + ' 项失败') : '\n全部通过')
