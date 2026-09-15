@@ -360,8 +360,15 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     check('Flowglass 显示规则以 localStorage 持久化、随 panel 请求携带且设置打开时暂停 live 刷新',
       src.indexOf("RT.storageKey('flow.presentation-rules')") >= 0
         && src.indexOf('fields.__flowPresentationRules') >= 0
-        && src.indexOf('writeFlowRules(flowRulesToPersist)') >= 0
+        && src.indexOf("['fsave-rule', 'fcreate-rule', 'fapply-rule-json', 'ftoggle-rule', 'fdelete-rule', 'freset-rules']") >= 0
+        && src.indexOf('writeFlowRules(JSON.stringify((res.state && res.state.presentationRules) || []))') >= 0
         && src.indexOf('st.settings === true') >= 0)
+    check('规则展开/收起由 Client 原地切换，不触发 panel 刷新',
+      src.indexOf("closest('[data-flow-rule-edit]')") >= 0
+        && src.indexOf("closest('[data-flow-rule-new]')") >= 0
+        && src.indexOf("closest('[data-flow-rule-cancel]')") >= 0
+        && src.indexOf("targetCard.classList.add('fl-rule-open')") >= 0
+        && src.indexOf("querySelectorAll('.fl-rule-card.fl-rule-open')") >= 0)
     check('Markdown 增强严格限定原生 Flow bundle，动态 Toolbox 保留原文 fallback',
       src.indexOf("RT.bundleId === 'flow'") >= 0
         && src.indexOf("typeof TOOLBOX_MARKDOWN_TEXT !== 'undefined'") >= 0

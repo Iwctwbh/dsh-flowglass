@@ -272,7 +272,9 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
   check('显示规则按钮默认可见', pr.html.indexOf('data-action="fsettings"') >= 0)
   check('无规则时保留原始 pwsh 标题', pr.html.indexOf('<span class="fl-name">pwsh</span>') >= 0)
   pr = await h({ action: 'fsettings', fields: {}, state: pr.state, root: ROOT, session: 's-presentation-rules' })
-  check('显示规则设置以侧栏打开且暂停自动刷新', pr.html.indexOf('工具显示规则') >= 0 && pr.html.indexOf('data-field="flowPresentationRules"') >= 0 && pr.html.indexOf('data-autorefresh="2000"') < 0)
+  check('显示规则设置以友好列表打开且暂停自动刷新', pr.html.indexOf('工具显示规则') >= 0 && pr.html.indexOf('class="fl-rule-list"') >= 0
+    && pr.html.indexOf('添加规则') >= 0 && pr.html.indexOf('JSON 源码') >= 0 && pr.html.indexOf('data-autorefresh="2000"') < 0
+    && pr.html.indexOf('class="fl-rail fl-rail-anim"') >= 0)
   const engramRules = JSON.stringify([{
     enabled: true,
     tools: ['pwsh'],
@@ -282,15 +284,48 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
     badge: '记忆',
     color: '#81c784',
   }])
-  pr = await h({ action: 'fsave-rules', fields: { flowPresentationRules: engramRules }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
+  pr = await h({ action: 'fapply-rule-json', fields: { flowPresentationRules: engramRules }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
+  check('设置内数据操作不重播侧栏进入动画', pr.html.indexOf('class="fl-rail fl-rail-anim"') < 0)
   check('规则命中后投影名称与徽章', pr.html.indexOf('<span class="fl-name">engram-lattice search</span>') >= 0 && pr.html.indexOf('>记忆</span>') >= 0)
-  check('保存反馈显示规则数量', pr.html.indexOf('已保存并应用 1 条规则') >= 0)
+  check('JSON 源码应用后生成折叠摘要行和预渲染编辑区', pr.html.indexOf('已从 JSON 应用 1 条规则') >= 0
+    && pr.html.indexOf('class="fl-rule-summary"') >= 0 && pr.html.indexOf('data-flow-rule-edit="1"') >= 0
+    && pr.html.indexOf('data-field="flowRule.0.displayName"') >= 0 && pr.html.indexOf('fl-rule-card fl-rule-open') < 0)
+  check('启用使用 switch，删除使用带无障碍名称的图标按钮', pr.html.indexOf('class="fl-rule-switch is-on"') >= 0
+    && pr.html.indexOf('aria-label="停用规则"') >= 0 && pr.html.indexOf('class="fl-rule-icon fl-rule-delete"') >= 0 && pr.html.indexOf('aria-label="删除规则"') >= 0)
+  pr = await h({ action: 'fsave-rule', fields: {
+    'flowRule.0.enabled': '1',
+    'flowRule.0.tools': 'pwsh',
+    'flowRule.0.executables': 'engram-memory.ps1',
+    'flowRule.0.displayName': 'engram-lattice',
+    'flowRule.0.actions': 'search, recall, memory',
+    'flowRule.0.badge': '记忆',
+    'flowRule.0.color': '#81c784',
+    __el: { index: '0' },
+  }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
+  check('单条保存响应保持折叠', pr.html.indexOf('已保存规则 1') >= 0 && pr.html.indexOf('fl-rule-card fl-rule-open') < 0)
+  pr = await h({ action: 'ftoggle-rule', fields: { __el: { index: '0' } }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
+  check('switch 可单独停用规则', pr.state.presentationRules[0].enabled === false && pr.html.indexOf('fl-rule-off') >= 0 && pr.html.indexOf('aria-label="启用规则"') >= 0)
+  pr = await h({ action: 'ftoggle-rule', fields: { __el: { index: '0' } }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
+  check('添加按钮和空白编辑行由 Client 原地切换', pr.html.indexOf('data-flow-rule-new="1"') >= 0 && pr.html.indexOf('data-field="flowRule.new.displayName"') >= 0)
+  const addFields = {
+    'flowRule.new.enabled': '1',
+    'flowRule.new.tools': 'bash',
+    'flowRule.new.executables': 'git',
+    'flowRule.new.displayName': 'Git',
+    'flowRule.new.actions': 'status, diff',
+    'flowRule.new.badge': '',
+    'flowRule.new.color': '#7fa7f0',
+  }
+  pr = await h({ action: 'fcreate-rule', fields: addFields, state: pr.state, root: ROOT, session: 's-presentation-rules' })
+  check('列表可单独创建一条规则', pr.state.presentationRules.length === 2 && pr.html.indexOf('Git') >= 0 && pr.html.indexOf('已添加规则 2') >= 0)
+  pr = await h({ action: 'fdelete-rule', fields: { __el: { index: '1' } }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
+  check('垃圾桶图标可单独删除规则', pr.state.presentationRules.length === 1 && pr.html.indexOf('已删除规则 2') >= 0 && pr.html.indexOf('Git') < 0)
   pr = await h({ action: 'fsettings', fields: {}, state: pr.state, root: ROOT, session: 's-presentation-rules' })
   pr = await h({ action: 'fdetail', fields: { __el: { seq: '2' } }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
   check('详情标题使用投影名称但保留完整原始命令', pr.html.indexOf('engram-lattice search · 详情') >= 0 && pr.html.indexOf('engram-memory.ps1') >= 0)
   let invalidRuleRejected = false
   try {
-    await h({ action: 'fsave-rules', fields: { flowPresentationRules: '{bad' }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
+    await h({ action: 'fapply-rule-json', fields: { flowPresentationRules: '{bad' }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
   } catch (e) { invalidRuleRejected = /有效 JSON/.test(String(e && e.message)) }
   check('无效声明式 JSON 被明确拒绝', invalidRuleRejected)
   const inferredRules = JSON.stringify([{
@@ -301,7 +336,7 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
     actions: ['search'],
     badge: '',
   }])
-  pr = await h({ action: 'fsave-rules', fields: { flowPresentationRules: inferredRules }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
+  pr = await h({ action: 'fapply-rule-json', fields: { flowPresentationRules: inferredRules }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
   check('displayName 为空时不推导默认名称，badge 为空时不渲染徽章',
     pr.html.indexOf('<span class="fl-name">search</span>') >= 0
       && pr.html.indexOf('engram-memory search') < 0

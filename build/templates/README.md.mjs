@@ -4,7 +4,7 @@ export const renderReadme = ({ packageName, version, bundleId, displayName, feat
     ? '这是 dsh-flowglass 仓库的默认产品与默认构建目标，是 **DSH 原生静态 Host/Client 插件**。'
     : '这是 dsh-flowglass 仓库提供的**可选工具箱产品**，与默认的流镜包独立。只需要会话流程图时，请安装 `dsh-flowglass`；只有需要下列整套工具时才安装本包。\n\n本包是 DSH 原生静态 Host/Client 插件。'
   const flowglassPresentation = isFlowglass
-    ? '\n- 流镜顶部“显示规则”可按原始工具、命令可执行文件 basename 与子命令声明 shell 卡片的显示名、徽章和颜色；规则仅保存在浏览器并且不修改 Session 日志。\n'
+    ? '\n- 流镜顶部“显示规则”提供单行折叠列表、启停 switch、删除图标和单条编辑，并保留可折叠 JSON 源码；规则可按原始工具、命令可执行文件 basename 与子命令声明 shell 卡片的显示名、徽章和颜色，仅保存在浏览器并且不修改 Session 日志。\n'
     : ''
   return `# ${displayName}（${packageName}）
 

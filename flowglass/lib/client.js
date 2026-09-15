@@ -835,6 +835,49 @@ return {
       '.fl-rail-dragging{user-select:none}',
       // rail 头部的分支按钮：复用卡片 .fl-branch-btn 外观，改为常显静态布局
       '.fl-rail-head .fl-branch-btn{position:static;opacity:1;pointer-events:auto;transform:none;width:22px;height:20px;flex:none}',
+      '.fl-rule-list{display:flex;flex-direction:column;gap:8px}',
+      '.fl-rule-card{display:flex;flex-direction:column;border:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));border-radius:8px;background:var(--dsw-alias-bg-base,#17181d);overflow:hidden;transition:border-color .12s,opacity .12s}',
+      '.fl-rule-card.fl-rule-open{border-color:var(--tb-accent-border,rgba(91,141,239,.55))}',
+      '.fl-rule-card.fl-rule-off{opacity:.62}',
+      '.fl-rule-summary{display:flex;align-items:center;min-width:0;padding:5px 6px 5px 8px;gap:3px}',
+      '.fl-rule-main{flex:1;min-width:0;display:flex;align-items:center;gap:7px;padding:2px;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer;font-family:inherit}',
+      '.fl-rule-main:hover .fl-rule-copy>strong{color:var(--tb-active-text,#7fa7f0)}',
+      '.fl-rule-dot{flex:none;width:8px;height:8px;border-radius:50%;box-shadow:0 0 0 2px rgba(255,255,255,.06)}',
+      '.fl-rule-badge{flex:none;max-width:70px;padding:1px 5px;border-radius:4px;font-size:calc(9px*var(--tb-fs-detail,1));font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.fl-rule-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}',
+      '.fl-rule-copy>strong{font-size:calc(11.5px*var(--tb-fs-detail,1));font-weight:600;color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4));overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:color .12s}',
+      '.fl-rule-copy>small{font-size:calc(9.5px*var(--tb-fs-detail,1));color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.fl-rule-chevron{flex:none;width:15px;height:15px;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));transition:transform .12s}',
+      '.fl-rule-open .fl-rule-chevron{transform:rotate(90deg)}',
+      '.fl-rule-chevron svg,.fl-rule-icon svg,.fl-rule-add svg{display:block;width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.35;stroke-linecap:round;stroke-linejoin:round}',
+      '.fl-rule-switch{position:relative;flex:none;width:31px;height:18px;padding:0;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:999px;background:var(--tb-input-bg,var(--dsw-alias-bg-layer-1,#26272e));cursor:pointer;transition:background .15s,border-color .15s}',
+      '.fl-rule-switch>span{position:absolute;left:2px;top:2px;width:12px;height:12px;border-radius:50%;background:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .15s,background .15s}',
+      '.fl-rule-switch.is-on{background:var(--tb-accent,#3f6fd9);border-color:var(--tb-accent,#3f6fd9)}',
+      '.fl-rule-switch.is-on>span{transform:translateX(13px);background:#fff}',
+      '.fl-rule-switch:focus-visible{outline:2px solid var(--tb-accent-border,rgba(91,141,239,.65));outline-offset:2px}',
+      '.fl-rule-icon{flex:none;width:25px;height:25px;padding:5px;border:0;border-radius:6px;background:transparent;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));cursor:pointer;transition:color .12s,background .12s}',
+      '.fl-rule-icon:hover{background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b));color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
+      '.fl-rule-delete:hover{color:var(--tb-danger-text,#f28b82);background:rgba(239,83,80,.1)}',
+      '.fl-rule-editor{display:none;flex-direction:column;gap:8px;padding:4px 9px 9px;border-top:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e))}',
+      '.fl-rule-open>.fl-rule-editor{display:flex}',
+      '.fl-rule-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:7px 8px}',
+      '.fl-rule-grid>label{display:flex;flex-direction:column;gap:3px;min-width:0}',
+      '.fl-rule-grid>label>span{font-size:calc(10px*var(--tb-fs-detail,1));color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884))}',
+      '.fl-rule-grid .tb-input{width:100%;height:27px;padding:0 7px;font-size:calc(11px*var(--tb-fs-detail,1))}',
+      '.fl-rule-color{width:100%;height:27px;padding:2px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:6px;background:var(--tb-input-bg,var(--dsw-alias-bg-layer-1,#26272e));cursor:pointer}',
+      '.fl-rule-editor-actions{display:flex;justify-content:flex-end;gap:6px}',
+      '.fl-rule-new{display:none;padding:9px;border-style:dashed;overflow:visible}',
+      '.fl-rule-new.fl-rule-open{display:flex}',
+      '.fl-rule-new .fl-rule-editor{padding:0;border-top:0}',
+      '.fl-rule-new-title{font-size:calc(12px*var(--tb-fs-detail,1));font-weight:600;color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
+      '.fl-rule-add{flex:none;display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 7px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:6px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));font:inherit;font-size:calc(10px*var(--tb-fs-detail,1));cursor:pointer}',
+      '.fl-rule-add:hover{border-color:var(--tb-accent-border,rgba(91,141,239,.55));color:var(--tb-active-text,#7fa7f0)}',
+      '.fl-rule-add svg{width:13px;height:13px}',
+      '.fl-rule-source{display:flex;flex-direction:column;gap:7px;border-top:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));padding-top:8px}',
+      '.fl-rule-source>summary{cursor:pointer;user-select:none}',
+      '.fl-rule-source[open]>summary{margin-bottom:7px}',
+      '.fl-rule-source .tb-textarea{min-height:210px;resize:vertical;margin-bottom:7px}',
+      '@media(max-width:620px){.fl-rule-grid{grid-template-columns:minmax(0,1fr)}}',
       // 详情内容框标题行 + 复制按钮
       '.fl-sec-head{display:flex;align-items:center;gap:6px;min-width:0}',
       '.fl-sec-head .fl-sec-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
@@ -2659,11 +2702,9 @@ return {
             if (action === 'fmore') flowSuppressHistoryAnimRef.current = true
           }
           let fields = collectFields()
-          let flowRulesToPersist = null
+          const persistFlowRules = toolId === 'flow' && ['fsave-rule', 'fcreate-rule', 'fapply-rule-json', 'ftoggle-rule', 'fdelete-rule', 'freset-rules'].includes(action)
           if (toolId === 'flow') {
-            if (action === 'fsave-rules') flowRulesToPersist = typeof fields.flowPresentationRules === 'string' ? fields.flowPresentationRules : '[]'
-            else if (action === 'freset-rules') flowRulesToPersist = '[]'
-            fields.__flowPresentationRules = flowRulesToPersist == null ? readFlowRules() : flowRulesToPersist
+            fields.__flowPresentationRules = readFlowRules()
           }
           if (el) {
             // 点击元素自身的 data-* 属性随请求带回（data-key / data-hash / data-path 等）
@@ -2702,7 +2743,7 @@ return {
           const res = await Promise.race([callP, timeoutP])
           if (seqRef.current[toolId] !== seq) return // 已有更新的请求发出：过期响应直接丢弃（联动切换竞态修复）；DOM 由新请求的响应接管
           if (res && res.ok) {
-            if (toolId === 'flow' && flowRulesToPersist != null) writeFlowRules(flowRulesToPersist)
+            if (persistFlowRules) writeFlowRules(JSON.stringify((res.state && res.state.presentationRules) || []))
             retryCountRef.current[toolId] = 0 // 成功：清零一次性重试计数
             stateRef.current[toolId] = res.state
             htmlRef.current[toolId] = res.html
@@ -3257,6 +3298,27 @@ return {
           e.preventDefault()
           e.stopPropagation()
           copyFlowRailContent(copyBtn)
+          return
+        }
+        const ruleEdit = t && t.closest ? t.closest('[data-flow-rule-edit]') : null
+        const ruleNew = t && t.closest ? t.closest('[data-flow-rule-new]') : null
+        const ruleCancel = t && t.closest ? t.closest('[data-flow-rule-cancel]') : null
+        if (active === 'flow' && (ruleEdit || ruleNew || ruleCancel)) {
+          e.preventDefault()
+          e.stopPropagation()
+          const box = panelRef.current
+          if (!box) return
+          const targetCard = ruleEdit ? ruleEdit.closest('.fl-rule-card') : ruleNew ? box.querySelector('.fl-rule-new') : ruleCancel.closest('.fl-rule-card')
+          const opening = !ruleCancel && targetCard && !targetCard.classList.contains('fl-rule-open')
+          for (const card of box.querySelectorAll('.fl-rule-card.fl-rule-open')) card.classList.remove('fl-rule-open')
+          for (const button of box.querySelectorAll('[data-flow-rule-edit],[data-flow-rule-new]')) button.setAttribute('aria-expanded', 'false')
+          if (opening && targetCard) {
+            targetCard.classList.add('fl-rule-open')
+            const trigger = ruleEdit || ruleNew
+            trigger.setAttribute('aria-expanded', 'true')
+            const first = targetCard.querySelector('input:not([type="hidden"])')
+            if (first && typeof first.focus === 'function') first.focus()
+          }
           return
         }
         const el = t && t.closest ? t.closest('[data-action]') : null
