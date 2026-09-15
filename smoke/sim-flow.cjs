@@ -177,6 +177,12 @@ const LEGACY_CHUNK_EVENTS = [
   { seq: 4, time: 12100, type: 'step/end', data: { turn: 1, step: 1 } },
 ]
 
+const PRESENTATION_RULE_EVENTS = [
+  { seq: 1, time: 13000, type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: '检索记忆' }] }, stream: [] } },
+  { seq: 2, time: 13010, type: 'tool/call', data: { turn: 1, step: 2, name: 'pwsh', callId: 'memory-1', arguments: JSON.stringify({ command: "& 'C:\\Users\\tester\\.agents\\skills\\engram-memory\\scripts\\engram-memory.ps1' search 'flowglass'", description: 'Search memory' }) } },
+  { seq: 3, time: 13020, type: 'tool/result', data: { message: { content: [{ type: 'tool-result', toolCallId: 'memory-1', content: [{ type: 'text', text: '# Search: flowglass' }] }] } } },
+]
+
 const LONG_EVENTS = Array.from({ length: 130 }, (_, i) => ({
   seq: i + 1,
   time: 4000 + i,
@@ -199,6 +205,7 @@ const SESSIONS = {
   's-max-tokens': MAX_TOKENS_EVENTS,
   's-toolcall-only': TOOLCALL_ONLY_EVENTS,
   's-legacy-chunk': LEGACY_CHUNK_EVENTS,
+  's-presentation-rules': PRESENTATION_RULE_EVENTS,
   's-long': LONG_EVENTS,
 }
 const sessionQuery = {
@@ -259,6 +266,46 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
   check('子代理 live 徽章（运行中）', r.html.indexOf('运行中') >= 0)
   check('同 step 并行子代理合并成组', r.html.indexOf('并行子代理 ×2') >= 0 && r.html.indexOf('fl-subgrp') >= 0)
   check('子代理跟随开关默认开启', r.html.indexOf('● 子代理跟随') >= 0 && r.state.follow === true)
+
+  // 声明式工具显示规则：默认不改名；设置面板按需保存后只投影标题/徽章。
+  let pr = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-presentation-rules' })
+  check('显示规则按钮默认可见', pr.html.indexOf('data-action="fsettings"') >= 0)
+  check('无规则时保留原始 pwsh 标题', pr.html.indexOf('<span class="fl-name">pwsh</span>') >= 0)
+  pr = await h({ action: 'fsettings', fields: {}, state: pr.state, root: ROOT, session: 's-presentation-rules' })
+  check('显示规则设置以侧栏打开且暂停自动刷新', pr.html.indexOf('工具显示规则') >= 0 && pr.html.indexOf('data-field="flowPresentationRules"') >= 0 && pr.html.indexOf('data-autorefresh="2000"') < 0)
+  const engramRules = JSON.stringify([{
+    enabled: true,
+    tools: ['pwsh'],
+    executables: ['engram-memory.ps1'],
+    displayName: 'engram-lattice',
+    actions: ['search', 'recall', 'memory'],
+    badge: '记忆',
+    color: '#81c784',
+  }])
+  pr = await h({ action: 'fsave-rules', fields: { flowPresentationRules: engramRules }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
+  check('规则命中后投影名称与徽章', pr.html.indexOf('<span class="fl-name">engram-lattice search</span>') >= 0 && pr.html.indexOf('>记忆</span>') >= 0)
+  check('保存反馈显示规则数量', pr.html.indexOf('已保存并应用 1 条规则') >= 0)
+  pr = await h({ action: 'fsettings', fields: {}, state: pr.state, root: ROOT, session: 's-presentation-rules' })
+  pr = await h({ action: 'fdetail', fields: { __el: { seq: '2' } }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
+  check('详情标题使用投影名称但保留完整原始命令', pr.html.indexOf('engram-lattice search · 详情') >= 0 && pr.html.indexOf('engram-memory.ps1') >= 0)
+  let invalidRuleRejected = false
+  try {
+    await h({ action: 'fsave-rules', fields: { flowPresentationRules: '{bad' }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
+  } catch (e) { invalidRuleRejected = /有效 JSON/.test(String(e && e.message)) }
+  check('无效声明式 JSON 被明确拒绝', invalidRuleRejected)
+  const inferredRules = JSON.stringify([{
+    enabled: true,
+    tools: ['pwsh'],
+    executables: ['engram-memory.ps1'],
+    displayName: '',
+    actions: ['search'],
+    badge: '',
+  }])
+  pr = await h({ action: 'fsave-rules', fields: { flowPresentationRules: inferredRules }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
+  check('displayName 为空时不推导默认名称，badge 为空时不渲染徽章',
+    pr.html.indexOf('<span class="fl-name">search</span>') >= 0
+      && pr.html.indexOf('engram-memory search') < 0
+      && pr.html.indexOf('>命令</span>') < 0 && pr.html.indexOf('>记忆</span>') < 0)
 
   // live 开关
   r = await h({ action: 'toggle-live', fields: {}, state: r.state, root: ROOT, session: 's-main' })

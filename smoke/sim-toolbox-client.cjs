@@ -357,6 +357,11 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
       && src.indexOf('sessionsClient.provideInfo(sessionId)') < 0)
     check('Better Sidebar 会话回退严格限定 Flowglass，完整 Toolbox 不启用', src.indexOf("if (RT.bundleId !== 'flow') return undefined") >= 0
       && src.indexOf("RT.bundleId === 'flow' && serviceSessionsSnapshot") >= 0)
+    check('Flowglass 显示规则以 localStorage 持久化、随 panel 请求携带且设置打开时暂停 live 刷新',
+      src.indexOf("RT.storageKey('flow.presentation-rules')") >= 0
+        && src.indexOf('fields.__flowPresentationRules') >= 0
+        && src.indexOf('writeFlowRules(flowRulesToPersist)') >= 0
+        && src.indexOf('st.settings === true') >= 0)
     check('Markdown 增强严格限定原生 Flow bundle，动态 Toolbox 保留原文 fallback',
       src.indexOf("RT.bundleId === 'flow'") >= 0
         && src.indexOf("typeof TOOLBOX_MARKDOWN_TEXT !== 'undefined'") >= 0

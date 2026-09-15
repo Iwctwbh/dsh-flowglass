@@ -71,6 +71,90 @@ return {
       builtin: { label: '内置', color: '#9a9ba6', bg: 'rgba(138,139,150,.10)' },
     }
 
+    // ---- 声明式工具显示规则 ----
+    // 规则只投影卡片标题/徽章，不改日志中的工具名、参数或结果。Client 以 localStorage
+    // 为事实源并在每次 panel 请求中携带 JSON；Host 在使用前收窄，未知字段一律忽略。
+    const MAX_PRESENTATION_RULES = 24
+    const textField = (value, name, max) => {
+      if (typeof value !== 'string' || !value.trim()) throw new Error('显示规则缺少 ' + name)
+      const out = value.trim()
+      if (out.length > max) throw new Error('显示规则的 ' + name + ' 最长 ' + max + ' 字符')
+      return out
+    }
+    const optionalTextField = (value, name, max) => {
+      if (value == null || value === '') return ''
+      return textField(value, name, max)
+    }
+    const stringList = (value, name, maxItems, maxLength, required) => {
+      if (value == null && !required) return []
+      if (!Array.isArray(value) || (required && value.length === 0) || value.length > maxItems) {
+        throw new Error('显示规则的 ' + name + ' 必须是 1–' + maxItems + ' 项字符串数组')
+      }
+      const out = []
+      for (const item of value) {
+        const s = textField(item, name, maxLength)
+        if (!out.includes(s)) out.push(s)
+      }
+      return out
+    }
+    const normalizePresentationRules = (raw) => {
+      let value = raw
+      if (typeof value === 'string') {
+        if (value.length > 16000) throw new Error('显示规则 JSON 不能超过 16000 字符')
+        try { value = JSON.parse(value || '[]') } catch (e) { throw new Error('显示规则不是有效 JSON') }
+      }
+      if (!Array.isArray(value) || value.length > MAX_PRESENTATION_RULES) {
+        throw new Error('显示规则必须是数组，最多 ' + MAX_PRESENTATION_RULES + ' 条')
+      }
+      return value.map((rule, index) => {
+        if (!rule || typeof rule !== 'object' || Array.isArray(rule)) throw new Error('第 ' + (index + 1) + ' 条显示规则必须是对象')
+        const color = rule.color == null || rule.color === '' ? '#81c784' : textField(rule.color, 'color', 7)
+        if (!/^#[0-9a-fA-F]{6}$/.test(color)) throw new Error('第 ' + (index + 1) + ' 条显示规则的 color 必须是 #RRGGBB')
+        return {
+          enabled: rule.enabled !== false,
+          tools: stringList(rule.tools, 'tools', 8, 64, true),
+          executables: stringList(rule.executables, 'executables', 12, 128, true),
+          displayName: optionalTextField(rule.displayName, 'displayName', 80),
+          actions: stringList(rule.actions, 'actions', 32, 64, false),
+          badge: optionalTextField(rule.badge, 'badge', 12),
+          color: color.toLowerCase(),
+        }
+      })
+    }
+    const commandTokens = (command) => String(command || '').match(/"[^"\r\n]*"|'[^'\r\n]*'|[^\s]+/g) || []
+    const cleanToken = (token) => String(token || '').replace(/^[&'"(]+|['"),;]+$/g, '')
+    const tokenBasename = (token) => {
+      const clean = cleanToken(token).replace(/[\\/]+$/, '')
+      const parts = clean.split(/[\\/]/)
+      return (parts[parts.length - 1] || '').toLowerCase()
+    }
+    const commandOf = (call) => {
+      try {
+        const args = JSON.parse(call.argsRaw || '{}')
+        return typeof args.command === 'string' ? args.command : ''
+      } catch (e) { return '' }
+    }
+    const displayIdentity = (call, rules) => {
+      const fallback = { name: call.name, meta: KIND_META[call.cat] || KIND_META.builtin }
+      if (!Array.isArray(rules) || !rules.length) return fallback
+      const command = commandOf(call)
+      if (!command) return fallback
+      const tokens = commandTokens(command)
+      for (const rule of rules) {
+        if (!rule.enabled || !rule.tools.includes(call.name)) continue
+        const wanted = rule.executables.map((value) => tokenBasename(value))
+        const at = tokens.findIndex((token) => wanted.includes(tokenBasename(token)))
+        if (at < 0) continue
+        const action = cleanToken(tokens[at + 1] || '')
+        if (rule.actions.length && !rule.actions.includes(action)) continue
+        return {
+          name: [rule.displayName, action].filter(Boolean).join(' '),
+          meta: { label: rule.badge, color: rule.color, bg: rule.color + '1f' },
+        }
+      }
+      return fallback
+    }
+
     const pad2 = (n) => (n < 10 ? '0' : '') + n
     const fmtTime = (t) => {
       const d = new Date(t)
@@ -520,8 +604,9 @@ return {
     // 调用连线单元（形态约定·手绘参考图：主干卡在左、工具卡在右，中间两条水平连线——
     // 上=输入摘要 + 横线 + ▶ 右出；下=◀ + 横线 + 输出摘要 回左；输出线绿色系、错误红色系、进行中虚线）；
     // 进行中的工具卡高亮脉冲（调用到哪步哪步亮）；点击工具卡展开完整传入/返回（详情挂卡下方）
-    const renderCallWire = (c, expandedSeq) => {
-      const km = KIND_META[c.cat] || KIND_META.builtin
+    const renderCallWire = (c, expandedSeq, presentationRules) => {
+      const identity = displayIdentity(c, presentationRules)
+      const km = identity.meta
       const isExp = expandedSeq === c.seq
       const pending = c.status === 'pending'
       const o = outSummary(c)
@@ -536,8 +621,8 @@ return {
         '</div>' +
         '<div class="fl-callside">' +
           '<div class="fl-iocard' + (pending ? ' fl-live' : '') + (isExp ? ' fl-on' : '') + (o && o.err ? ' fl-err' : '') + '" data-action="fdetail" data-seq="' + c.seq + '" data-flow-select-seq="' + c.seq + '" title="点击在右侧查看完整传入/返回">' +
-            '<div class="fl-iohead"><span class="fl-tag" style="color:' + km.color + ';background:' + km.bg + '">' + km.label + '</span>' +
-            '<span class="fl-name">' + esc(c.name) + '</span>' +
+            '<div class="fl-iohead">' + (km.label ? '<span class="fl-tag" style="color:' + km.color + ';background:' + km.bg + '">' + esc(km.label) + '</span>' : '') +
+            '<span class="fl-name">' + esc(identity.name) + '</span>' +
             (pending ? '<span class="fl-spin"></span><span class="fl-time" data-flow-timer="' + c.time + '" data-flow-timer-prefix="⏱ ">⏱ 0ms</span>' : statusGlyph(c.status, c.dur)) + '</div>' +
           '</div>' +
         '</div>'
@@ -558,8 +643,8 @@ return {
       (withConn ? '<span class="fl-conn-gap"></span>' : '')
 
     // 孤立调用组（前无助手消息，如连续工具步）：中列只画主干竖线贯穿——无卡的行不放 ▼ 连接符（线本身即连续性）
-    const renderPar = (node, expandedSeq) => {
-      const units = node.calls.map((c) => renderCallWire(c, expandedSeq)).join('')
+    const renderPar = (node, expandedSeq, presentationRules) => {
+      const units = node.calls.map((c) => renderCallWire(c, expandedSeq, presentationRules)).join('')
       return '<div class="fl-lane"><div></div>' +
         '<div class="fl-lane-main"><span class="fl-lane-line"></span></div>' +
         grpSide(node, units) +
@@ -631,7 +716,8 @@ return {
 
     // 完整详情 → 右侧浮层（不插入流程流撑高内容：展开/收起零跳跃，滚动位置不动）：
     // 完整输入参数（美化 JSON）+ 完整返回结果（均截断标注，防大参数撑爆 HTML）；头部 ✕ 或再点卡片关闭
-    const detailRail = (c, anim) => {
+    const detailRail = (c, anim, presentationRules) => {
+      const identity = displayIdentity(c, presentationRules)
       let input = c.argsRaw || ''
       try { input = JSON.stringify(JSON.parse(c.argsRaw || '{}'), null, 2) } catch (e) {}
       const cap = 8000
@@ -640,7 +726,7 @@ return {
       const outShown = out.length > cap ? out.slice(0, cap) + '\n…（截断，共 ' + out.length + ' 字符）' : out
       // anim=是否新展开（轮询重渲染不重播滑入动画，防闪烁）
       return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '"><div class="fl-rail-resize" title="拖拽调宽（自动记忆）"></div>' +
-        '<div class="fl-rail-head"><span class="fl-rail-title">' + esc(c.name) + ' · 详情</span>' +
+        '<div class="fl-rail-head"><span class="fl-rail-title">' + esc(identity.name) + ' · 详情</span>' +
         '<button type="button" class="fl-rail-x" data-action="fdetail" data-seq="' + c.seq + '" title="关闭详情">✕</button></div>' +
         '<div class="fl-rail-body">' +
           '<div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">入 · 完整传入' + (input.length > cap ? '（截断）' : '') + '</span>' + copyButtonHtml + '</div><pre class="fl-pre">' + esc(inShown) + '</pre></div>' +
@@ -679,6 +765,22 @@ return {
       '</div>'
     }
 
+    const presentationRulesRail = (st) => {
+      const value = JSON.stringify(st.presentationRules || [], null, 2)
+      const example = '[\n  {\n    "enabled": true,\n    "tools": ["pwsh"],\n    "executables": ["engram-memory.ps1"],\n    "displayName": "engram-lattice",\n    "actions": ["search", "recall", "memory"],\n    "badge": "记忆",\n    "color": "#81c784"\n  }\n]'
+      return '<div class="fl-rail fl-rail-anim"><div class="fl-rail-resize" title="拖拽调宽（自动记忆）"></div>' +
+        '<div class="fl-rail-head"><span class="fl-rail-title">工具显示规则</span>' +
+        '<button type="button" class="fl-rail-x" data-action="fsettings" title="关闭设置">✕</button></div>' +
+        '<div class="fl-rail-body">' +
+          '<div class="tb-note">规则只改变流镜中的标题和徽章；原始工具名、参数、结果及会话日志保持不变。按顺序匹配，首条命中生效。displayName 为空时不添加名称，badge 为空时不显示徽章。</div>' +
+          '<textarea class="tb-textarea" style="min-height:260px;resize:vertical" spellcheck="false" data-field="flowPresentationRules" placeholder="' + esc(example) + '">' + esc(value) + '</textarea>' +
+          (st.ruleNotice ? '<div class="tb-note" style="color:var(--tb-done-text,#81c784)">' + esc(st.ruleNotice) + '</div>' : '') +
+          '<div class="tb-row"><button type="button" class="tb-btn tb-btn-sm" data-action="fsave-rules">保存并应用</button>' +
+          '<button type="button" class="tb-btn tb-btn-sm" data-action="freset-rules">清空规则</button></div>' +
+          '<details><summary class="tb-note" style="cursor:pointer">字段说明与 Engram 示例</summary><pre class="fl-pre">' + esc(example) + '</pre></details>' +
+        '</div></div>'
+    }
+
     // 子代理分支内容（左列）：入口卡（可点详情）+ 支线步骤（限高滚动）+ 出口卡
     // 运行中 = 调用在途（pending）或子会话仍 live——任一成立入口卡持续 fl-live（流光/脉冲/转圈）
     const subBranchHtml = async (c) => {
@@ -688,6 +790,7 @@ return {
       if (cid) {
         try { sub2 = await childRows(cid, 10); if (sub2.live) subLive = true } catch (e) {}
       }
+
       // 有子会话 id 后，整张入口卡就是“进入子流镜”的主点击面；
       // 子代理尚在启动时仍保留详情行为，避免点击无效。
       let sub = '<div class="fl-sub-card fl-sub-open' + (subLive ? ' fl-live' : '') + '" data-action="' + (cid ? 'fenter' : 'fdetail') + '" data-seq="' + c.seq + '" data-flow-select-seq="' + c.seq + '" title="' + (cid ? '进入该子代理的实时流镜' : '点击查看完整任务传入/返回') + '">' +
@@ -797,7 +900,7 @@ return {
       const shown = nodes.slice(-limit)
       const hasOlder = nodes.length > shown.length
       const parts = []
-      parts.push('<div class="jr-tabpanel tb-root tb-pane" data-flow data-flow-scope="' + esc(sid) + '" data-flow-has-older="' + (hasOlder ? '1' : '0') + '" data-flow-visible="' + shown.length + '" data-flow-total="' + nodes.length + '" data-autorefresh="' + (st.live ? '2000' : '') + '" data-tab-badge="' + (st.live ? String(nodes.length) : '') + '">')
+      parts.push('<div class="jr-tabpanel tb-root tb-pane" data-flow data-flow-scope="' + esc(sid) + '" data-flow-has-older="' + (hasOlder ? '1' : '0') + '" data-flow-visible="' + shown.length + '" data-flow-total="' + nodes.length + '" data-autorefresh="' + (st.live && !st.settings ? '2000' : '') + '" data-tab-badge="' + (st.live ? String(nodes.length) : '') + '">')
       // 固定头
       parts.push('<div class="tb-pane-head">')
       // 钻取态：查看的不是面板所属会话 → 头部给「← 返回」+ 层级标注（crumbs 栈深度）
@@ -819,6 +922,7 @@ return {
         '<button type="button" class="tb-chip' + (st.live ? ' tb-chip-on' : '') + '" data-action="toggle-live">' + (st.live ? '● 实时同步中' : '⏸ 已暂停') + '</button>' +
         '<button type="button" class="tb-chip' + (st.follow ? ' tb-chip-on' : '') + '" data-action="toggle-follow" title="开启后，点击子代理会同时切换 DeepSeek Harness 主会话">' + (st.follow ? '● 子代理跟随' : '○ 子代理跟随') + '</button>' +
         '<button type="button" class="tb-btn tb-btn-sm" data-action="refresh">刷新</button>' +
+        '<button type="button" class="tb-btn tb-btn-sm" data-action="fsettings" title="配置工具卡片的声明式显示规则">⚙ 显示规则</button>' +
         '<span class="fl-info" tabindex="0" aria-label="流镜使用说明">' +
           '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7.2v4"/><circle cx="8" cy="4.7" r=".7" fill="currentColor" stroke="none"/></svg>' +
           '<span class="fl-info-pop">' + esc(help) + '</span>' +
@@ -868,11 +972,11 @@ return {
             h = '<div class="fl-lane">' +
               (subN ? subColHtml(subN, subHtmls[subIdx] || '') : '<div></div>') +
               '<div class="fl-lane-main">' + connMain(main, withConn) + '</div>' +
-              (parN ? grpSide(parN, parN.calls.map((c) => renderCallWire(c, st.expanded)).join('')) : '<div></div>') +
+              (parN ? grpSide(parN, parN.calls.map((c) => renderCallWire(c, st.expanded, st.presentationRules)).join('')) : '<div></div>') +
             '</div>'
             i = lastI
           } else if (n.t === 'msg') h = renderMsg(n.it, st.expanded, withConn, n.it.seq === liveAiSeq)
-          else if (n.t === 'par') h = renderPar(n, st.expanded)
+          else if (n.t === 'par') h = renderPar(n, st.expanded, st.presentationRules)
           else h = '<div class="fl-lane">' + subColHtml(n, subHtmls[i] || '') + '<div class="fl-lane-main"><span class="fl-lane-line"></span></div><div></div></div>'
           rows.push(h)
         }
@@ -885,8 +989,9 @@ return {
       // 详情右侧浮层：展开状态且目标仍在可视事件集内时渲染（工具调用→传入/返回；消息→完整内容）
       if (st.expanded != null) {
         const target = items.find((it) => it.seq === st.expanded && (it.kind === 'call' || it.kind === 'msg'))
-        if (target) parts.push(target.kind === 'call' ? detailRail(target, st.freshSeq === target.seq) : msgRail(target, st.freshSeq === target.seq))
+        if (target) parts.push(target.kind === 'call' ? detailRail(target, st.freshSeq === target.seq, st.presentationRules) : msgRail(target, st.freshSeq === target.seq))
       }
+      if (st.settings) parts.push(presentationRulesRail(st))
       delete st.freshSeq // 一次性动画标记，不残留进 state
       parts.push('</div>')
       return parts.join('')
@@ -899,6 +1004,9 @@ return {
       if (!Number.isFinite(Number(st.limit)) || Number(st.limit) < 60) st.limit = 60
       if (typeof st.expanded !== 'number' && st.expanded != null) st.expanded = null
       if (!Array.isArray(st.crumbs)) st.crumbs = []
+      if (fields && Object.prototype.hasOwnProperty.call(fields, '__flowPresentationRules')) {
+        st.presentationRules = normalizePresentationRules(fields.__flowPresentationRules)
+      } else if (!Array.isArray(st.presentationRules)) st.presentationRules = []
       const el = fields && fields.__el ? fields.__el : {}
       // home=面板所属会话（钻取不改变归属）；sid=当前查看的会话（默认=home）。
       // 跟随模式下 Harness 已经把当前 session 切到 st.sid，但 crumbs 表明这仍是
@@ -922,6 +1030,21 @@ return {
         : null
       if (action === 'toggle-live') st.live = !st.live
       else if (action === 'toggle-follow') st.follow = !st.follow
+      else if (action === 'fsettings') {
+        st.settings = !st.settings
+        st.expanded = null
+        st.ruleNotice = ''
+      }
+      else if (action === 'fsave-rules') {
+        st.presentationRules = normalizePresentationRules(fields.flowPresentationRules || '[]')
+        st.settings = true
+        st.ruleNotice = '已保存并应用 ' + st.presentationRules.length + ' 条规则'
+      }
+      else if (action === 'freset-rules') {
+        st.presentationRules = []
+        st.settings = true
+        st.ruleNotice = '已清空显示规则'
+      }
       else if (action === 'fmore') st.limit = Math.min(100000, Number(st.limit) + 60)
       else if (action === 'fcontext' && typeof el.seqs === 'string') {
         const seqs = el.seqs.split(',').map((v) => Number(v)).filter((v) => Number.isFinite(v))

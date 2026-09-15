@@ -1404,6 +1404,16 @@ return {
       const [flowMarkdownPortal, setFlowMarkdownPortal] = React.useState(null)
       const [busyTool, setBusyTool] = React.useState(null)
       const [showJumpLatest, setShowJumpLatest] = React.useState(false)
+      const flowRulesStorageKey = RT.storageKey('flow.presentation-rules')
+      const readFlowRules = () => {
+        try {
+          const raw = localStorage.getItem(flowRulesStorageKey)
+          return typeof raw === 'string' && raw.trim() ? raw : '[]'
+        } catch (e) { return '[]' }
+      }
+      const writeFlowRules = (raw) => {
+        try { localStorage.setItem(flowRulesStorageKey, raw) } catch (e) {}
+      }
       const [flowZoom, setFlowZoom] = React.useState(() => {
         try { const n = Number(localStorage.getItem(RT.storageKey('flow.zoom'))); return n >= 60 && n <= 150 ? n : 100 } catch (e) { return 100 }
       })
@@ -2353,7 +2363,7 @@ return {
         const t = setTimeout(() => {
           const st = stateRef.current.flow
           if (activeRef.current !== 'flow' || !openRef.current || managingRef.current) return
-          if (!st || st.live === false) return
+          if (!st || st.live === false || st.settings === true) return
           if (typeof loadPanelRef.current === 'function') loadPanelRef.current('flow', '__refresh', null, { silent: true })
         }, 150)
         return () => { try { clearTimeout(t) } catch (e) {} }
@@ -2649,6 +2659,12 @@ return {
             if (action === 'fmore') flowSuppressHistoryAnimRef.current = true
           }
           let fields = collectFields()
+          let flowRulesToPersist = null
+          if (toolId === 'flow') {
+            if (action === 'fsave-rules') flowRulesToPersist = typeof fields.flowPresentationRules === 'string' ? fields.flowPresentationRules : '[]'
+            else if (action === 'freset-rules') flowRulesToPersist = '[]'
+            fields.__flowPresentationRules = flowRulesToPersist == null ? readFlowRules() : flowRulesToPersist
+          }
           if (el) {
             // 点击元素自身的 data-* 属性随请求带回（data-key / data-hash / data-path 等）
             const ds = el.dataset || {}
@@ -2686,6 +2702,7 @@ return {
           const res = await Promise.race([callP, timeoutP])
           if (seqRef.current[toolId] !== seq) return // 已有更新的请求发出：过期响应直接丢弃（联动切换竞态修复）；DOM 由新请求的响应接管
           if (res && res.ok) {
+            if (toolId === 'flow' && flowRulesToPersist != null) writeFlowRules(flowRulesToPersist)
             retryCountRef.current[toolId] = 0 // 成功：清零一次性重试计数
             stateRef.current[toolId] = res.state
             htmlRef.current[toolId] = res.html
