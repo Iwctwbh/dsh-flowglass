@@ -389,6 +389,13 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
         && src.indexOf('flowMarkdownPortal.mount || flowMarkdownPortal.target') >= 0
         && css.indexOf('.fl-markdown-rendered{min-width:0;border:1px solid') >= 0
         && css.indexOf('max-height:min(70vh,520px);overflow:auto') >= 0)
+    check('Skill 语义详情复用 Markdown 渲染并保留折叠原文样式',
+      css.indexOf('.fl-skill-hero{') >= 0 && css.indexOf('.fl-skill-instructions{') >= 0
+        && css.indexOf('.fl-skill-raw{') >= 0 && src.indexOf('结构化 Skill 说明默认使用官方 Markdown 预览') >= 0)
+    check('工具卡名称与状态保持单行，名称优先省略而非挤压状态',
+      css.indexOf('.fl-name{flex:1;min-width:0;') >= 0
+        && css.indexOf('.fl-status{flex:none;white-space:nowrap;') >= 0
+        && css.indexOf('font-variant-numeric:tabular-nums;white-space:nowrap') >= 0)
     check('详情最后一个内容框填满右侧剩余高度，传入和元信息保持自然高度',
       css.indexOf('.fl-rail-body>.fl-sec:last-child{flex:1;min-height:0}') >= 0
         && css.indexOf('.fl-rail-body>.fl-sec:last-child>.fl-pre,.fl-rail-body>.fl-sec:last-child>.fl-markdown-rendered{flex:1;min-height:0;max-height:none}') >= 0)
@@ -412,6 +419,125 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
       && css.indexOf('.tb-frame:has(.tb-pane)>div{') < 0 && src.indexOf("className: 'tb-panel-html'") >= 0)
     check('CSS 含隐藏行与计数覆盖规则', css.indexOf('li[data-cordis-row][data-tb-hide~="1"]{display:none!important}') >= 0
       && css.indexOf('button[data-cordis-badge] span[data-tb-count]::after') >= 0)
+    check('大流镜看板：框选取框在 board 模式不接管指针', src.indexOf("hasAttribute('data-flow-board')") >= 0)
+    check('大流镜分支横线连续连接相邻中心，不再留下半卡宽断口',
+      css.indexOf('.fl-zoom-branch::after{content:"";position:absolute;top:-16px;left:calc(-50% - 14px);right:50%') >= 0
+        && css.indexOf('.fl-zoom-branch:first-child::after{display:none}') >= 0)
+    check('大流镜聚焦缩放只在视角切换时播放轻量过渡',
+      css.indexOf('@keyframes flZoomFocusIn') >= 0 && css.indexOf('@keyframes flZoomOverviewIn') >= 0
+        && css.indexOf('.fl-zoom-motion-focus>.tb-pane-body') >= 0 && css.indexOf('.fl-zoom-motion-overview>.tb-pane-body') >= 0
+        && css.indexOf('.fl-zoom-near-flow{align-self:stretch;width:100%') >= 0)
+    check('大流镜开工台：客户端行为按钮 + 输入镜像恢复 + 输入非空暂停自动刷新/事件窗重拉',
+      src.indexOf("closest('[data-zoom-launch]')") >= 0
+        && src.indexOf("closest('[data-zoom-pickmode]')") < 0
+        && src.indexOf('executeZoomLaunch') >= 0 && src.indexOf('zoomPromptRef') >= 0
+        && src.indexOf('onPanelInput') >= 0 && src.indexOf('onInput: onPanelInput') >= 0
+        && (src.match(/zoomComposerBusy\(\)/g) || []).length >= 2
+        && css.indexOf('.fl-zoom-composer{') >= 0 && css.indexOf('.fl-zoom-prompt{') >= 0)
+    check('大流镜开工：旧会话 fork / 新会话同工作区 create + 模型思考强度先于 prompt',
+      src.indexOf("querySelectorAll('[data-zoom-lane]')") >= 0
+        && src.indexOf("querySelectorAll('[data-zoom-effort]')") >= 0
+        && src.indexOf("ctx.get('remote.session')") >= 0
+        && src.indexOf('remoteSession.selectModel') >= 0
+        && src.indexOf('await selectSessionModel(sid, route, efforts[i]') >= 0
+        && src.indexOf('sessionsClient.fork({ sessionId: sourceSessionId') >= 0
+        && src.indexOf('sessionsClient.create(launchWorkspaceId ? { workspaceId: launchWorkspaceId }') >= 0
+        && src.indexOf("host.call(RT.rpc('session-info'), { session: sourceSessionId })") >= 0
+        && src.indexOf('const harnessSelectedSessionId = hookSession || lsSession || props.sessionId') >= 0
+        && src.indexOf('const sourceSessionId = harnessSelectedSessionId || currentSessionId || flowScope()') >= 0
+        && src.indexOf("const workspacesClient = ctx.get('workspaces')") >= 0
+        && src.indexOf('const hookWorkspaceItems = useWorkspacesHook') >= 0
+        && src.indexOf('Array.isArray(hookWorkspaceItems)') >= 0
+        && src.indexOf('workspacesClient.list.getSnapshot()') >= 0
+        && src.indexOf('w.sessionIds.some((sid) => String(sid) === sourceSessionId)') >= 0
+        && src.indexOf("b.session.prompt([{ type: 'text', text }], 'queue')") >= 0
+        && src.indexOf("await loadPanelRef.current('flow', 'fzoom-joined'") >= 0
+        && src.indexOf("if (!forkCurrent && created.length)") >= 0
+        && src.indexOf("await navigateHarnessSession({ sessionId: target })") >= 0
+        && css.indexOf('.fl-zoom-lane-group{') >= 0 && css.indexOf('.fl-zoom-badge-model{') >= 0)
+    check('大流镜已有分支组发送下一轮时复用 Session，不再新建',
+      src.indexOf("board.getAttribute('data-zoom-active-sids')") >= 0
+        && src.indexOf('const continueExisting = activeSids.length >= 2') >= 0
+        && src.indexOf('const sid = continueExisting') >= 0
+        && src.indexOf('if (!continueExisting) await renameSession') >= 0
+        && src.indexOf('sourceSids: continueExisting ? activeSids') >= 0
+        && src.indexOf("baseHistoryId: continueExisting && board ? (board.getAttribute('data-zoom-run-id')") >= 0)
+    check('大流镜同时开始按路径检查能力且错误不再静默',
+      src.indexOf("if (forkCurrent && typeof sessionsClient.fork !== 'function')") >= 0
+        && src.indexOf("if (!forkCurrent && !continueExisting && typeof sessionsClient.create !== 'function')") >= 0
+        && src.indexOf('Promise.resolve(executeZoomLaunch()).catch') >= 0
+        && src.indexOf("active === 'flow' && flowUiNotice ? React.createElement('div', { className: 'tb-banner tb-banner-info'") >= 0)
+    check('大流镜批次日志跨会话持久化，导航生效后单次恢复原生右侧栏',
+      src.indexOf("RT.storageKey('flow.zoom-runs.'") >= 0
+        && src.indexOf('fields.__flowZoomLog = JSON.stringify(readFlowZoomLog())') >= 0
+        && src.indexOf("'fzoom-focus-back'") >= 0 && src.indexOf("'fzoom-focus-current'") >= 0
+        && src.indexOf("mode: state && state.zoomMode === 'near' ? 'near' : 'panorama'") >= 0
+        && src.indexOf('lastFocusSid: state && typeof state.zoomLastFocusSid') >= 0
+        && src.indexOf('writeFlowZoomLog(res.state)') >= 0
+        && src.indexOf('const deferFlowNavigationRender') >= 0
+        && src.indexOf('if (!deferFlowNavigationRender) setHtml(res.html)') >= 0
+        && src.indexOf('if (isFlowFollow && nativeOpenTab)') >= 0
+        && css.indexOf('.fl-zoom-history-drawer{') >= 0 && css.indexOf('.fl-history-node{') >= 0 && css.indexOf('.fl-zoom-current-session{') >= 0
+        && css.indexOf('.fl-history-toggle{') >= 0
+        && css.indexOf('.fl-zoom-diff-board{') >= 0
+        && css.indexOf('.fl-diff-cell-change{') >= 0 && css.indexOf('.fl-diff-missing{') >= 0)
+    check('大流镜把 Harness 会话标题索引交给 Host 恢复无血缘兄弟分支',
+      src.indexOf('fields.__flowSessionIndex = JSON.stringify(flowSessionIds.slice(0, 200)') >= 0
+        && src.indexOf("row.displayTitle || row.title || ''") >= 0)
+    check('归档 Session 在 Client 会话树、并发日志和 Host 请求中统一过滤',
+      src.indexOf('const hookArchivedSessionIds = useWorkspacesHook') >= 0
+        && src.indexOf('const archivedSessionSet = new Set(archivedSessionIds)') >= 0
+        && src.indexOf('filter((id) => !archivedSessionSet.has(id))') >= 0
+        && src.indexOf('fields.__flowArchivedSessionIds = JSON.stringify(archivedSessionIds)') >= 0
+        && src.indexOf('if (!archivedSessionSet.size || !Array.isArray(parsed.runs)) return parsed') >= 0)
+    check('大流镜显式尺度切换不会被 Session 重挂或静默刷新抢占',
+      src.indexOf('const interactiveActionSeqRef = React.useRef({})') >= 0
+        && src.indexOf("if ((silent || !action) && interactiveActionSeqRef.current[toolId]) return") >= 0
+        && src.indexOf("if (!silent && action) interactiveActionSeqRef.current[toolId] = seq") >= 0
+        && src.indexOf("if (interactiveActionSeqRef.current[toolId] === seq) delete interactiveActionSeqRef.current[toolId]") >= 0)
+    check('大流镜开工区接近 Harness composer，详细轮次按二/三泳道自适应宽度',
+      css.indexOf('.fl-zoom-composer{display:flex;flex-direction:column') >= 0
+        && css.indexOf('.fl-zoom-diff-scroll{') >= 0 && css.indexOf('overflow-x:auto;overflow-y:visible') >= 0
+        && css.indexOf('.fl-flow-two .fl-lane{grid-template-columns:minmax(180px,1fr) minmax(220px,1.2fr)}') >= 0)
+    check('轮次 diff 较窄时保持居中，精简模式有独立摘要样式',
+      css.indexOf('margin-inline:auto') >= 0 && css.indexOf('.fl-compact-diff{') >= 0
+        && css.indexOf('.fl-diff-dim-change{') >= 0)
+    check('详细流镜的任意助手轮次从所属 Session 分支，而不是误用当前看板 Session',
+      src.indexOf("branch.closest('[data-flow-detail-session]')") >= 0
+        && src.indexOf('const source = sourceSessionId || flowScope()') >= 0)
+    check('轮次左栏可一次派生整个并发批次，当前并发成员可增删',
+      src.indexOf("closest('[data-zoom-round-fork]')") >= 0
+        && src.indexOf('executeZoomRoundFork') >= 0
+        && src.indexOf('executeZoomCellFork') >= 0 && src.indexOf('baseHistoryId') >= 0 && src.indexOf('targetCount') >= 0
+        && src.indexOf("'fzoom-run-add'") >= 0 && src.indexOf("'fzoom-run-remove'") >= 0
+        && css.indexOf('.fl-diff-round-fork{') >= 0 && css.indexOf('.fl-zoom-current-remove{') >= 0)
+    check('并发组可选择/拖拽其他 Session、原地新建加入，左栏三点菜单也可直接加入',
+      src.indexOf('executeZoomAddNewSession') >= 0
+        && src.indexOf("querySelector('[data-zoom-add-drop]')") >= 0
+        && src.indexOf('const flowAddDialog =') >= 0
+        && src.indexOf('setFlowAddAnchor({ left:') >= 0
+        && src.indexOf('添加到当前并发 · ') >= 0
+        && src.indexOf("className: 'tb-flow-session-tree'") >= 0
+        && src.indexOf("className: 'tb-flow-tree-workspace'") >= 0
+        && src.indexOf("className: 'tb-flow-tree-session'") >= 0
+        && src.indexOf('加入当前并发分支') >= 0
+        && src.indexOf('data-flow-sidebar-join') >= 0
+        && src.indexOf("loadPanelRef.current('flow', 'fzoom-run-add'") >= 0
+        && css.indexOf('.fl-zoom-add-picker{') >= 0 && css.indexOf('.fl-zoom-composer-targets.is-drop-target{') >= 0
+        && css.indexOf('.tb-flow-add-popup{position:fixed') >= 0
+        && css.indexOf('backdrop-filter:blur(18px) saturate(135%)') >= 0
+        && css.indexOf('.tb-flow-bring-popup,.fl-rail,.fl-zoom-history-drawer,.tb-flow-zoom-float,.tb-flow-selection-bar{') >= 0)
+    check('并发会话标题带任务/分支序号/模型指向，历史树位于右侧',
+      src.indexOf('zoomBranchTitle') >= 0 && src.indexOf("' · 分支 '") >= 0
+        && css.indexOf('.fl-zoom-history-drawer{position:absolute;right:0') >= 0
+        && css.indexOf('width:max-content;min-width:max-content;margin-inline:auto') >= 0)
+    check('大流镜互通：⇪ 带入暂存 + 点选目标 + 带入草稿/直接发送',
+      src.indexOf('setZoomRelay({ source:') >= 0
+        && src.indexOf('res.zoomRelay') >= 0
+        && src.indexOf("[data-action=\"fzoom-relay\"]") >= 0
+        && src.indexOf('executeZoomCast') >= 0
+        && src.indexOf('putFlowContextIntoDraft(sid, text, true)') >= 0
+        && css.indexOf('.fl-zoom-branch.fl-zoom-picked .fl-zoom-branch-head') >= 0 && css.indexOf('.fl-zoom-relay{') >= 0)
   }
 
   // —— 路径 D（0.1.5 原生右侧栏，bundleId=flow）：两段式注册 + 自有入口 openTab ——
@@ -562,7 +688,8 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     check('跨会话草稿写入走 uiSession 绑定（provideInfo 回退已删除）', src.indexOf('uiSession.adapter.resolve') >= 0
       && src.indexOf('sessionsClient.provideInfo') < 0)
     check('原生 body 权威属性（sessionId/useSessions/useTabInfo→visible）', src.indexOf('function FlowglassNativeTabBody') >= 0
-      && src.indexOf('props.useTabInfo') >= 0 && src.indexOf('visible = !(info && info.tab && info.tab.visible === false)') >= 0)
+      && src.indexOf('props.useTabInfo') >= 0 && src.indexOf('visible = !(info && info.tab && info.tab.visible === false)') >= 0
+      && src.indexOf('useWorkspaces: typeof props.useWorkspaces') >= 0)
     check('Flowglass 不再暴露显示方式选择或独立悬浮入口',
       src.indexOf('FlowDisplayModeSelect') < 0 && src.indexOf("RT.storageKey('flow.display')") < 0
         && src.indexOf("const dockButton = RT.bundleId === 'flow' ? null") >= 0

@@ -183,6 +183,12 @@ const PRESENTATION_RULE_EVENTS = [
   { seq: 3, time: 13020, type: 'tool/result', data: { message: { content: [{ type: 'tool-result', toolCallId: 'memory-1', content: [{ type: 'text', text: '# Search: flowglass' }] }] } } },
 ]
 
+const SKILL_DETAIL_EVENTS = [
+  { seq: 1, time: 14000, type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: '加载记忆技能' }] }, stream: [] } },
+  { seq: 2, time: 14010, type: 'tool/call', data: { turn: 1, step: 2, name: 'skill', callId: 'skill-1', arguments: '{"name":"engram-memory"}' } },
+  { seq: 3, time: 14030, type: 'tool/result', data: { message: { content: [{ type: 'tool-result', toolCallId: 'skill-1', content: [{ type: 'text', text: '<skill_content name="engram-memory">\n<skill_resources>\nBase directory for this skill: C:\\Users\\tester\\.agents\\skills\\engram-memory\nResolve relative paths against this base directory.\n</skill_resources>\n\n<skill_instructions>\n# Engram Memory\n\nUse durable project-aware memory.\n\n## Activation\n\nSearch only when relevant.\n</skill_instructions>\n</skill_content>' }] }] } } },
+]
+
 const LONG_EVENTS = Array.from({ length: 130 }, (_, i) => ({
   seq: i + 1,
   time: 4000 + i,
@@ -194,6 +200,13 @@ const SESSIONS = {
   's-main': MAIN_EVENTS,
   '228a8697-2b7a-422a-b3c0-1cf61c965d5c': CHILD_EVENTS,
   '338a8697-2b7a-422a-b3c0-1cf61c965d6d': CHILD_EVENTS,
+  's-fleet-1': CHILD_EVENTS,
+  's-fleet-2': CHILD_EVENTS,
+  's-finished': [
+    { seq: 1, time: 1550, type: 'user/message', data: { content: [{ type: 'text', text: '已完成的调研任务' }], source: { kind: 'user' } } },
+    { seq: 1.5, time: 1555, type: 'request/header', data: { header: { config: { provider: 'deepseek', model: 'reasoner-x' } } } },
+    { seq: 2, time: 1560, type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: '调研结论' }] }, stream: [], usage: { outputTokens: 6 } } },
+  ],
   's-live': LIVE_PREFIX_EVENTS,
   's-settle': SETTLE_PREFIX.slice(),
   's-settle-cold': SETTLE_PREFIX.concat([SETTLE_MESSAGE], SETTLE_TAIL),
@@ -206,19 +219,57 @@ const SESSIONS = {
   's-toolcall-only': TOOLCALL_ONLY_EVENTS,
   's-legacy-chunk': LEGACY_CHUNK_EVENTS,
   's-presentation-rules': PRESENTATION_RULE_EVENTS,
+  's-skill-detail': SKILL_DETAIL_EVENTS,
   's-long': LONG_EVENTS,
+}
+// 大流镜 Zoom 血缘树：s-main → 228a/338a（在线子代理）+ s-finished（仅落盘的历史子代理）
+const LINEAGE = {
+  's-main': {
+    target: { header: { id: 's-main', cwd: ROOT }, live: true, persisted: true },
+    descendants: [
+      { session: { header: { id: '228a8697-2b7a-422a-b3c0-1cf61c965d5c', origin: 'subagent', parentSession: 's-main', delegationDepth: 1 }, live: true, persisted: true }, descendants: [] },
+      { session: { header: { id: '338a8697-2b7a-422a-b3c0-1cf61c965d6d', origin: 'subagent', parentSession: 's-main', delegationDepth: 1 }, live: false, persisted: true }, descendants: [] },
+      { session: { header: { id: 's-finished', origin: 'subagent', parentSession: 's-main', delegationDepth: 1 }, live: false, persisted: true }, descendants: [] },
+    ],
+    complete: true,
+    root: { header: { id: 's-main', cwd: ROOT }, live: true, persisted: true },
+  },
+  '228a8697-2b7a-422a-b3c0-1cf61c965d5c': {
+    target: { header: { id: '228a8697-2b7a-422a-b3c0-1cf61c965d5c', origin: 'subagent', parentSession: 's-main', delegationDepth: 1 }, live: true, persisted: true },
+    ancestors: [{ header: { id: 's-main', cwd: ROOT }, live: true, persisted: true }],
+    descendants: [], complete: true,
+    root: { header: { id: 's-main', cwd: ROOT }, live: true, persisted: true },
+  },
 }
 const sessionQuery = {
   async readSession(sid) { return { session: { id: sid }, events: SESSIONS[sid] || [] } },
   async listSessions() { return [{ header: { id: 's-main' }, live: true }] },
+  async traceSession(sid) { const tr = LINEAGE[sid]; if (!tr) throw new Error('unknown session: ' + sid); return tr },
 }
-const sessions = { get: (id) => (/^(228|338)a8697/.test(id) ? { events: CHILD_EVENTS, header: { id } } : undefined), list: () => [] }
+const sessions = {
+  get: (id) => (/^(228|338)a8697/.test(id) && SESSIONS[id] ? { events: SESSIONS[id], header: { id, origin: 'subagent', parentSession: 's-main', delegationDepth: 1 } } : undefined),
+  list: () => [
+    { id: 's-main', header: { id: 's-main', cwd: ROOT } },
+    { id: '228a8697-2b7a-422a-b3c0-1cf61c965d5c', header: { id: '228a8697-2b7a-422a-b3c0-1cf61c965d5c', origin: 'subagent', parentSession: 's-main', delegationDepth: 1 } },
+  ],
+}
+const llm = {
+  listProviders: async () => [{ id: 'deepseek', name: 'DeepSeek' }],
+  listModels: async () => [{ id: 'reasoner-x', name: 'Reasoner X' }],
+  resolveModelInfo: async () => ({
+    reasoning: {
+      efforts: [{ id: 'high', name: '高' }, { id: 'max', name: '最高' }],
+      defaultEffort: 'high',
+    },
+  }),
+}
 
 const handlers = {}
 const ctx = {
   get(name) {
     if (name === 'sessionQuery') return sessionQuery
     if (name === 'sessions') return sessions
+    if (name === 'llm') return llm
     if (name === 'toolboxRegistry') return { register(d, h) { handlers[d.id] = h; return () => {} } }
     if (name === 'sandboxPolicy') return { workspaceRoot: ROOT }
     return undefined
@@ -341,6 +392,19 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
     pr.html.indexOf('<span class="fl-name">search</span>') >= 0
       && pr.html.indexOf('engram-memory search') < 0
       && pr.html.indexOf('>命令</span>') < 0 && pr.html.indexOf('>记忆</span>') < 0)
+
+  // Skill 详情：语义化名称/资源/Markdown 说明，原始 XML 收进折叠区。
+  let sk = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-skill-detail' })
+  check('Skill 调用卡直接显示技能名', sk.html.indexOf('<span class="fl-name">engram-memory</span>') >= 0
+    && sk.html.indexOf('<span class="fl-name">skill</span>') < 0)
+  check('Skill 调用状态使用不可换行状态单元', sk.html.indexOf('<span class="fl-status"') >= 0)
+  sk = await h({ action: 'fdetail', fields: { __el: { seq: '2' } }, state: sk.state, root: ROOT, session: 's-skill-detail' })
+  check('Skill 详情使用技能名称和语义区域', sk.html.indexOf('技能 · engram-memory') >= 0
+    && sk.html.indexOf('基础目录') >= 0 && sk.html.indexOf('资源说明') >= 0 && sk.html.indexOf('使用说明') >= 0)
+  check('Skill 使用说明声明 Markdown 挂载点', sk.html.indexOf('data-flow-markdown-detail="1"') >= 0
+    && sk.html.indexOf('data-flow-markdown-source="1"') >= 0 && sk.html.indexOf('# Engram Memory') >= 0)
+  check('Skill 原始 XML 收入折叠区且内容保留', sk.html.indexOf('class="fl-skill-raw"') >= 0
+    && sk.html.indexOf('<summary>原始返回</summary>') >= 0 && sk.html.indexOf('&lt;skill_content name=&quot;engram-memory&quot;&gt;') >= 0)
 
   // live 开关
   r = await h({ action: 'toggle-live', fields: {}, state: r.state, root: ROOT, session: 's-main' })
@@ -492,6 +556,269 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
   // __refresh 静默动作（自动轮询路径；state 遗留 s-long 钻取 → 子代理流镜头）
   r = await h({ action: '__refresh', fields: {}, state: r.state, root: ROOT, session: 's-main' })
   check('__refresh → 正常渲染（跟随遗留钻取态切子代理流镜头）', r.ok === true && r.html.indexOf('子代理流镜') >= 0 && r.html.indexOf('data-action="fback"') >= 0)
+
+  // ================= ④ 大流镜 Zoom（多会话并发总览） =================
+  let z = await h({ action: 'fzoom', fields: {}, state: null, root: ROOT, session: 's-main' })
+  check('大流镜：进入总览（两种尺度切换 + 看板标记 + 自动刷新）', z.state.zoom === true
+    && z.state.zoomMode === 'panorama'
+    && z.html.indexOf('aria-label="大流镜尺度"') >= 0 && z.html.indexOf('data-action="fzoom-focus-back" title="查看所选并发的全部分支">全景') >= 0
+    && z.html.indexOf('data-action="fzoom-focus-current" title="用完整流镜查看当前选中分支"') >= 0 && z.html.indexOf('>近观</button>') >= 0
+    && z.html.indexOf('data-action="fzoom-scope"') < 0 && z.html.indexOf('🌳 会话树') < 0
+    && z.html.indexOf('data-flow-board="1"') >= 0 && z.html.indexOf('data-autorefresh="2000"') >= 0)
+  check('大流镜：血缘树 4 卡（主会话 + 3 后代）', countCards(z.html, 'data-action="fzoom-open"') === 4)
+  check('大流镜：首条用户消息作卡标题（触发内容即身份）', z.html.indexOf('帮我看下这个目录') >= 0 && z.html.indexOf('已完成的调研任务') >= 0)
+  check('大流镜：无用户消息的会话回退短 id 标题', z.html.indexOf('会话 228a8697') >= 0)
+  check('大流镜：徽章（面板所属 + 子代理层级）', z.html.indexOf('面板所属') >= 0 && z.html.indexOf('子代理 L1') >= 0)
+  check('大流镜：俯视树结构（根卡 + trunk + 分支列）', z.html.indexOf('fl-zoom-tree') >= 0 && z.html.indexOf('fl-zoom-rootcard') >= 0
+    && z.html.indexOf('fl-zoom-trunk') >= 0 && countCards(z.html, 'fl-zoom-branch"') === 3)
+  check('大流镜：分支纵向流程（glyph + 工具徽章，自上而下）', z.html.indexOf('fl-zoom-flow') >= 0 && z.html.indexOf('fl-zoom-step') >= 0 && z.html.indexOf('fl-zoom-tool') >= 0)
+  check('大流镜：模型徽章来自会话 request/header 路由', z.html.indexOf('deepseek/reasoner-x') >= 0)
+  check('大流镜：历史会话状态点（未上线后代）', z.html.indexOf('历史') >= 0)
+  check('大流镜：首轮无运行中徽标（无增长）', z.html.indexOf('fl-zoom-dot-running') < 0 && z.html.indexOf('data-tab-badge=""') >= 0)
+  // 子代理日志增长 → 下一轮该会话亮起运行中（agents 状态面缺失时的增长兜底），Tab 角标报活
+  SESSIONS['228a8697-2b7a-422a-b3c0-1cf61c965d5c'] = SESSIONS['228a8697-2b7a-422a-b3c0-1cf61c965d5c'].concat([
+    { seq: 4, time: 1580, type: 'assistant/message', data: { turn: 1, step: 3, message: { content: [{ type: 'text', text: '调研推进中' }] }, stream: [] } },
+  ])
+  z = await h({ action: '__refresh', fields: {}, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜：日志增长 → 运行中状态点 + 角标报活', z.html.indexOf('fl-zoom-dot-running') >= 0 && z.html.indexOf('1 运行中') >= 0 && z.html.indexOf('data-tab-badge="1活"') >= 0)
+  check('大流镜：运行中卡持续实时刷新', z.html.indexOf('data-autorefresh="2000"') >= 0)
+  // 从全景点卡就是放大进入 Session：直接切到近观，同时跟随 Harness。
+  z = await h({ action: 'fzoom-open', fields: { __el: { sid: '228a8697-2b7a-422a-b3c0-1cf61c965d5c' } }, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜：全景点入 Session 直接放大到近观', z.state.zoom === true && z.state.zoomFocusSid === '228a8697-2b7a-422a-b3c0-1cf61c965d5c'
+    && z.state.sid === '228a8697-2b7a-422a-b3c0-1cf61c965d5c' && z.state.zoomMode === 'near'
+    && z.html.indexOf('tb-chip tb-chip-on" data-action="fzoom-focus-current"') >= 0
+    && z.html.indexOf('fl-zoom-motion-focus') >= 0)
+  check('大流镜：切换时跟随导航（子代理寻址）', z.navigateSession && z.navigateSession.kind === 'subagent'
+    && z.navigateSession.sessionId === '228a8697-2b7a-422a-b3c0-1cf61c965d5c' && z.navigateSession.parentSessionId === 's-main')
+  check('大流镜近观：复用完整单会话流镜并铺满画布', z.state.zoomMode === 'near'
+    && z.state.zoomFocusSid === '228a8697-2b7a-422a-b3c0-1cf61c965d5c'
+    && z.html.indexOf('tb-chip tb-chip-on" data-action="fzoom-focus-current"') >= 0
+    && z.html.indexOf('fl-zoom-near-flow') >= 0 && z.html.indexOf('data-flow-near-session="228a8697-2b7a-422a-b3c0-1cf61c965d5c"') >= 0
+    && z.html.indexOf('class="fl-lane"') >= 0 && z.html.indexOf('fl-zoom-diff-board') < 0 && z.html.indexOf('data-flow-board="1"') < 0)
+  z = await h({ action: 'fzoom-open', fields: { __el: { sid: 's-finished' } }, state: z.state, root: ROOT, session: '228a8697-2b7a-422a-b3c0-1cf61c965d5c' })
+  check('大流镜近观：沿用原流镜的正向时间顺序（用户在上、助手在下）', z.state.zoomMode === 'near'
+    && z.html.indexOf('已完成的调研任务') >= 0 && z.html.indexOf('调研结论') > z.html.indexOf('已完成的调研任务'))
+  z = await h({ action: 'fzoom-open', fields: { __el: { sid: '338a8697-2b7a-422a-b3c0-1cf61c965d6d' } }, state: z.state, root: ROOT, session: 's-finished' })
+  check('大流镜：近观中切换会话仍保持近观', z.state.zoomMode === 'near'
+    && z.state.zoomFocusSid === '338a8697-2b7a-422a-b3c0-1cf61c965d6d'
+    && z.html.indexOf('data-flow-near-session="338a8697-2b7a-422a-b3c0-1cf61c965d6d"') >= 0
+    && z.html.indexOf('fl-zoom-diff-board') < 0)
+  z = await h({ action: 'fzoom-focus-back', fields: {}, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜：从近观切回全景仍保留选中分支', z.state.zoomMode === 'panorama'
+    && z.state.zoomFocusSid === '338a8697-2b7a-422a-b3c0-1cf61c965d6d'
+    && z.html.indexOf('fl-zoom-motion-overview') >= 0 && countCards(z.html, 'data-action="fzoom-open"') === 4)
+  z = await h({ action: 'fzoom-focus-current', fields: {}, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜：尺度开关也能从全景切到当前 Session 的近观', z.state.zoomMode === 'near'
+    && z.state.zoomFocusSid === '338a8697-2b7a-422a-b3c0-1cf61c965d6d' && z.html.indexOf('fl-zoom-near-flow') >= 0)
+  z = await h({ action: 'fzoom-focus-back', fields: {}, state: z.state, root: ROOT, session: 's-main' })
+  // 单会话头部有大流镜入口
+  z = await h({ action: 'fzoom', fields: {}, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜：退出总览回单会话（头部带入口）', z.state.zoom === false && z.html.indexOf('data-action="fzoom"') >= 0)
+
+  // 开工台（多代理并发开工）+ 会话互通（带入/发送）
+  z = await h({ action: 'fzoom', fields: {}, state: z.state, root: ROOT, session: 's-main' })
+  z = await h({ action: 'fzoom-scope', fields: { __el: { scope: 'tree' } }, state: z.state, root: ROOT, session: 's-main' }) // 回到血缘树档
+  check('大流镜：并发消息区默认折叠', z.state.zoomComposerOpen === false
+    && z.html.indexOf('data-action="fzoom-composer" aria-expanded="false"') >= 0
+    && z.html.indexOf('data-zoom-prompt') < 0)
+  z = await h({ action: 'fzoom-composer', fields: {}, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜：开工台（任务输入 + 模型/思考分支 + 同时开始，无选择会话按钮）', z.html.indexOf('data-zoom-prompt') >= 0
+    && z.html.indexOf('data-zoom-lane') >= 0 && z.html.indexOf('data-zoom-effort') >= 0
+    && z.html.indexOf('data-zoom-launch') >= 0 && z.html.indexOf('data-zoom-pickmode') < 0)
+  check('大流镜：模型分支默认 2 条且含「默认（跟随当前）」档', countCards(z.html, 'data-zoom-lane="1"') === 2 && z.html.indexOf('默认（跟随当前）') >= 0)
+  check('大流镜：开工按钮明确新建并发送的 Session 数', z.html.indexOf('⚡ 新建 2 个会话并发送') >= 0
+    && z.html.indexOf('目标分支数') >= 0)
+  let directLeaf = await h({ action: 'fzoom', fields: {}, state: null, root: ROOT, session: '228a8697-2b7a-422a-b3c0-1cf61c965d5c' })
+  check('大流镜：从侧栏直接进入叶子 Session 时近观可用', directLeaf.state.zoomMode === 'panorama'
+    && directLeaf.state.zoomFocusSid === '228a8697-2b7a-422a-b3c0-1cf61c965d5c'
+    && directLeaf.html.indexOf('data-action="fzoom-focus-current" title="用完整流镜查看当前选中分支" disabled') < 0
+    && countCards(directLeaf.html, 'data-action="fzoom-open"') === 4
+    && directLeaf.html.indexOf('血缘根') >= 0)
+  directLeaf = await h({ action: 'fzoom-focus-current', fields: {}, state: directLeaf.state, root: ROOT, session: '228a8697-2b7a-422a-b3c0-1cf61c965d5c' })
+  check('大流镜：侧栏叶子 Session 可实际切换近观', directLeaf.state.zoomMode === 'near'
+    && directLeaf.html.indexOf('data-flow-near-session="228a8697-2b7a-422a-b3c0-1cf61c965d5c"') >= 0)
+  const fleetIndex = JSON.stringify([
+    { id: 's-fleet-1', title: '⚡ 你好 测试 · 分支 1/2 · deepseek-v4-flash', cwd: ROOT },
+    { id: 's-fleet-2', title: '⚡ 你好 测试 · 分支 2/2 · glm-5.3-flash', cwd: ROOT },
+    { id: 's-other', title: '其他可加入会话', cwd: ROOT },
+  ])
+  let namedFleet = await h({ action: 'fzoom', fields: { __flowSessionIndex: fleetIndex }, state: null, root: ROOT, session: 's-fleet-1' })
+  check('大流镜：无血缘的 Harness 命名分支可恢复同组全景', namedFleet.state.zoomMode === 'panorama'
+    && namedFleet.html.indexOf('data-flow-total="2"') >= 0
+    && countCards(namedFleet.html, 'fl-diff-session-head') === 2 && namedFleet.html.indexOf('fl-compact-diff') >= 0
+    && namedFleet.html.indexOf('s-fleet-1') >= 0 && namedFleet.html.indexOf('s-fleet-2') >= 0)
+  namedFleet = await h({ action: 'fzoom-view', fields: { __flowSessionIndex: fleetIndex, __el: { view: 'detail' } }, state: namedFleet.state, root: ROOT, session: 's-fleet-1' })
+  check('大流镜：命名分支全景的精简/详细可实际切换', namedFleet.state.zoomView === 'detail'
+    && namedFleet.html.indexOf('fl-compact-diff') < 0 && namedFleet.html.indexOf('data-flow-main-card') >= 0)
+  namedFleet = await h({ action: 'fzoom-composer', fields: { __flowSessionIndex: fleetIndex }, state: namedFleet.state, root: ROOT, session: 's-fleet-1' })
+  check('大流镜：已有分支组的发送区明确目标 Session', namedFleet.html.indexOf('⚡ 发送到当前 2 个会话') >= 0
+    && namedFleet.html.indexOf('发送到当前 2 个会话') >= 0
+    && namedFleet.html.indexOf('data-zoom-active-sids="s-fleet-1,s-fleet-2"') >= 0)
+  namedFleet = await h({ action: 'fzoom-focus-current', fields: { __flowSessionIndex: fleetIndex }, state: namedFleet.state, root: ROOT, session: 's-fleet-1' })
+  check('大流镜：近观并发是当前 Session 的 1→N，不冒充全景 N→N 继续', namedFleet.state.zoomMode === 'near'
+    && namedFleet.html.indexOf('⚡ 从当前会话发起 1→2') >= 0 && namedFleet.html.indexOf('data-zoom-active-sids=""') >= 0
+    && namedFleet.html.indexOf('⚡ 发送到当前 2 个会话') < 0)
+  const sourceOnlyRun = {
+    id: 'run-source-only', at: 10, prompt: '来源会话并发', name: '来源会话并发', parentId: '', forkRoundId: '',
+    rounds: [
+      { id: 'source-initial', kind: 'initial', at: 9, prompt: '初始', sourceSids: [], sids: ['s-main'], routes: [''], efforts: [''] },
+      { id: 'source-output', kind: 'round', at: 10, prompt: '输出', sourceSids: ['s-main'], sids: ['s-live'], routes: [''], efforts: [''] },
+    ], sids: ['s-live'], routes: [''], efforts: [''],
+  }
+  let sourceNear = await h({ action: '__refresh', fields: {}, state: {
+    live: true, follow: true, limit: 60, sid: 's-live', home: 's-main', expanded: null, crumbs: [],
+    zoom: true, zoomScope: 'run', zoomMode: 'near', zoomFocusSid: 's-live', zoomLastFocusSid: 's-live',
+    zoomBoundSessionId: 's-live', zoomRuns: [sourceOnlyRun], zoomRunId: 'run-source-only', zoomRoundId: 'source-output',
+  }, root: ROOT, session: 's-main' })
+  check('大流镜近观：当前 Session 仅是并发来源时仍显示其自身流镜', sourceNear.state.sid === 's-main'
+    && sourceNear.state.zoomFocusSid === 's-main' && sourceNear.html.indexOf('data-flow-near-session="s-main"') >= 0
+    && sourceNear.html.indexOf('帮我看下这个目录') >= 0 && sourceNear.html.indexOf('当前会话还没有事件') < 0)
+  const memberRun = {
+    id: 'run-member', at: 5, prompt: '所属并发', name: '所属并发', parentId: '', forkRoundId: '',
+    rounds: [{ id: 'member-round', kind: 'round', at: 5, prompt: '成员轮', sourceSids: [], sids: ['s-main', '228a8697-2b7a-422a-b3c0-1cf61c965d5c'], routes: ['', ''], efforts: ['', ''] }],
+    sids: ['s-main', '228a8697-2b7a-422a-b3c0-1cf61c965d5c'], routes: ['', ''], efforts: ['', ''],
+  }
+  let memberBinding = await h({ action: 'fzoom-scope', fields: { __el: { scope: 'run' } }, state: {
+    ...sourceNear.state, zoomMode: 'panorama', zoomScope: 'tree', zoomRuns: [memberRun, sourceOnlyRun], zoomRunId: 'run-source-only', zoomRoundId: 'source-output', zoomBoundSessionId: '',
+  }, root: ROOT, session: 's-main' })
+  check('大流镜：当前 Session 的成员轮优先于更新的来源轮', memberBinding.state.zoomRunId === 'run-member'
+    && memberBinding.state.zoomRoundId === 'member-round' && memberBinding.html.indexOf('data-zoom-active-sids="s-main,228a8697-2b7a-422a-b3c0-1cf61c965d5c"') >= 0)
+  z = await h({ action: 'fzoom-lanes', fields: { __el: { count: '3' } }, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜：并发数支持 2/3/4，选择 3 后生成三条模型分支', z.state.zoomLanes.length === 3 && z.html.indexOf('⚡ 新建 3 个会话并发送') >= 0 && countCards(z.html, 'data-zoom-lane="1"') === 3
+    && z.html.indexOf('data-action="fzoom-lanes" data-count="4"') >= 0)
+  z = await h({ action: 'fzoom-lane', fields: { __el: { lane: '0' }, 'zoomLane.0': 'deepseek/reasoner-x' }, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜：模型切换后同一行显示该模型思考强度', z.state.zoomLanes[0] === 'deepseek/reasoner-x'
+    && z.html.indexOf('思考：默认（high）') >= 0 && z.html.indexOf('>最高</option>') >= 0)
+  z = await h({ action: 'fzoom-effort', fields: { __el: { lane: '0' }, 'zoomEffort.0': 'max' }, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜：思考强度回写分支状态', z.state.zoomEfforts[0] === 'max')
+  z = await h({ action: 'fzoom-lanes', fields: { __el: { count: '2' } }, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜：并发数可切回 2', z.state.zoomLanes.length === 2)
+  check('大流镜：卡头 ⇪ 带入按钮', z.html.indexOf('data-action="fzoom-relay"') >= 0)
+  z = await h({ action: 'fzoom-joined', fields: { __el: {
+    sids: 's-main,228a8697-2b7a-422a-b3c0-1cf61c965d5c',
+    meta: JSON.stringify({ prompt: '第一轮并发', routes: ['deepseek/reasoner-x', ''], efforts: ['max', ''], sourceSids: ['s-main'] }),
+  } }, state: z.state, root: ROOT, session: 's-main' })
+  const firstRunId = z.state.zoomRunId
+  check('大流镜：一次同时开始形成独立批次且只显示本次 2 个会话', z.state.zoomScope === 'run'
+    && z.state.zoomRuns.length === 1 && z.state.zoomRuns[0].sids.length === 2
+    && z.state.zoomRuns[0].rounds.length === 2 && z.html.indexOf('1→2') >= 0
+    && countCards(z.html, 'fl-diff-session-head') === 2 && z.html.indexOf('第一轮并发') >= 0
+    && z.html.indexOf('class="tb-row fl-zoom-logbar"') >= 0
+    && z.html.indexOf('发送到当前 2 个会话') >= 0 && countCards(z.html, 'fl-zoom-current-session') === 2
+    && z.html.indexOf('大流镜历史 · 1') >= 0)
+  const archivedMemberId = '228a8697-2b7a-422a-b3c0-1cf61c965d5c'
+  const archivedView = await h({ action: '__refresh', fields: {
+    __flowArchivedSessionIds: JSON.stringify([archivedMemberId]),
+    __flowSessionIndex: JSON.stringify([
+      { id: 's-main', title: '主会话', cwd: ROOT },
+      { id: archivedMemberId, title: '归档成员', cwd: ROOT },
+    ]),
+  }, state: JSON.parse(JSON.stringify(z.state)), root: ROOT, session: 's-main' })
+  check('归档 Session：从并发成员、会话索引与大流镜渲染中统一排除', archivedView.state.zoomRuns[0].sids.length === 1
+    && !archivedView.state.zoomRuns[0].sids.includes(archivedMemberId)
+    && archivedView.html.indexOf(archivedMemberId) < 0 && archivedView.html.indexOf('归档成员') < 0)
+  const addSessionIndex = JSON.stringify([
+    { id: 's-main', title: '主会话', cwd: ROOT },
+    { id: '228a8697-2b7a-422a-b3c0-1cf61c965d5c', title: '并发成员', cwd: ROOT },
+    { id: 's-other', title: '其他可加入会话', cwd: ROOT },
+  ])
+  z = await h({ action: '__refresh', fields: { __flowSessionIndex: addSessionIndex }, state: z.state, root: ROOT, session: 's-main' })
+  check('当前并发：发送区提供与带入会话同款的 Session 树选择入口', z.html.indexOf('添加其他 Session') >= 0
+    && z.html.indexOf('data-zoom-add-picker="1"') >= 0)
+  z = await h({ action: 'fzoom-view', fields: { __el: { view: 'detail' } }, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜：详细模式按普通流镜卡片渲染每轮每个会话', z.state.zoomView === 'detail'
+    && z.html.indexOf('fl-zoom-diff-board') >= 0 && countCards(z.html, 'data-flow-detail-session=') >= 2
+    && z.html.indexOf('class="fl-lane"') >= 0 && z.html.indexOf('data-flow-main-card') >= 0)
+  check('大流镜：Git diff 式轮次横排对齐 + 单一共享滚动 + 本轮分支入口', z.html.indexOf('fl-zoom-diff-scroll') >= 0
+    && z.html.indexOf('fl-diff-gutter') >= 0 && (z.html.indexOf('有差异') >= 0 || z.html.indexOf('有缺失') >= 0)
+    && z.html.indexOf('fl-diff-branch') >= 0)
+  check('大流镜：结果异单独留空格并着色，不直接决定流程一致性', z.html.indexOf('结果 ') >= 0
+    && z.html.indexOf('fl-diff-dim') >= 0 && z.html.indexOf('流程') >= 0 && z.html.indexOf('文件') >= 0)
+  z = await h({ action: 'fzoom-view', fields: { __el: { view: 'compact' } }, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜：精简模式也是按轮次对齐的轻量 Git diff', z.state.zoomView === 'compact'
+    && z.html.indexOf('fl-zoom-diff-board') >= 0 && z.html.indexOf('fl-compact-diff') >= 0)
+  z = await h({ action: 'fzoom-view', fields: { __el: { view: 'map' } }, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜：导图视图按会话与轮次生成可拖动节点，并提供明确的 1→N 入口', z.state.zoomView === 'map'
+    && z.html.indexOf('data-flow-view="map"') >= 0 && z.html.indexOf('data-flow-mindmap="1"') >= 0 && z.html.indexOf('data-map-node=') >= 0
+    && z.html.indexOf('fl-map-turn-label') >= 0 && z.html.indexOf('<path data-map-from=') >= 0
+    && z.html.indexOf('data-map-node="root" data-map-default-x=') >= 0 && z.html.indexOf('data-map-default-y="24"') >= 0
+    && z.html.indexOf(' L ') >= 0
+    && z.html.indexOf('从这里发起 1→2') >= 0 && z.html.indexOf('重置布局') >= 0)
+  z = await h({ action: 'fzoom-view', fields: { __el: { view: 'compact' } }, state: z.state, root: ROOT, session: 's-main' })
+  z = await h({ action: 'fzoom-joined', fields: { __el: {
+    sids: 's-live', meta: JSON.stringify({ prompt: '第二轮并发', routes: [''], efforts: [''] }),
+  } }, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜：新批次不与旧批次合并并生成并发记录', z.state.zoomRuns.length === 2
+    && countCards(z.html, 'fl-diff-session-head') === 1
+    && z.html.indexOf('大流镜历史 · 2') >= 0
+    && z.html.indexOf('大流镜 B ·') < 0)
+  const secondRunId = z.state.zoomRunId
+  z = await h({ action: 'fzoom-scope', fields: { __el: { scope: 'run' } }, state: z.state, root: ROOT, session: 's-main' })
+  check('本次并发：切到当前选中分支相关历史的最新一轮', z.state.zoomRunId === firstRunId
+    && z.state.zoomRoundId === z.state.zoomRuns[0].rounds[z.state.zoomRuns[0].rounds.length - 1].id)
+  z = await h({ action: 'fzoom-run', fields: { __el: { run: secondRunId } }, state: z.state, root: ROOT, session: 's-main' })
+  z = await h({ action: 'fzoom-run-add', fields: { __el: { sid: 's-main' } }, state: z.state, root: ROOT, session: 's-main' })
+  check('当前并发：可显式添加其他 Session（无需切换当前会话，最多 4 个）', z.state.zoomRuns[1].sids.includes('s-main') && z.state.zoomRuns[1].sids.length === 2)
+  z = await h({ action: 'fzoom-run-remove', fields: { __el: { sid: 's-main' } }, state: z.state, root: ROOT, session: 's-main' })
+  check('当前并发：可移除成员并保持至少一个', !z.state.zoomRuns[1].sids.includes('s-main') && z.state.zoomRuns[1].sids.length === 1)
+  z = await h({ action: 'fzoom-history', fields: {}, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜历史：按需打开侧边栏 tree，不常驻占用画布高度', z.state.zoomHistoryOpen === true
+    && z.html.indexOf('fl-zoom-history-drawer') >= 0 && z.html.indexOf('fl-zoom-history-tree') >= 0
+    && z.html.indexOf('aria-expanded="false"') >= 0 && z.html.indexOf('fl-history-round-node') < 0
+    && z.html.indexOf('⚡ 第二轮并发') >= 0 && z.html.indexOf('⚡ 大流镜 B') < 0)
+  z = await h({ action: 'fzoom-history-toggle', fields: { __el: { run: firstRunId } }, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜历史：右三角点击后变下三角并展开轮次/对话', z.state.zoomExpandedHistories.includes(firstRunId)
+    && z.html.indexOf('aria-expanded="true"') >= 0 && z.html.indexOf('fl-history-round-node') >= 0)
+  z = await h({ action: 'fzoom-run', fields: { __el: { run: firstRunId } }, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜：可从记录切回第一次并发', z.state.zoomRunId === firstRunId
+    && countCards(z.html, 'fl-diff-session-head') === 2 && z.html.indexOf('第一轮并发') >= 0)
+  z = await h({ action: 'fzoom-open', fields: { __el: { run: firstRunId, sid: '228a8697-2b7a-422a-b3c0-1cf61c965d5c' } }, state: z.state, root: ROOT, session: 's-main' })
+  z = await h({ action: 'fzoom-focus-back', fields: {}, state: z.state, root: ROOT, session: '228a8697-2b7a-422a-b3c0-1cf61c965d5c' })
+  check('大流镜：跟随分支后缩小仍恢复原并发的全部分支', z.state.zoomRunId === firstRunId
+    && z.state.zoomMode === 'panorama' && z.state.zoomFocusSid === '228a8697-2b7a-422a-b3c0-1cf61c965d5c'
+    && countCards(z.html, 'fl-diff-session-head') === 2)
+  z = await h({ action: 'fzoom-open', fields: { __el: { run: secondRunId, sid: 's-live' } }, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜：从当前并发对话项内嵌所属流镜', z.state.zoomRunId === secondRunId
+    && z.state.sid === 's-live' && z.state.zoom === true && z.state.zoomFocusSid === 's-live'
+    && z.navigateSession && z.navigateSession.sessionId === 's-live')
+  z = await h({ action: 'fzoom-relay', fields: { __el: { sid: 's-main' } }, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜：⇪ 带入取源会话最新助手结论（带来源前缀）', z.zoomRelay && z.zoomRelay.sourceSessionId === 's-main'
+    && z.zoomRelay.text.indexOf('来自会话') >= 0 && z.zoomRelay.text.indexOf('子代理已启动') >= 0)
+  const zNoRelay = await h({ action: 'fzoom-relay', fields: { __el: { sid: 's-live' } }, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜：无助手结论的会话带入明确报错', zNoRelay.ok === false && zNoRelay.error.indexOf('结论') >= 0)
+
+  // 拓扑历史 A/B/C：A 先沿最新轮延长；从 A 旧轮派生 B；A 已有子历史后再从最新轮派生 C。
+  let topo = { ...z.state, zoomRuns: [], zoomRunId: '', zoomRoundId: '', zoomFocusSid: '', zoomHistoryOpen: false }
+  topo = (await h({ action: 'fzoom-joined', fields: { __el: {
+    sids: 's-main,228a8697-2b7a-422a-b3c0-1cf61c965d5c', meta: JSON.stringify({ prompt: 'A 第一轮', sourceSids: ['s-main'], routes: ['', ''], efforts: ['', ''] }),
+  } }, state: topo, root: ROOT, session: 's-main' })).state
+  const topoA = topo.zoomRuns[0]
+  const aRound1 = topoA.rounds[topoA.rounds.length - 1]
+  topo = (await h({ action: 'fzoom-joined', fields: { __el: {
+    sids: 's-main,228a8697-2b7a-422a-b3c0-1cf61c965d5c', meta: JSON.stringify({ prompt: 'A 第二轮', sourceSids: aRound1.sids, baseHistoryId: topoA.id, baseRoundId: aRound1.id, routes: ['', ''], efforts: ['', ''] }),
+  } }, state: topo, root: ROOT, session: 's-main' })).state
+  const aRound2 = topo.zoomRuns[0].rounds[topo.zoomRuns[0].rounds.length - 1]
+  check('拓扑历史 A：沿最新轮继续时延长同一历史', topo.zoomRuns.length === 1 && topo.zoomRuns[0].rounds.length === 3)
+  topo = (await h({ action: 'fzoom-joined', fields: { __el: {
+    sids: 's-main,228a8697-2b7a-422a-b3c0-1cf61c965d5c', meta: JSON.stringify({ prompt: 'B 新一轮', sourceSids: ['s-main'], baseHistoryId: topoA.id, baseRoundId: aRound1.id, routes: ['', ''], efforts: ['', ''] }),
+  } }, state: topo, root: ROOT, session: 's-main' })).state
+  topo = (await h({ action: 'fzoom-joined', fields: { __el: {
+    sids: 's-main,228a8697-2b7a-422a-b3c0-1cf61c965d5c', meta: JSON.stringify({ prompt: 'C 新一轮', sourceSids: aRound2.sids, baseHistoryId: topoA.id, baseRoundId: aRound2.id, routes: ['', ''], efforts: ['', ''] }),
+  } }, state: topo, root: ROOT, session: 's-main' })).state
+  await h({ action: 'fzoom-history', fields: {}, state: topo, root: ROOT, session: 's-main' })
+  const topoShape = (history) => {
+    const nums = [history.rounds[0].sids.length]
+    for (const round of history.rounds.slice(1)) {
+      const source = round.sourceSids.length || nums[nums.length - 1]
+      if (source !== nums[nums.length - 1]) nums.push(source)
+      nums.push(round.sids.length)
+    }
+    return nums.join('→')
+  }
+  check('拓扑历史 B/C：旧轮与最新轮派生产生不同继承形态', topo.zoomRuns.length === 3
+    && topo.zoomRuns.map((x) => x.name).join(',') === '大流镜 A,大流镜 B,大流镜 C'
+    && topoShape(topo.zoomRuns[1]) === '1→2→1→2' && topoShape(topo.zoomRuns[2]) === '1→2→2→2',
+  JSON.stringify(topo.zoomRuns.map((x) => ({ name: x.name, parentId: x.parentId, rounds: x.rounds.map((r) => ({ source: r.sourceSids.length, out: r.sids.length })) }))))
 
   console.log(failures ? ('\n共 ' + failures + ' 项失败') : '\n全部通过')
   process.exit(failures ? 1 : 0)

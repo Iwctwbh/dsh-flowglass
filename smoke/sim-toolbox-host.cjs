@@ -120,6 +120,7 @@ const ctx = {
     if (name === 'fs') return fsStub
     if (name === 'sandboxPolicy') return { workspaceRoot: 'W' }
     if (name === 'sessions') return sessionsStub
+    if (name === 'workspaceRegistry') return { list: () => [{ id: 'ws-W', path: 'W', sessionIds: ['s1'] }] }
     if (name === 'subprocess') return subprocessStub // 状态化落盘（启停记忆可写可读）
     return undefined
   },
@@ -204,6 +205,8 @@ const check = (label, cond, detail) => {
   check('plugins(cwd=W) 列 W 仓库行（p1/p2/p5/p6），不含 W2 行与 W3 同名行', plW.ok === true && JSON.stringify(plW.plugins.map((x) => x.pluginId)) === JSON.stringify(['p1', 'p2', 'p5', 'p6']), JSON.stringify(plW.plugins.map((x) => x.pluginId)))
   const plW2 = await rpc['toolbox/plugins']({ cwd: 'W2' })
   check('plugins(cwd=W2) 列 W2 仓库行（p4）', plW2.ok === true && JSON.stringify(plW2.plugins.map((x) => x.pluginId)) === JSON.stringify(['p4']), JSON.stringify(plW2.plugins.map((x) => x.pluginId)))
+  const si = await rpc['toolbox/session-info']({ session: 's1' })
+  check('session-info 同时返回 cwd 与 workspaceId，创建会话可真正附加工作区', si.ok === true && si.cwd === 'W' && si.workspaceId === 'ws-W', JSON.stringify(si))
 
   // —— 管理操作的 agent 取「行归属会话」（runner.owned 按定义会话校验所有权）：
   // 调用方是 ghost/宿主垫片都不影响，run 的 agent 恒为行 agentId（p1 挂 s1）——

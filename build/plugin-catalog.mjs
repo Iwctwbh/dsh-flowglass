@@ -51,7 +51,7 @@ export const PLUGINS = Object.freeze([
     bundle: { selectable: true, defaultLabel: '文件', aliases: ['files'], dependencies: [], conflicts: [], scope: 'workspace' } },
   { key: 'flow', idPrefix: 'flow', order: 5, platform: 'host-only', approval: false, autoStart: true,
     name: '实时流镜 (Host-only)',
-    purpose: 'Host-only：当前 session 实时流程图——自上而下箭头主干（用户/助手/工具组），子代理 git 树分支（├─ 支线实时展开子会话步骤 ╰─ 合并），同步普通调用平行卡片；面板带 data-autorefresh=2000，框架每 2s 静默重拉；makeSessionLogReader 按会话缓存',
+    purpose: 'Host-only：当前 session 实时流程图；大流镜 A/B/C 是带父历史与轮次前缀的并发拓扑版本（初始→各轮 source set→output set），从旧轮派生复制前缀并形成新历史，可表达 1→2→1→2 与 1→2→2→2；右侧 tree 按历史→轮次→对话导航。单列或整轮派生的输出数都取 composer 当前 2/3/4，并非固定 1→2/2→2。精简/详细使用居中 Git diff 网格，详细复用普通流镜双/三泳道；新会话优先继承当前 Harness Session 的 workspaceId；面板每 2s 静默刷新',
     inject: ['fs', 'sessionQuery', 'timer'], hostFiles: ['plugins/flow/tool.js'],
     note: '与「轨迹」互补：轨迹=过滤时间线+详情，流程=形态视图；live 开关可暂停自动刷新',
     bundle: { selectable: true, defaultLabel: '流镜', aliases: ['flow'], dependencies: [], conflicts: [], scope: 'workspace' } },

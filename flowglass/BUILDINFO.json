@@ -1,7 +1,7 @@
 {
   "bundleId": "flow",
   "packageName": "dsh-flowglass",
-  "version": "0.5.0",
+  "version": "0.8.0",
   "displayName": "流镜",
   "mode": "native-static",
   "dynamicApprovalRequired": false,
@@ -15,12 +15,12 @@
       "flow"
     ]
   },
-  "fingerprint": "3374c05aeb398801",
+  "fingerprint": "7180a01601fdab65",
   "builderVersion": "2",
   "sourceHashes": {
-    "plugins/flow/tool.js": "b4237c1483ffa6c7da36a7f314d54c963ef0d209153eb93e31caf7c88af66771",
-    "plugins/toolbox/client.js": "6f4f0385c263430a6aa0db3ab75083d902d4be9d13ddc265b45bf69b76dc859e",
-    "plugins/toolbox/host.js": "abb5ab10c04dd991645b3f8a5b0b82ffb40be511e927e21e5bbaf002ab0d1f35",
+    "plugins/flow/tool.js": "bbc9181621a831de8964ad53ffade31cc2adbdd99dc9784cc363956081e5caa5",
+    "plugins/toolbox/client.js": "9a1cd937d09f1eda625eb2fab76683dce1720e4294798086e61085c6ddadc2d3",
+    "plugins/toolbox/host.js": "680c4b64db304643310affbb073104d46212a26a680df5a0650b56a96079fc23",
     "shared/host.js": "b9d52bee6e64721e677518272cb936266adb0947bfa9e9f29e2f02a4d0912a3b",
     "shared/runtime.js": "75a6fc739f9e2e018d61c4ace46b24fbe9af8648ec24b549f4e84d2c68f375a5"
   },
