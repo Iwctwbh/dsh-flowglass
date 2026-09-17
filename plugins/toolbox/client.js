@@ -266,6 +266,8 @@ return {
       '.jr-docked-full{right:0;top:0;bottom:0;max-height:none;max-width:none;width:auto;border-radius:0;border:none;border-left:1px solid var(--dsw-alias-border-l1,#3a3b44);box-shadow:none;animation:jrDrawerIn .16s ease-out}',
       '.jr-docked-full .jr-drawer-body{flex:1;min-height:0}',
       '@keyframes jrDrawerIn{from{transform:translateX(28px);opacity:.3}to{transform:translateX(0);opacity:1}}',
+      // 弹层上浮进入：「回到最新」/带入弹窗/信息气泡/添加菜单共用（此前只引用未定义，动画从未生效）
+      '@keyframes jrDrawerUp{from{transform:translateY(9px);opacity:0}to{transform:translateY(0);opacity:1}}',
       '.jr-drawer-header{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--dsw-alias-border-l1,#3a3b44);background:var(--dsw-alias-bg-base,#17181d);cursor:move;user-select:none}',
       '.jr-drawer-title{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:calc(14px*var(--tb-fs,1))}',
       '.jr-overlay-close{width:30px;height:30px;flex:none;display:inline-flex;align-items:center;justify-content:center;border:none;background:transparent;color:var(--dsw-alias-label-secondary,#9a9aa5);cursor:pointer;border-radius:6px;padding:0}',
@@ -317,7 +319,8 @@ return {
       '.tb-frame{position:relative;display:flex;flex-direction:column;gap:10px;min-height:0}',
       // 「回到最新」浮标：只控制工具面板的主 .tb-pane-body，不影响 Harness 聊天区。
       '.tb-jump-latest{position:absolute;right:16px;bottom:14px;z-index:7;display:inline-flex;align-items:center;height:28px;padding:0 13px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2,#454650);background:var(--dsw-alias-bg-overlay,#1e1f24);color:var(--tb-accent-text,#7fa7f0);font-size:calc(12px*var(--tb-fs,1));font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.3);font-family:inherit;animation:jrDrawerUp .16s ease-out}',
-      '.tb-jump-latest:hover{border-color:var(--tb-accent-border,rgba(91,141,239,.45));background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b))}',
+      // 悬停不再回落实色底（选择器优先级高于统一玻璃层，实色会盖掉模糊）：只加深描边与光晕
+      '.tb-jump-latest:hover{border-color:var(--tb-accent-border,rgba(91,141,239,.5));box-shadow:0 10px 26px rgba(0,0,0,.36),0 0 0 1px var(--tb-accent-ring,rgba(91,141,239,.16)),inset 0 1px 0 rgba(255,255,255,.12)}',
       '.tb-flow-zoom-float,.tb-flow-selection-bar{position:absolute;left:16px;bottom:14px;z-index:8;display:flex;align-items:center;gap:7px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:999px;background:var(--dsw-alias-bg-overlay,#1e1f24);box-shadow:0 4px 14px rgba(0,0,0,.3)}',
       '.tb-flow-zoom-float,.tb-flow-selection-bar{padding:3px 5px;opacity:.42;transition:opacity .15s}',
       '.tb-flow-zoom-float:hover,.tb-flow-zoom-float:focus-within,.tb-flow-selection-bar:hover,.tb-flow-selection-bar:focus-within{opacity:1}',
@@ -333,7 +336,7 @@ return {
       '.tb-flow-icon-btn:disabled{opacity:.4;cursor:default}',
       '.tb-flow-selection-count{width:24px;height:24px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:999px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));font-size:calc(10.5px*var(--tb-fs,1));font-weight:600;font-variant-numeric:tabular-nums}',
       '.tb-flow-bring-popup{position:absolute;left:16px;bottom:94px;z-index:9;width:min(360px,calc(100% - 32px));display:flex;flex-direction:column;gap:9px;padding:10px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:9px;background:var(--dsw-alias-bg-overlay,#1e1f24);box-shadow:0 8px 24px rgba(0,0,0,.35);animation:jrDrawerUp .14s ease-out}',
-      '.tb-flow-add-popup{position:fixed;right:auto;bottom:auto;z-index:60;box-sizing:border-box;overflow:hidden;border-color:color-mix(in srgb,var(--tb-active-text,#7fa7f0) 26%,transparent);background:linear-gradient(145deg,color-mix(in srgb,var(--dsw-alias-bg-overlay,#1e1f24) 88%,rgba(122,162,240,.12)),color-mix(in srgb,var(--dsw-alias-bg-overlay,#1e1f24) 72%,transparent));box-shadow:0 24px 70px rgba(0,0,0,.48),0 7px 24px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.09);backdrop-filter:blur(18px) saturate(135%);-webkit-backdrop-filter:blur(18px) saturate(135%)}',
+      '.tb-flow-add-popup{position:fixed;right:auto;bottom:auto;z-index:60;box-sizing:border-box;overflow:hidden;border-color:color-mix(in srgb,var(--tb-active-text,#7fa7f0) 34%,transparent);background:linear-gradient(145deg,color-mix(in srgb,var(--dsw-alias-bg-overlay,#1e1f24) 52%,rgba(122,162,240,.17)),color-mix(in srgb,var(--dsw-alias-bg-overlay,#1e1f24) 34%,transparent));box-shadow:0 24px 70px rgba(0,0,0,.48),0 7px 24px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.11);backdrop-filter:blur(26px) saturate(175%);-webkit-backdrop-filter:blur(26px) saturate(175%);animation:jrDrawerUp .16s ease-out}',
       '.tb-flow-add-popup::before{content:"";position:absolute;inset:0 0 auto 0;height:1px;background:linear-gradient(90deg,transparent,rgba(151,184,248,.68),transparent);pointer-events:none}',
       '.tb-flow-add-popup .tb-flow-popup-head{padding-bottom:7px;border-bottom:1px solid rgba(255,255,255,.07)}',
       '.tb-flow-add-popup .tb-flow-session-tree{flex:1;min-height:0;max-height:none}',
@@ -559,8 +562,8 @@ return {
       '.fl-node[data-flow-role="ai"]{padding-right:36px}',
       '.fl-info{position:relative;flex:none;margin-left:auto;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));cursor:help;outline:none}',
       '.fl-info:hover,.fl-info:focus{background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b));color:var(--tb-active-text,#7fa7f0)}',
-      '.fl-info-pop{position:absolute;right:0;top:30px;z-index:20;width:min(440px,80vw);display:none;padding:10px 12px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:8px;background:var(--dsw-alias-bg-overlay,#1e1f24);box-shadow:0 8px 24px rgba(0,0,0,.35);color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));font-size:calc(11.5px*var(--tb-fs,1));font-weight:400;line-height:1.65;white-space:pre-line}',
-      '.fl-info:hover .fl-info-pop,.fl-info:focus .fl-info-pop{display:block}',
+      '.fl-info-pop{position:absolute;right:0;top:30px;z-index:20;width:min(660px,84vw);display:none;padding:10px 12px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:8px;background:var(--dsw-alias-bg-overlay,#1e1f24);box-shadow:0 8px 24px rgba(0,0,0,.35);color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));font-size:calc(11.5px*var(--tb-fs,1));font-weight:400;line-height:1.65;white-space:pre-line}',
+      '.fl-info:hover .fl-info-pop,.fl-info:focus .fl-info-pop{display:block;animation:jrDrawerUp .12s ease-out}',
       '[data-flow-select-seq].fl-select-picked{outline:2px solid var(--tb-accent,#3f6fd9);outline-offset:2px;box-shadow:0 0 0 4px var(--tb-accent-ring,rgba(91,141,239,.16))}',
       '[data-flow-select-mode="1"] .tb-pane-body{cursor:crosshair;user-select:none}',
       '.fl-marquee{position:absolute;z-index:30;border:1px solid var(--tb-accent,#3f6fd9);background:var(--tb-accent-ring,rgba(91,141,239,.16));pointer-events:none;border-radius:3px}',
@@ -860,8 +863,12 @@ return {
       '.fl-zoom-history-drawer{position:absolute;right:0;top:0;bottom:0;z-index:18;width:min(292px,76%);display:flex;flex-direction:column;border-left:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));background:var(--tb-bg,#17181c);color:var(--tb-text,#dcdee4);box-shadow:-8px 0 24px rgba(0,0,0,.42)}',
       '.fl-zoom-history-drawer-head{height:38px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));font-size:calc(11px*var(--tb-fs,1))}',
       '.fl-zoom-history-drawer-head button{width:24px;height:24px;border:none;border-radius:5px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));cursor:pointer}',
-      // Flowglass 统一玻璃层：弹窗、详情侧栏、历史抽屉与浮动操作条共享材质，定位/尺寸仍由各组件自己控制。
-      '.tb-flow-bring-popup,.fl-rail,.fl-zoom-history-drawer,.tb-flow-zoom-float,.tb-flow-selection-bar{border-color:color-mix(in srgb,var(--tb-active-text,#7fa7f0) 24%,transparent);background:linear-gradient(145deg,color-mix(in srgb,var(--dsw-alias-bg-overlay,#1e1f24) 86%,rgba(122,162,240,.11)),color-mix(in srgb,var(--dsw-alias-bg-overlay,#1e1f24) 72%,transparent));box-shadow:0 20px 58px rgba(0,0,0,.42),0 6px 20px rgba(0,0,0,.26),inset 0 1px 0 rgba(255,255,255,.08);backdrop-filter:blur(18px) saturate(135%);-webkit-backdrop-filter:blur(18px) saturate(135%)}',
+      // Flowglass 统一玻璃层：弹窗、详情侧栏、历史抽屉、浮动操作条、信息气泡与浮标共享材质，定位/尺寸仍由各组件自己控制。
+      // 材质 = 48%→30% 渐变透明底（背后内容真实透出）+ 26px 模糊 + 175% 饱和 + accent 描边 + 分层投影 + 顶缘内高光；主题经 --tb-*/--dsw-* 变量自适应明暗与主色。
+      '.tb-flow-bring-popup,.fl-rail,.fl-zoom-history-drawer,.tb-flow-zoom-float,.tb-flow-selection-bar,.fl-info-pop,.fl-zoom-add-pop,.tb-jump-latest,.jr-resize-badge{border-color:color-mix(in srgb,var(--tb-active-text,#7fa7f0) 34%,transparent);background:linear-gradient(145deg,color-mix(in srgb,var(--dsw-alias-bg-overlay,#1e1f24) 48%,rgba(122,162,240,.16)),color-mix(in srgb,var(--dsw-alias-bg-overlay,#1e1f24) 30%,transparent));box-shadow:0 20px 58px rgba(0,0,0,.42),0 6px 20px rgba(0,0,0,.26),inset 0 1px 0 rgba(255,255,255,.11);backdrop-filter:blur(26px) saturate(175%);-webkit-backdrop-filter:blur(26px) saturate(175%)}',
+      // 弹层顶缘受光高光线（通高侧栏与 pill 浮标不加，避免横穿直边/小圆角显突兀）
+      '.tb-flow-bring-popup::before,.fl-info-pop::before,.fl-zoom-add-pop::before{content:"";position:absolute;left:9%;right:9%;top:0;height:1px;background:linear-gradient(90deg,transparent,rgba(151,184,248,.6),transparent);pointer-events:none}',
+      '.fl-zoom-add-menu[open] .fl-zoom-add-pop{animation:jrDrawerUp .14s ease-out}',
       '.tb-flow-bring-popup .tb-flow-popup-head,.fl-rail-head,.fl-zoom-history-drawer-head{border-bottom-color:rgba(255,255,255,.08)}',
       '.tb-flow-bring-popup .tb-flow-tree-workspace,.tb-flow-bring-popup .tb-flow-tree-session{transition:background .14s ease,border-color .14s ease,transform .14s ease}',
       '.tb-flow-bring-popup .tb-flow-tree-workspace:hover,.tb-flow-bring-popup .tb-flow-tree-session:hover{background:color-mix(in srgb,var(--tb-active-text,#7fa7f0) 11%,transparent);transform:translateX(1px)}',
@@ -2399,11 +2406,30 @@ return {
       }
       const writeFlowZoomLog = (state) => {
         try {
+          // 合并回写而非覆盖：Host 返回的 state.zoomRuns 已被「归档 Session 过滤」裁剪（仅供显示），
+          // 直接覆盖会把成员已归档的历史批次从存储里永久抹掉。以磁盘原文为底——本次出现的 run
+          // 覆盖更新/追加，没出现的（被过滤的）原样保留。
+          const prevRaw = (() => {
+            try {
+              const p = JSON.parse(localStorage.getItem(flowZoomLogStorageKey()) || 'null')
+              return p && Array.isArray(p.runs) ? p.runs : []
+            } catch (e) { return [] }
+          })()
+          const merged = prevRaw.slice()
+          const indexById = new Map()
+          merged.forEach((run, i) => { if (run && typeof run.id === 'string') indexById.set(run.id, i) })
+          const stateRuns = state && Array.isArray(state.zoomRuns) ? state.zoomRuns : []
+          for (const run of stateRuns) {
+            if (!run || typeof run.id !== 'string') continue
+            const at = indexById.get(run.id)
+            if (typeof at === 'number') merged[at] = run
+            else { indexById.set(run.id, merged.length); merged.push(run) }
+          }
           localStorage.setItem(flowZoomLogStorageKey(), JSON.stringify({
             open: !!(state && state.zoom),
             activeId: state && typeof state.zoomRunId === 'string' ? state.zoomRunId : '',
             roundId: state && typeof state.zoomRoundId === 'string' ? state.zoomRoundId : '',
-            runs: state && Array.isArray(state.zoomRuns) ? state.zoomRuns.slice(-20) : [],
+            runs: merged.slice(-20),
             view: state && (state.zoomView === 'detail' || state.zoomView === 'map') ? state.zoomView : 'compact',
             mode: state && state.zoomMode === 'near' ? 'near' : 'panorama',
             focusSid: state && typeof state.zoomFocusSid === 'string' ? state.zoomFocusSid : '',
@@ -3000,7 +3026,7 @@ return {
             const item = spec[i % spec.length]
             try {
               const child = await sessionsClient.fork({ sessionId: item.sid, atSeq: Number(item.seq), increaseTitle: true })
-              await renameSession(child, '⚡ 第 ' + turn + ' 轮 · ' + spec.length + '→' + targetCount + ' · 分支 ' + (i + 1) + '/' + targetCount)
+              await renameSession(child, '⚡ 第 ' + turn + ' 轮 · 分支 ' + (i + 1) + '/' + targetCount)
               created.push(child)
             }
             catch (e) { failed.push(String((e && e.message) || e)) }
@@ -3008,7 +3034,7 @@ return {
           if (created.length && typeof loadPanelRef.current === 'function') {
             await loadPanelRef.current('flow', 'fzoom-joined', { dataset: {
               sids: created.join(','),
-              meta: JSON.stringify({ prompt: '第 ' + turn + ' 轮并发 ' + spec.length + '→' + targetCount, routes: created.map(() => ''), efforts: created.map(() => ''), sourceSids: spec.map((x) => x.sid), baseHistoryId, baseRoundId }),
+              meta: JSON.stringify({ prompt: '第 ' + turn + ' 轮并发', routes: created.map(() => ''), efforts: created.map(() => ''), sourceSids: spec.map((x) => x.sid), baseHistoryId, baseRoundId }),
             } }, { silent: true })
           }
           setFlowUiNotice('已从第 ' + turn + ' 轮完成 ' + spec.length + '→' + created.length + (failed.length ? '，失败 ' + failed.length + ' 个：' + failed[0] : ''))
@@ -3023,13 +3049,13 @@ return {
           const created = []
           for (let i = 0; i < targetCount; i++) {
             const child = await sessionsClient.fork({ sessionId: sourceSid, atSeq: Number(seq), increaseTitle: true })
-            await renameSession(child, '⚡ 第 ' + turn + ' 轮 · 1→' + targetCount + ' · 分支 ' + (i + 1) + '/' + targetCount)
+            await renameSession(child, '⚡ 第 ' + turn + ' 轮 · 分支 ' + (i + 1) + '/' + targetCount)
             created.push(child)
           }
           if (typeof loadPanelRef.current === 'function') {
             loadPanelRef.current('flow', 'fzoom-joined', { dataset: {
               sids: created.join(','),
-              meta: JSON.stringify({ prompt: '第 ' + turn + ' 轮分支 1→' + targetCount, routes: created.map(() => ''), efforts: created.map(() => ''), sourceSids: [sourceSid], baseHistoryId, baseRoundId }),
+              meta: JSON.stringify({ prompt: '第 ' + turn + ' 轮分支', routes: created.map(() => ''), efforts: created.map(() => ''), sourceSids: [sourceSid], baseHistoryId, baseRoundId }),
             } }, { silent: true })
           }
           setFlowUiNotice('已从第 ' + turn + ' 轮建立 1→' + targetCount + ' 对比分支')
@@ -3326,6 +3352,24 @@ return {
           try { body.removeEventListener('pointerdown', onDown); body.removeEventListener('pointermove', onMove); body.removeEventListener('pointerup', onUp); body.removeEventListener('pointercancel', onUp) } catch (e) {}
         }
       }, [active, html, flowSelectedSeqs, flowUiBusy])
+
+      // 开工台（发消息）自动收回：打开时点面板空白处即折叠——落在开工台自身、添加/带入浮层、
+      // 侧栏、历史抽屉、卡片与任意交互控件上都不干预（保留原生行为，也避免与动作请求竞态）。
+      React.useEffect(() => {
+        if (active !== 'flow') return undefined
+        const pane = panelRef.current
+        if (!pane) return undefined
+        const onComposerBlankDown = (e) => {
+          if (e.button !== 0 || flowUiBusy) return
+          if (!pane.querySelector('.fl-zoom-composer')) return
+          const t = e.target
+          if (!t || typeof t.closest !== 'function') return
+          if (t.closest('.fl-zoom-composer,[data-action="fzoom-composer"],.tb-flow-add-popup,.tb-flow-bring-popup,.fl-rail,.fl-zoom-history-drawer,button,a,input,select,textarea,label,[data-action],[data-flow-branch],[data-flow-select-seq],[data-map-node],[data-zoom-add-drop]')) return
+          if (typeof loadPanelRef.current === 'function') loadPanelRef.current('flow', 'fzoom-composer', null)
+        }
+        pane.addEventListener('pointerdown', onComposerBlankDown)
+        return () => { try { pane.removeEventListener('pointerdown', onComposerBlankDown) } catch (e) {} }
+      }, [active, html, flowUiBusy])
 
       // 大流镜点选可视：选中描边 + 点选模式光标；看板每次全量重渲染后恢复开工台输入文本；
       // 离开看板（退出总览/切工具）清空点选、带入暂存与输入镜像

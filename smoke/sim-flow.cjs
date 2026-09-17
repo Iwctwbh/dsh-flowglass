@@ -615,6 +615,25 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
   z = await h({ action: 'fzoom', fields: {}, state: z.state, root: ROOT, session: 's-main' })
   check('大流镜：退出总览回单会话（头部带入口）', z.state.zoom === false && z.html.indexOf('data-action="fzoom"') >= 0)
 
+  // 大流镜头部与普通流镜一致：⚙ 显示规则 + ⓘ 使用说明（此前大流镜没有这两个入口）
+  z = await h({ action: 'fzoom', fields: {}, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜：头部带显示规则与使用说明入口', z.state.zoom === true
+    && z.html.indexOf('data-action="fsettings"') >= 0
+    && z.html.indexOf('aria-label="大流镜使用说明"') >= 0)
+  z = await h({ action: 'fsettings', fields: {}, state: z.state, root: ROOT, session: 's-main' })
+  check('大流镜：显示规则侧栏在大流镜内打开，且设置打开时暂停自动刷新', z.html.indexOf('工具显示规则') >= 0
+    && z.html.indexOf('fl-rail') >= 0 && z.html.indexOf('data-autorefresh="2000"') < 0)
+  z = await h({ action: 'fsettings', fields: {}, state: z.state, root: ROOT, session: 's-main' })
+  z = await h({ action: 'fzoom', fields: {}, state: z.state, root: ROOT, session: 's-main' }) // 退出，恢复后续用例形态
+
+  // 默认观察尺度：多卡（并发组/血缘树）默认全景；单卡会话（普通/新会话）默认近观铺满完整流镜
+  const lone = await h({ action: 'fzoom', fields: {}, state: null, root: ROOT, session: 's-live' })
+  check('大流镜：单会话进入默认近观（全景仅一卡没有信息量）', lone.state.zoom === true
+    && lone.state.zoomMode === 'near'
+    && lone.html.indexOf('fl-zoom-near-flow') >= 0
+    && lone.html.indexOf('data-flow-near-session="s-live"') >= 0
+    && lone.html.indexOf('fl-zoom-motion-focus') >= 0)
+
   // 开工台（多代理并发开工）+ 会话互通（带入/发送）
   z = await h({ action: 'fzoom', fields: {}, state: z.state, root: ROOT, session: 's-main' })
   z = await h({ action: 'fzoom-scope', fields: { __el: { scope: 'tree' } }, state: z.state, root: ROOT, session: 's-main' }) // 回到血缘树档

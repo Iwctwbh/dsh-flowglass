@@ -28,6 +28,7 @@
   - `quota` — API 配额查询 (Host-only)
   - `selfview` — 界面自查（截图/快照/界面操作）
 
+
 ## 安装 / 升级 / 卸载
 
 ```powershell

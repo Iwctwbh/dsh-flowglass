@@ -194,6 +194,7 @@ return {
     if (slots === undefined) return
     const themeSvc = ctx.get('theme')
     const sessionsClient = ctx.sessions
+    const workspacesClient = ctx.get('workspaces')
 
     // Flowglass 的“子代理跟随”要走 Harness 正式会话导航，不直接改 localStorage。
     // 子代理优先使用 catalog 的精确 address；若 catalog 尚未拉取，先刷新父会话再解析。
@@ -396,6 +397,8 @@ return {
       '.jr-docked-full{right:0;top:0;bottom:0;max-height:none;max-width:none;width:auto;border-radius:0;border:none;border-left:1px solid var(--dsw-alias-border-l1,#3a3b44);box-shadow:none;animation:jrDrawerIn .16s ease-out}',
       '.jr-docked-full .jr-drawer-body{flex:1;min-height:0}',
       '@keyframes jrDrawerIn{from{transform:translateX(28px);opacity:.3}to{transform:translateX(0);opacity:1}}',
+      // 弹层上浮进入：「回到最新」/带入弹窗/信息气泡/添加菜单共用（此前只引用未定义，动画从未生效）
+      '@keyframes jrDrawerUp{from{transform:translateY(9px);opacity:0}to{transform:translateY(0);opacity:1}}',
       '.jr-drawer-header{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--dsw-alias-border-l1,#3a3b44);background:var(--dsw-alias-bg-base,#17181d);cursor:move;user-select:none}',
       '.jr-drawer-title{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:calc(14px*var(--tb-fs,1))}',
       '.jr-overlay-close{width:30px;height:30px;flex:none;display:inline-flex;align-items:center;justify-content:center;border:none;background:transparent;color:var(--dsw-alias-label-secondary,#9a9aa5);cursor:pointer;border-radius:6px;padding:0}',
@@ -447,7 +450,8 @@ return {
       '.tb-frame{position:relative;display:flex;flex-direction:column;gap:10px;min-height:0}',
       // 「回到最新」浮标：只控制工具面板的主 .tb-pane-body，不影响 Harness 聊天区。
       '.tb-jump-latest{position:absolute;right:16px;bottom:14px;z-index:7;display:inline-flex;align-items:center;height:28px;padding:0 13px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2,#454650);background:var(--dsw-alias-bg-overlay,#1e1f24);color:var(--tb-accent-text,#7fa7f0);font-size:calc(12px*var(--tb-fs,1));font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.3);font-family:inherit;animation:jrDrawerUp .16s ease-out}',
-      '.tb-jump-latest:hover{border-color:var(--tb-accent-border,rgba(91,141,239,.45));background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b))}',
+      // 悬停不再回落实色底（选择器优先级高于统一玻璃层，实色会盖掉模糊）：只加深描边与光晕
+      '.tb-jump-latest:hover{border-color:var(--tb-accent-border,rgba(91,141,239,.5));box-shadow:0 10px 26px rgba(0,0,0,.36),0 0 0 1px var(--tb-accent-ring,rgba(91,141,239,.16)),inset 0 1px 0 rgba(255,255,255,.12)}',
       '.tb-flow-zoom-float,.tb-flow-selection-bar{position:absolute;left:16px;bottom:14px;z-index:8;display:flex;align-items:center;gap:7px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:999px;background:var(--dsw-alias-bg-overlay,#1e1f24);box-shadow:0 4px 14px rgba(0,0,0,.3)}',
       '.tb-flow-zoom-float,.tb-flow-selection-bar{padding:3px 5px;opacity:.42;transition:opacity .15s}',
       '.tb-flow-zoom-float:hover,.tb-flow-zoom-float:focus-within,.tb-flow-selection-bar:hover,.tb-flow-selection-bar:focus-within{opacity:1}',
@@ -463,6 +467,13 @@ return {
       '.tb-flow-icon-btn:disabled{opacity:.4;cursor:default}',
       '.tb-flow-selection-count{width:24px;height:24px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:999px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));font-size:calc(10.5px*var(--tb-fs,1));font-weight:600;font-variant-numeric:tabular-nums}',
       '.tb-flow-bring-popup{position:absolute;left:16px;bottom:94px;z-index:9;width:min(360px,calc(100% - 32px));display:flex;flex-direction:column;gap:9px;padding:10px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:9px;background:var(--dsw-alias-bg-overlay,#1e1f24);box-shadow:0 8px 24px rgba(0,0,0,.35);animation:jrDrawerUp .14s ease-out}',
+      '.tb-flow-add-popup{position:fixed;right:auto;bottom:auto;z-index:60;box-sizing:border-box;overflow:hidden;border-color:color-mix(in srgb,var(--tb-active-text,#7fa7f0) 34%,transparent);background:linear-gradient(145deg,color-mix(in srgb,var(--dsw-alias-bg-overlay,#1e1f24) 52%,rgba(122,162,240,.17)),color-mix(in srgb,var(--dsw-alias-bg-overlay,#1e1f24) 34%,transparent));box-shadow:0 24px 70px rgba(0,0,0,.48),0 7px 24px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.11);backdrop-filter:blur(26px) saturate(175%);-webkit-backdrop-filter:blur(26px) saturate(175%);animation:jrDrawerUp .16s ease-out}',
+      '.tb-flow-add-popup::before{content:"";position:absolute;inset:0 0 auto 0;height:1px;background:linear-gradient(90deg,transparent,rgba(151,184,248,.68),transparent);pointer-events:none}',
+      '.tb-flow-add-popup .tb-flow-popup-head{padding-bottom:7px;border-bottom:1px solid rgba(255,255,255,.07)}',
+      '.tb-flow-add-popup .tb-flow-session-tree{flex:1;min-height:0;max-height:none}',
+      '.tb-flow-add-popup .tb-flow-tree-workspace,.tb-flow-add-popup .tb-flow-tree-session{transition:background .14s ease,border-color .14s ease,transform .14s ease}',
+      '.tb-flow-add-popup .tb-flow-tree-workspace:hover,.tb-flow-add-popup .tb-flow-tree-session:hover{background:color-mix(in srgb,var(--tb-active-text,#7fa7f0) 11%,transparent);transform:translateX(1px)}',
+      '.tb-flow-add-popup .tb-flow-popup-actions{padding-top:8px;border-top:1px solid rgba(255,255,255,.07)}',
       '.tb-flow-popup-head{display:flex;align-items:center;gap:8px;font-size:calc(12px*var(--tb-fs,1));font-weight:600;color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
       '.tb-flow-popup-head>span{flex:1}',
       '.tb-flow-popup-actions{display:flex;justify-content:flex-end;gap:7px}',
@@ -682,8 +693,8 @@ return {
       '.fl-node[data-flow-role="ai"]{padding-right:36px}',
       '.fl-info{position:relative;flex:none;margin-left:auto;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));cursor:help;outline:none}',
       '.fl-info:hover,.fl-info:focus{background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b));color:var(--tb-active-text,#7fa7f0)}',
-      '.fl-info-pop{position:absolute;right:0;top:30px;z-index:20;width:min(440px,80vw);display:none;padding:10px 12px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:8px;background:var(--dsw-alias-bg-overlay,#1e1f24);box-shadow:0 8px 24px rgba(0,0,0,.35);color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));font-size:calc(11.5px*var(--tb-fs,1));font-weight:400;line-height:1.65;white-space:pre-line}',
-      '.fl-info:hover .fl-info-pop,.fl-info:focus .fl-info-pop{display:block}',
+      '.fl-info-pop{position:absolute;right:0;top:30px;z-index:20;width:min(660px,84vw);display:none;padding:10px 12px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:8px;background:var(--dsw-alias-bg-overlay,#1e1f24);box-shadow:0 8px 24px rgba(0,0,0,.35);color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));font-size:calc(11.5px*var(--tb-fs,1));font-weight:400;line-height:1.65;white-space:pre-line}',
+      '.fl-info:hover .fl-info-pop,.fl-info:focus .fl-info-pop{display:block;animation:jrDrawerUp .12s ease-out}',
       '[data-flow-select-seq].fl-select-picked{outline:2px solid var(--tb-accent,#3f6fd9);outline-offset:2px;box-shadow:0 0 0 4px var(--tb-accent-ring,rgba(91,141,239,.16))}',
       '[data-flow-select-mode="1"] .tb-pane-body{cursor:crosshair;user-select:none}',
       '.fl-marquee{position:absolute;z-index:30;border:1px solid var(--tb-accent,#3f6fd9);background:var(--tb-accent-ring,rgba(91,141,239,.16));pointer-events:none;border-radius:3px}',
@@ -699,7 +710,7 @@ return {
       '.fl-retry-wait{color:#d4b95c;background:rgba(212,167,44,.12)}',
       '.fl-retry-fail{color:var(--tb-danger-text,#f28b82);background:rgba(242,139,130,.12)}',
       '.fl-retry-cancel{color:var(--tb-text-3,#777884);background:rgba(138,139,150,.10)}',
-      '.fl-time{flex:none;font-size:calc(10.5px*var(--tb-fs,1));color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));font-variant-numeric:tabular-nums}',
+      '.fl-time{flex:none;font-size:calc(10.5px*var(--tb-fs,1));color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));font-variant-numeric:tabular-nums;white-space:nowrap}',
       '.fl-preview{font-size:calc(12px*var(--tb-fs,1));line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4));max-width:500px}',
       // ▼ 箭头自带画布底色块：主干竖线从下方穿过时字形不被线划过
       // （不用整体 opacity——色块必须 100% 不透明才盖得住线；字形色与线同 token，箭头实一点正好突出）
@@ -711,7 +722,7 @@ return {
       '.jr-drawer [data-flow] .tb-pane-body{background:var(--dsw-alias-bg-base,#17181d);border-radius:8px;background-image:linear-gradient(rgba(128,138,150,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(128,138,150,.055) 1px,transparent 1px);background-size:22px 22px}',
       '.jr-drawer [data-flow] .tb-pane-body>*{zoom:var(--tb-flow-zoom,1)}',
       '.fl-par{flex:1;display:flex;flex-direction:column;gap:10px;min-width:0}',
-      '.fl-name{font-family:ui-monospace,Consolas,monospace;font-size:calc(11.5px*var(--tb-fs,1));font-weight:700;color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+      '.fl-name{flex:1;min-width:0;font-family:ui-monospace,Consolas,monospace;font-size:calc(11.5px*var(--tb-fs,1));font-weight:700;color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.fl-args{font-family:ui-monospace,Consolas,monospace;font-size:calc(10.5px*var(--tb-fs,1));color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       // ---- 三列泳道（手绘参考图 2：左=子代理分支区 / 中=主干用户·助手 / 右=工具调用卡） ----
       // 左泳道不再封顶 140px：随画布共同拉伸，给并行子代理足够的可读宽度。
@@ -803,6 +814,7 @@ return {
       '@keyframes flBlink{0%,100%{opacity:1}50%{opacity:.25}}',
       '@keyframes flPulse{0%,100%{box-shadow:0 0 0 1.5px var(--tb-accent-ring,rgba(91,141,239,.16))}50%{box-shadow:0 0 0 4px var(--tb-accent-ring,rgba(91,141,239,.16))}}',
       '.fl-iohead{display:flex;align-items:center;gap:6px;min-width:0}',
+      '.fl-status{flex:none;white-space:nowrap;font-size:calc(10.5px*var(--tb-fs,1));font-variant-numeric:tabular-nums}',
       '.fl-io-tag{flex:none;display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:3px;font-size:calc(9px*var(--tb-fs,1));font-weight:700}',
       // 卡片点击展开的完整详情（入=完整传入 JSON / 出=完整返回文本）
       '.fl-detail{display:flex;flex-direction:column;gap:6px;border:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));border-radius:8px;padding:8px;background:var(--tb-input-bg,var(--dsw-alias-bg-layer-1,#26272e));max-width:460px;margin-top:2px}',
@@ -835,6 +847,60 @@ return {
       '.fl-rail-dragging{user-select:none}',
       // rail 头部的分支按钮：复用卡片 .fl-branch-btn 外观，改为常显静态布局
       '.fl-rail-head .fl-branch-btn{position:static;opacity:1;pointer-events:auto;transform:none;width:22px;height:20px;flex:none}',
+      '.fl-rule-list{display:flex;flex-direction:column;gap:8px}',
+      '.fl-rule-card{display:flex;flex-direction:column;border:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));border-radius:8px;background:var(--dsw-alias-bg-base,#17181d);overflow:hidden;transition:border-color .12s,opacity .12s}',
+      '.fl-rule-card.fl-rule-open{border-color:var(--tb-accent-border,rgba(91,141,239,.55))}',
+      '.fl-rule-card.fl-rule-off{opacity:.62}',
+      '.fl-rule-summary{display:flex;align-items:center;min-width:0;padding:5px 6px 5px 8px;gap:3px}',
+      '.fl-rule-main{flex:1;min-width:0;display:flex;align-items:center;gap:7px;padding:2px;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer;font-family:inherit}',
+      '.fl-rule-main:hover .fl-rule-copy>strong{color:var(--tb-active-text,#7fa7f0)}',
+      '.fl-rule-dot{flex:none;width:8px;height:8px;border-radius:50%;box-shadow:0 0 0 2px rgba(255,255,255,.06)}',
+      '.fl-rule-badge{flex:none;max-width:70px;padding:1px 5px;border-radius:4px;font-size:calc(9px*var(--tb-fs-detail,1));font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.fl-rule-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}',
+      '.fl-rule-copy>strong{font-size:calc(11.5px*var(--tb-fs-detail,1));font-weight:600;color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4));overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:color .12s}',
+      '.fl-rule-copy>small{font-size:calc(9.5px*var(--tb-fs-detail,1));color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.fl-rule-chevron{flex:none;width:15px;height:15px;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));transition:transform .12s}',
+      '.fl-rule-open .fl-rule-chevron{transform:rotate(90deg)}',
+      '.fl-rule-chevron svg,.fl-rule-icon svg,.fl-rule-add svg{display:block;width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.35;stroke-linecap:round;stroke-linejoin:round}',
+      '.fl-rule-switch{position:relative;flex:none;width:31px;height:18px;padding:0;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:999px;background:var(--tb-input-bg,var(--dsw-alias-bg-layer-1,#26272e));cursor:pointer;transition:background .15s,border-color .15s}',
+      '.fl-rule-switch>span{position:absolute;left:2px;top:2px;width:12px;height:12px;border-radius:50%;background:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .15s,background .15s}',
+      '.fl-rule-switch.is-on{background:var(--tb-accent,#3f6fd9);border-color:var(--tb-accent,#3f6fd9)}',
+      '.fl-rule-switch.is-on>span{transform:translateX(13px);background:#fff}',
+      '.fl-rule-switch:focus-visible{outline:2px solid var(--tb-accent-border,rgba(91,141,239,.65));outline-offset:2px}',
+      '.fl-rule-icon{flex:none;width:25px;height:25px;padding:5px;border:0;border-radius:6px;background:transparent;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));cursor:pointer;transition:color .12s,background .12s}',
+      '.fl-rule-icon:hover{background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b));color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
+      '.fl-rule-delete:hover{color:var(--tb-danger-text,#f28b82);background:rgba(239,83,80,.1)}',
+      '.fl-rule-editor{display:none;flex-direction:column;gap:8px;padding:4px 9px 9px;border-top:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e))}',
+      '.fl-rule-open>.fl-rule-editor{display:flex}',
+      '.fl-rule-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:7px 8px}',
+      '.fl-rule-grid>label{display:flex;flex-direction:column;gap:3px;min-width:0}',
+      '.fl-rule-grid>label>span{font-size:calc(10px*var(--tb-fs-detail,1));color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884))}',
+      '.fl-rule-grid .tb-input{width:100%;height:27px;padding:0 7px;font-size:calc(11px*var(--tb-fs-detail,1))}',
+      '.fl-rule-color{width:100%;height:27px;padding:2px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:6px;background:var(--tb-input-bg,var(--dsw-alias-bg-layer-1,#26272e));cursor:pointer}',
+      '.fl-rule-editor-actions{display:flex;justify-content:flex-end;gap:6px}',
+      '.fl-rule-new{display:none;padding:9px;border-style:dashed;overflow:visible}',
+      '.fl-rule-new.fl-rule-open{display:flex}',
+      '.fl-rule-new .fl-rule-editor{padding:0;border-top:0}',
+      '.fl-rule-new-title{font-size:calc(12px*var(--tb-fs-detail,1));font-weight:600;color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
+      '.fl-rule-add{flex:none;display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 7px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:6px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));font:inherit;font-size:calc(10px*var(--tb-fs-detail,1));cursor:pointer}',
+      '.fl-rule-add:hover{border-color:var(--tb-accent-border,rgba(91,141,239,.55));color:var(--tb-active-text,#7fa7f0)}',
+      '.fl-rule-add svg{width:13px;height:13px}',
+      '.fl-rule-source{display:flex;flex-direction:column;gap:7px;border-top:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));padding-top:8px}',
+      '.fl-rule-source>summary{cursor:pointer;user-select:none}',
+      '.fl-rule-source[open]>summary{margin-bottom:7px}',
+      '.fl-rule-source .tb-textarea{min-height:210px;resize:vertical;margin-bottom:7px}',
+      '@media(max-width:620px){.fl-rule-grid{grid-template-columns:minmax(0,1fr)}}',
+      '.fl-skill-hero{display:flex;align-items:center;gap:7px;padding:8px;border:1px solid var(--tb-accent-border,rgba(91,141,239,.38));border-radius:7px;background:var(--tb-accent-bg,rgba(91,141,239,.08))}',
+      '.fl-skill-hero>.fl-tag{color:var(--tb-active-text,#7fa7f0);background:rgba(91,141,239,.13)}',
+      '.fl-skill-hero>strong{flex:1;min-width:0;font-family:ui-monospace,Consolas,monospace;font-size:calc(13px*var(--tb-fs-detail,1));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.fl-skill-field{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:start;gap:8px;padding:7px 8px;border:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));border-radius:7px}',
+      '.fl-skill-field>span{font-size:calc(10px*var(--tb-fs-detail,1));font-weight:600;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884))}',
+      '.fl-skill-field>code{min-width:0;font-family:ui-monospace,Consolas,monospace;font-size:calc(10.5px*var(--tb-fs-detail,1));color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));word-break:break-all}',
+      '.fl-skill-instructions{flex:1;min-height:0}',
+      '.fl-skill-instructions>.fl-pre,.fl-skill-instructions>.fl-markdown-rendered{flex:1;min-height:180px;max-height:none}',
+      '.fl-skill-raw{flex:none;border-top:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));padding-top:7px}',
+      '.fl-skill-raw>summary{cursor:pointer;user-select:none;font-size:calc(10.5px*var(--tb-fs-detail,1));color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884))}',
+      '.fl-skill-raw[open]>summary{margin-bottom:7px}',
       // 详情内容框标题行 + 复制按钮
       '.fl-sec-head{display:flex;align-items:center;gap:6px;min-width:0}',
       '.fl-sec-head .fl-sec-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
@@ -846,6 +912,190 @@ return {
       '.fl-branch-pill{flex:none;font-size:calc(9.5px*var(--tb-fs-detail,1));padding:0 5px;border-radius:3px;background:rgba(91,141,239,.12);color:var(--tb-active-text,#7fa7f0);font-weight:600}',
       '.fl-branch-txt{flex:1;min-width:0;font-family:ui-monospace,Consolas,monospace;font-size:calc(11px*var(--tb-fs-detail,1));color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.fl-branch-ai{font-style:italic}',
+      // ---- 大流镜 Zoom：超脱单会话的俯视树（根在顶部，会话分支自上而下展开）----
+      // 布局：根卡居中 → trunk 竖线 → branches 横排（safe center，超宽横向滚动）；
+      // 每个分支列顶部是头卡，下面是该会话的纵向流程（竖轨 + 横挑，最新在底）。
+      '.fl-zoom-tree{display:flex;flex-direction:column;align-items:center;align-self:stretch;padding:4px 2px 10px;min-width:0}',
+      '@keyframes flZoomFocusIn{from{opacity:.82;transform:scale(.975)}to{opacity:1;transform:scale(1)}}',
+      '@keyframes flZoomOverviewIn{from{opacity:.82;transform:scale(1.025)}to{opacity:1;transform:scale(1)}}',
+      '.fl-zoom-motion-focus>.tb-pane-body{transform-origin:center top;animation:flZoomFocusIn .16s ease-out}',
+      '.fl-zoom-motion-overview>.tb-pane-body{transform-origin:center top;animation:flZoomOverviewIn .16s ease-out}',
+      '.fl-zoom-near-flow{align-self:stretch;width:100%;min-width:0;display:flex;flex-direction:column;gap:0}',
+      '.fl-zoom-rootcard{position:relative;width:min(340px,92%);display:flex;flex-direction:column;gap:5px;border:1px solid var(--tb-accent-border,rgba(91,141,239,.45));border-radius:10px;padding:8px 12px;background:var(--tb-input-bg,var(--dsw-alias-bg-layer-1,#26272e));box-shadow:0 2px 8px rgba(0,0,0,.18);cursor:pointer;transition:border-color .12s}',
+      '.fl-zoom-rootcard:hover{border-color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#6f707c))}',
+      '.fl-zoom-rootcard-virtual{border-style:dashed;cursor:default;align-items:center;padding:7px 12px}',
+      '.fl-zoom-trunk{flex:none;width:1.5px;height:16px;background:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));opacity:.55}',
+      '.fl-zoom-branches{position:relative;display:flex;gap:14px;align-items:flex-start;justify-content:safe center;align-self:stretch;overflow-x:auto;padding:16px 6px 4px}',
+      '.fl-zoom-branch{position:relative;flex:none;width:min(236px,84%);display:flex;flex-direction:column;gap:8px;cursor:pointer;min-width:0}',
+      // 分支与总线的连接：::before 竖降线（总线 → 分支头卡），::after 横线段（本分支中心 → 下一分支中心）
+      '.fl-zoom-branch::before{content:"";position:absolute;top:-16px;left:50%;width:1.5px;height:16px;background:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));opacity:.55}',
+      // 横线由“前一分支中心 → 当前分支中心”绘制；旧写法只到相邻卡片边缘，会在分支间留下半卡宽断口。
+      '.fl-zoom-branch::after{content:"";position:absolute;top:-16px;left:calc(-50% - 14px);right:50%;height:1.5px;background:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));opacity:.55}',
+      '.fl-zoom-branch:first-child::after{display:none}',
+      '.fl-zoom-card,.fl-zoom-branch-head{position:relative;display:flex;flex-direction:column;gap:5px;min-width:0;border:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));border-radius:10px;padding:8px 11px;background:var(--tb-input-bg,var(--dsw-alias-bg-layer-1,#26272e));box-shadow:0 2px 8px rgba(0,0,0,.18);transition:border-color .12s}',
+      '.fl-zoom-branch:hover .fl-zoom-branch-head{border-color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#6f707c))}',
+      '.fl-zoom-head{display:flex;align-items:center;gap:7px;min-width:0}',
+      '.fl-zoom-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--tb-text-3,#777884);opacity:.5}',
+      '.fl-zoom-dot-online{background:var(--tb-active-text,#7fa7f0);opacity:.9}',
+      '.fl-zoom-dot-running{background:var(--tb-done-text,#81c784);opacity:1;animation:flBlink 1.1s ease-in-out infinite}',
+      '.fl-zoom-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:calc(12px*var(--tb-fs,1));font-weight:600;color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
+      '.fl-zoom-id{flex:none;font-family:ui-monospace,Consolas,monospace;font-size:calc(10px*var(--tb-fs,1));color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884))}',
+      '.fl-zoom-badges{display:flex;flex-wrap:wrap;gap:4px}',
+      '.fl-zoom-badge{display:inline-flex;align-items:center;height:16px;padding:0 5px;border-radius:4px;font-size:calc(9.5px*var(--tb-fs,1));font-weight:600;background:rgba(138,139,150,.12);color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6))}',
+      '.fl-zoom-badge-home{background:rgba(91,141,239,.12);color:var(--tb-active-text,#7fa7f0)}',
+      '.fl-zoom-badge-cwd{background:rgba(212,167,44,.10);color:#d4b95c}',
+      '.fl-zoom-stats{font-size:calc(10.5px*var(--tb-fs,1));color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+      // 分支纵向流程：左竖轨 + 每步横挑（git 树语感），自上而下最新在底
+      '.fl-zoom-flow{position:relative;display:flex;flex-direction:column;gap:5px;padding:2px 0 2px 16px}',
+      '.fl-zoom-flow::before{content:"";position:absolute;left:6px;top:0;bottom:4px;width:1.5px;background:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));opacity:.4}',
+      '.fl-zoom-step{position:relative;display:flex;align-items:center;gap:6px;min-width:0;min-height:18px}',
+      '.fl-zoom-step::before{content:"";position:absolute;left:-10px;top:50%;width:8px;height:1.5px;background:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));opacity:.4}',
+      '.fl-zoom-step-txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:calc(10.5px*var(--tb-fs,1));color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6))}',
+      '.fl-zoom-step-ok{flex:none;font-size:calc(10px*var(--tb-fs,1));color:var(--tb-done-text,#81c784)}',
+      '.fl-zoom-step-err{flex:none;font-size:calc(10px*var(--tb-fs,1));color:var(--tb-danger-text,#f28b82)}',
+      '.fl-zoom-glyph{font-size:calc(10px*var(--tb-fs,1));line-height:1}',
+      '.fl-zoom-tool{max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 5px;border-radius:3px;font-size:calc(9.5px*var(--tb-fs,1));font-weight:600;line-height:1.5;flex:none}',
+      '.fl-zoom-tool-err{color:var(--tb-danger-text,#f28b82)!important;background:rgba(242,139,130,.12)!important}',
+      '.fl-zoom-tool-pending{animation:flBlink 1.1s ease-in-out infinite}',
+      '.fl-zoom-more{font-size:calc(9.5px*var(--tb-fs,1));color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884))}',
+      // 开工台（多代理并发开工/互通）：输入 + 模型分支 select（每条分支一个路由，左→右对应分支列）
+      '.fl-zoom-composer{display:flex;flex-direction:column;gap:7px;padding:9px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:12px;background:var(--tb-input-bg,var(--dsw-alias-bg-layer-1,#26272e));box-shadow:0 2px 10px rgba(0,0,0,.14)}',
+      '.fl-zoom-composer-context{display:flex;align-items:center;gap:8px;min-width:0;padding-bottom:7px;border-bottom:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));font-size:calc(10px*var(--tb-fs,1))}',
+      '.fl-zoom-composer-context>strong{flex:none;color:var(--tb-active-text,#7fa7f0)}',
+      '.fl-zoom-composer-context>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884))}',
+      '.fl-zoom-composer-targets{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:5px;min-width:0;margin-left:auto;overflow:visible}',
+      '.fl-zoom-composer-targets.is-drop-target{outline:2px solid var(--tb-active-text,#7fa7f0);outline-offset:2px;border-radius:7px;background:rgba(91,141,239,.08)}',
+      '.fl-zoom-composer-targets .fl-zoom-current-session{min-width:158px;max-width:220px}',
+      '.fl-zoom-add-picker{height:27px;padding:0 8px;border:1px dashed var(--tb-accent-border,rgba(91,141,239,.45));border-radius:6px;background:transparent;color:var(--tb-active-text,#7fa7f0);font:inherit;font-size:calc(10px*var(--tb-fs,1));cursor:pointer;white-space:nowrap}',
+      '.fl-zoom-add-picker:hover{background:rgba(91,141,239,.1)}',
+      '.fl-zoom-add-menu{position:relative;flex:none}',
+      '.fl-zoom-add-menu>summary{height:27px;display:inline-flex;align-items:center;padding:0 8px;border:1px dashed var(--tb-accent-border,rgba(91,141,239,.45));border-radius:6px;color:var(--tb-active-text,#7fa7f0);cursor:pointer;list-style:none;white-space:nowrap}',
+      '.fl-zoom-add-menu>summary::-webkit-details-marker{display:none}',
+      '.fl-zoom-add-pop{position:absolute;right:0;top:32px;z-index:30;width:280px;max-height:300px;display:flex;flex-direction:column;gap:4px;overflow:auto;padding:7px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:9px;background:var(--tb-bg,#17181c);box-shadow:0 10px 28px rgba(0,0,0,.48)}',
+      '.fl-zoom-add-pop>button{min-height:31px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;padding:4px 7px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));font:inherit;font-size:calc(10px*var(--tb-fs,1));text-align:left;cursor:pointer}',
+      '.fl-zoom-add-pop>button:hover{border-color:var(--tb-accent-border,rgba(91,141,239,.45));background:rgba(91,141,239,.09);color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
+      '.fl-zoom-add-pop>button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.fl-zoom-add-pop>button code{color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));font-size:inherit}',
+      '.fl-zoom-add-pop>.fl-zoom-add-new{display:flex;justify-content:center;border-color:var(--tb-accent-border,rgba(91,141,239,.45));color:var(--tb-active-text,#7fa7f0);font-weight:700}',
+      '.fl-zoom-add-pop>small,.fl-zoom-add-empty{padding:4px 6px;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));font-size:calc(9px*var(--tb-fs,1))}',
+      '.fl-zoom-prompt{width:100%;min-height:48px;max-height:120px;resize:vertical;border:none!important;background:transparent!important;padding:2px 3px!important;line-height:1.5}',
+      '.fl-zoom-prompt:focus{box-shadow:none!important;outline:none!important}',
+      '.fl-zoom-composer-controls{display:flex;align-items:center;gap:6px;min-width:0;overflow-x:auto}',
+      '.fl-zoom-composer-spacer{flex:1;min-width:10px}',
+      '.fl-zoom-target-label{flex:none;font-size:calc(10px*var(--tb-fs,1));font-weight:650;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));white-space:nowrap}',
+      '.fl-zoom-count{display:inline-flex;align-items:center;gap:2px;padding:2px;border:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));border-radius:7px}',
+      '.fl-zoom-count .tb-chip{min-width:25px;justify-content:center;padding:0 6px}',
+      '.fl-zoom-lane-group{flex:none;display:inline-flex;align-items:center;min-width:0}',
+      '.fl-zoom-lane{flex:none;height:26px;font-size:calc(11px*var(--tb-fs,1))}',
+      '.fl-zoom-lane-model{width:144px;border-radius:6px 0 0 6px}',
+      '.fl-zoom-lane-effort{width:92px;margin-left:-1px;border-radius:0 6px 6px 0}',
+      '.fl-zoom-logbar{padding-top:2px;border-top:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e))}',
+      '.fl-zoom-log-spacer{flex:1}',
+      '.fl-zoom-history-drawer{position:absolute;right:0;top:0;bottom:0;z-index:18;width:min(292px,76%);display:flex;flex-direction:column;border-left:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));background:var(--tb-bg,#17181c);color:var(--tb-text,#dcdee4);box-shadow:-8px 0 24px rgba(0,0,0,.42)}',
+      '.fl-zoom-history-drawer-head{height:38px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));font-size:calc(11px*var(--tb-fs,1))}',
+      '.fl-zoom-history-drawer-head button{width:24px;height:24px;border:none;border-radius:5px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));cursor:pointer}',
+      // Flowglass 统一玻璃层：弹窗、详情侧栏、历史抽屉、浮动操作条、信息气泡与浮标共享材质，定位/尺寸仍由各组件自己控制。
+      // 材质 = 48%→30% 渐变透明底（背后内容真实透出）+ 26px 模糊 + 175% 饱和 + accent 描边 + 分层投影 + 顶缘内高光；主题经 --tb-*/--dsw-* 变量自适应明暗与主色。
+      '.tb-flow-bring-popup,.fl-rail,.fl-zoom-history-drawer,.tb-flow-zoom-float,.tb-flow-selection-bar,.fl-info-pop,.fl-zoom-add-pop,.tb-jump-latest,.jr-resize-badge{border-color:color-mix(in srgb,var(--tb-active-text,#7fa7f0) 34%,transparent);background:linear-gradient(145deg,color-mix(in srgb,var(--dsw-alias-bg-overlay,#1e1f24) 48%,rgba(122,162,240,.16)),color-mix(in srgb,var(--dsw-alias-bg-overlay,#1e1f24) 30%,transparent));box-shadow:0 20px 58px rgba(0,0,0,.42),0 6px 20px rgba(0,0,0,.26),inset 0 1px 0 rgba(255,255,255,.11);backdrop-filter:blur(26px) saturate(175%);-webkit-backdrop-filter:blur(26px) saturate(175%)}',
+      // 弹层顶缘受光高光线（通高侧栏与 pill 浮标不加，避免横穿直边/小圆角显突兀）
+      '.tb-flow-bring-popup::before,.fl-info-pop::before,.fl-zoom-add-pop::before{content:"";position:absolute;left:9%;right:9%;top:0;height:1px;background:linear-gradient(90deg,transparent,rgba(151,184,248,.6),transparent);pointer-events:none}',
+      '.fl-zoom-add-menu[open] .fl-zoom-add-pop{animation:jrDrawerUp .14s ease-out}',
+      '.tb-flow-bring-popup .tb-flow-popup-head,.fl-rail-head,.fl-zoom-history-drawer-head{border-bottom-color:rgba(255,255,255,.08)}',
+      '.tb-flow-bring-popup .tb-flow-tree-workspace,.tb-flow-bring-popup .tb-flow-tree-session{transition:background .14s ease,border-color .14s ease,transform .14s ease}',
+      '.tb-flow-bring-popup .tb-flow-tree-workspace:hover,.tb-flow-bring-popup .tb-flow-tree-session:hover{background:color-mix(in srgb,var(--tb-active-text,#7fa7f0) 11%,transparent);transform:translateX(1px)}',
+      '.fl-zoom-history-tree{flex:1;overflow:auto;padding:7px}',
+      '.fl-history-node{margin-bottom:5px;border-radius:7px}',
+      '.fl-history-node.is-active{background:rgba(91,141,239,.07)}',
+      '.fl-history-run-line{display:grid;grid-template-columns:24px minmax(0,1fr);align-items:center}',
+      '.fl-history-toggle{width:24px;height:26px;border:none;border-radius:5px;background:transparent;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));font:inherit;cursor:pointer}',
+      '.fl-history-toggle:hover{background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b));color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
+      '.fl-history-run,.fl-history-round,.fl-history-session{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;border:none;border-radius:6px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));font:inherit;cursor:pointer;text-align:left}',
+      '.fl-history-run{min-height:30px;padding:4px 7px;font-size:calc(10.5px*var(--tb-fs,1));font-weight:650}',
+      '.fl-history-round{min-height:27px;padding:3px 8px 3px 18px;font-size:calc(10px*var(--tb-fs,1));font-weight:600}',
+      '.fl-history-round-node.is-active>.fl-history-round{background:rgba(91,141,239,.11);color:var(--tb-active-text,#7fa7f0)}',
+      '.fl-history-session{min-height:24px;padding:3px 8px 3px 34px;font-size:calc(9.8px*var(--tb-fs,1))}',
+      '.fl-history-run:hover,.fl-history-round:hover,.fl-history-session:hover{background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b));color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
+      '.fl-history-session code{font-size:inherit;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884))}',
+      '.fl-zoom-current-conversations{display:flex;align-items:center;gap:5px;overflow-x:auto;padding:5px 7px;border:1px solid var(--tb-accent-border,rgba(91,141,239,.45));border-radius:8px;background:rgba(91,141,239,.055)}',
+      '.fl-zoom-current-conversations>strong{flex:none;font-size:calc(10.5px*var(--tb-fs,1));color:var(--tb-active-text,#7fa7f0)}',
+      '.fl-zoom-current-item{position:relative;display:inline-flex;align-items:center;flex:none}',
+      '.fl-zoom-current-item .fl-zoom-current-session{padding-right:26px}',
+      '.fl-zoom-current-session{flex:none;display:grid;grid-template-columns:auto minmax(80px,1fr) auto;align-items:center;gap:6px;min-width:180px;max-width:270px;height:27px;padding:0 7px;border:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));border-radius:6px;background:transparent;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));font:inherit;font-size:calc(10px*var(--tb-fs,1));cursor:pointer;text-align:left}',
+      '.fl-zoom-current-session:hover,.fl-zoom-current-session.is-active{border-color:var(--tb-accent-border,rgba(91,141,239,.45));background:rgba(91,141,239,.08);color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
+      '.fl-zoom-current-session span:nth-child(2){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.fl-zoom-current-session code{font-size:inherit;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884))}',
+      '.fl-zoom-current-remove{width:20px;height:20px;margin-left:-24px;z-index:1;border:none;border-radius:4px;background:transparent;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));cursor:pointer}',
+      '.fl-zoom-current-remove:hover{background:rgba(242,139,130,.13);color:var(--tb-danger-text,#f28b82)}',
+      '.fl-zoom-diff-scroll{align-self:stretch;overflow-x:auto;overflow-y:visible;padding:2px 2px 12px}',
+      '.fl-zoom-diff-board{display:grid;align-items:stretch;width:max-content;min-width:max-content;margin-inline:auto;border:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));border-radius:9px;overflow:clip;background:var(--tb-bg,var(--dsw-alias-bg-base,#17181c))}',
+      '.fl-diff-corner,.fl-diff-session-head{position:sticky;top:0;z-index:4;min-height:58px;padding:7px 9px;border-bottom:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));background:var(--tb-input-bg,var(--dsw-alias-bg-layer-1,#26272e))}',
+      '.fl-diff-corner{left:0;z-index:5;display:flex;align-items:center;justify-content:center;font-size:calc(10px*var(--tb-fs,1));font-weight:700;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884))}',
+      '.fl-diff-session-head{cursor:pointer;border-left:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e))}',
+      '.fl-diff-session-head:hover{background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#31323b))}',
+      '.fl-diff-session-label{display:inline-flex;margin-bottom:5px;padding:1px 6px;border-radius:999px;background:rgba(91,141,239,.13);color:var(--tb-active-text,#7fa7f0);font-size:calc(9.5px*var(--tb-fs,1));font-weight:750}',
+      '.fl-diff-gutter{position:sticky;left:0;z-index:2;display:flex;flex-direction:column;gap:3px;padding:10px 7px;border-top:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));background:var(--tb-input-bg,var(--dsw-alias-bg-layer-1,#26272e));font-size:calc(10px*var(--tb-fs,1))}',
+      '.fl-diff-gutter strong{font-size:calc(11px*var(--tb-fs,1));color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4))}',
+      '.fl-diff-gutter small{display:flex;flex-direction:column;gap:2px;line-height:1.35;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884))}',
+      '.fl-diff-dim{display:inline-flex;gap:4px;white-space:pre}',
+      '.fl-diff-dim-same{color:var(--tb-done-text,#81c784)}',
+      '.fl-diff-dim-change{color:#e6b94b;font-weight:700}',
+      '.fl-diff-dim-missing{color:var(--tb-danger-text,#f28b82);font-weight:700}',
+      '.fl-diff-round-fork{margin-top:5px;min-height:24px;padding:2px 5px;border:1px solid var(--tb-accent-border,rgba(91,141,239,.45));border-radius:5px;background:rgba(91,141,239,.08);color:var(--tb-active-text,#7fa7f0);font:inherit;font-size:calc(9.5px*var(--tb-fs,1));cursor:pointer}',
+      '.fl-diff-same{box-shadow:inset 3px 0 var(--tb-done-text,#81c784)}',
+      '.fl-diff-change{box-shadow:inset 3px 0 #d4b95c}',
+      '.fl-diff-missing{box-shadow:inset 3px 0 var(--tb-danger-text,#f28b82)}',
+      '.fl-diff-cell{position:relative;min-height:90px;padding:9px 10px 12px;border-top:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));border-left:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));background:rgba(128,128,128,.025)}',
+      '.fl-diff-cell-same{background:rgba(129,199,132,.035)}',
+      '.fl-diff-cell-base{background:rgba(91,141,239,.045)}',
+      '.fl-diff-cell-change{background:rgba(212,167,44,.075)}',
+      '.fl-diff-cell-missing{display:flex;align-items:center;justify-content:center;background:rgba(242,139,130,.055);color:var(--tb-danger-text,#f28b82)}',
+      '.fl-diff-cell-head{display:flex;align-items:center;gap:6px;min-height:22px;margin-bottom:7px;font-size:calc(10px*var(--tb-fs,1));color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884))}',
+      '.fl-diff-mark{width:14px;font-family:ui-monospace,Consolas,monospace;font-weight:800;text-align:center}',
+      '.fl-diff-branch{margin-left:auto;min-height:23px;padding:2px 7px;border:1px solid var(--tb-accent-border,rgba(91,141,239,.45));border-radius:5px;background:rgba(91,141,239,.07);color:var(--tb-active-text,#7fa7f0);font:inherit;font-size:calc(9.5px*var(--tb-fs,1));font-weight:650;cursor:pointer;white-space:nowrap}',
+      '.fl-diff-branch:hover{background:rgba(91,141,239,.12);border-color:var(--tb-accent-border,rgba(91,141,239,.45))}',
+      '[data-flow-view="map"]>.tb-pane-body{flex-direction:column;justify-content:flex-start;gap:0;overflow:hidden;padding-right:0}',
+      '[data-flow-view="map"]>.tb-pane-body>.fl-mindmap-wrap{zoom:1;flex:1;min-height:0;height:100%}',
+      '.fl-mindmap-wrap{align-self:stretch;display:flex;flex-direction:column;gap:7px;min-width:0}',
+      '.fl-mindmap-help{display:flex;align-items:center;gap:8px;padding:6px 9px;border:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));border-radius:8px;background:var(--tb-input-bg,var(--dsw-alias-bg-layer-1,#26272e));font-size:calc(10px*var(--tb-fs,1));color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6))}',
+      '.fl-mindmap-help strong{color:var(--tb-active-text,#7fa7f0)}',
+      '.fl-mindmap-help span{flex:1}',
+      '.fl-mindmap-help button{flex:none;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:5px;background:transparent;color:inherit;font:inherit;cursor:pointer}',
+      '.fl-mindmap-viewport{position:relative;flex:1;min-height:0;overflow:auto;border:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));border-radius:10px;background-color:var(--tb-bg,var(--dsw-alias-bg-base,#17181c));background-image:radial-gradient(circle,rgba(127,128,140,.22) 1px,transparent 1px);background-size:20px 20px;cursor:grab;touch-action:none}',
+      '.fl-mindmap-viewport.is-panning{cursor:grabbing}',
+      '.fl-mindmap-canvas{position:relative;min-width:100%;min-height:100%}',
+      '.fl-mindmap-edges{position:absolute;inset:0;pointer-events:none;overflow:visible}',
+      '.fl-mindmap-edges path{fill:none;stroke:var(--tb-accent-border,rgba(91,141,239,.45));stroke-width:2;stroke-linecap:round;stroke-linejoin:round}',
+      '.fl-map-turn-label{position:absolute;z-index:3;width:76px;display:flex;align-items:center;gap:5px;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));font-size:calc(9.5px*var(--tb-fs,1));pointer-events:none}',
+      '.fl-map-turn-label span{display:inline-flex;width:28px;height:28px;align-items:center;justify-content:center;border:1px solid var(--tb-accent-border,rgba(91,141,239,.45));border-radius:50%;background:var(--tb-bg,var(--dsw-alias-bg-base,#17181c));color:var(--tb-active-text,#7fa7f0);font-weight:800}',
+      '.fl-map-turn-label strong{white-space:nowrap}',
+      '.fl-map-node{position:absolute;z-index:2;min-height:126px;display:flex;flex-direction:column;gap:7px;padding:9px;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:10px;background:var(--tb-card-bg,var(--dsw-alias-bg-layer-1,#26272e));box-shadow:0 5px 16px rgba(0,0,0,.22);cursor:move;user-select:none}',
+      '.fl-map-node:hover{border-color:var(--tb-accent-border,rgba(91,141,239,.45));box-shadow:0 7px 20px rgba(0,0,0,.3)}',
+      '.fl-map-node header{display:flex;align-items:center;justify-content:space-between;color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4));font-size:calc(10.5px*var(--tb-fs,1))}',
+      '.fl-map-node header span{color:var(--tb-active-text,#7fa7f0);font-weight:700}',
+      '.fl-map-node p{flex:1;margin:0;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));font-size:calc(10px*var(--tb-fs,1));line-height:1.45}',
+      '.fl-map-root{min-height:84px;justify-content:center;border-color:var(--tb-accent-border,rgba(91,141,239,.45));background:rgba(91,141,239,.1)}',
+      '.fl-map-root strong{color:var(--tb-text,var(--dsw-alias-label-primary,#dcdee4));font-size:calc(11px*var(--tb-fs,1))}',
+      '.fl-map-root span{color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6));font-size:calc(10px*var(--tb-fs,1))}',
+      '.fl-map-branch{align-self:stretch;min-height:25px;border:1px solid var(--tb-accent-border,rgba(91,141,239,.45));border-radius:6px;background:rgba(91,141,239,.11);color:var(--tb-active-text,#7fa7f0);font:inherit;font-size:calc(10px*var(--tb-fs,1));font-weight:700;cursor:pointer}',
+      '.fl-map-branch:hover{background:rgba(91,141,239,.2)}',
+      '.fl-turn-cell-flow{display:flex;flex-direction:column;gap:0;min-width:0}',
+      '.fl-compact-diff{display:flex;flex-direction:column;gap:6px;padding:2px 0}',
+      '.fl-compact-diff>div{display:grid;grid-template-columns:16px minmax(0,1fr);gap:5px;align-items:start;font-size:calc(10.5px*var(--tb-fs,1));color:var(--tb-text-2,var(--dsw-alias-label-secondary,#9a9ba6))}',
+      '.fl-compact-diff span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.fl-flow-two .fl-lane>div:first-child:empty,.fl-flow-two .fl-lane>div:last-child:empty{display:none}',
+      '.fl-flow-two .fl-lane{grid-template-columns:minmax(180px,1fr) minmax(220px,1.2fr)}',
+      '.fl-flow-two .fl-lane:has(>div:last-child:empty)>.fl-lane-main{grid-column:1/-1}',
+      '.fl-zoom-badge-model{background:rgba(129,199,132,.14);color:var(--tb-done-text,#81c784);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      // 卡头 ⇪ 带入按钮（把该会话最新结论带入其他会话）
+      '.fl-zoom-relay{flex:none;width:20px;height:18px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--tb-border-2,var(--dsw-alias-border-l2,#454650));border-radius:4px;background:transparent;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));font-size:calc(11px*var(--tb-fs,1));line-height:1;cursor:pointer;font-family:inherit;opacity:0;transition:opacity .12s,color .12s,border-color .12s}',
+      '.fl-zoom-branch:hover .fl-zoom-relay,.fl-zoom-rootcard:hover .fl-zoom-relay,.fl-zoom-picking .fl-zoom-relay{opacity:1}',
+      '.fl-zoom-relay:hover{color:var(--tb-active-text,#7fa7f0);border-color:var(--tb-accent-border,rgba(91,141,239,.45))}',
+      // 点选模式：分支/根卡变成可选目标（选中描边落在头卡上，与框选 fl-select-picked 同族）
+      '.fl-zoom-picking .fl-zoom-branch:hover .fl-zoom-branch-head,.fl-zoom-picking .fl-zoom-rootcard:hover{border-color:var(--tb-accent-border,rgba(91,141,239,.45))}',
+      '.fl-zoom-branch.fl-zoom-picked .fl-zoom-branch-head,.fl-zoom-card.fl-zoom-picked{border-color:var(--tb-accent,#3f6fd9);outline:2px solid var(--tb-accent,#3f6fd9);outline-offset:1px;box-shadow:0 0 0 4px var(--tb-accent-ring,rgba(91,141,239,.16))}',
+      '.fl-zoom-badge-fleet{background:rgba(91,141,239,.12);color:var(--tb-active-text,#7fa7f0)}',
+      // 操作条带入源标签
+      '.tb-flow-zoom-relay-src{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:999px;font-size:calc(10.5px*var(--tb-fs,1));font-weight:600;background:rgba(91,141,239,.12);color:var(--tb-active-text,#7fa7f0);white-space:nowrap}',
     ].join('\n')
     // 编译 bundle 的主 UI 样式以独立 scope 包裹，避免不同 bundle/版本的 .tb-*、.jr-* 互相覆盖。
     // 动态模式保持历史全局样式；导航按钮位于 scope 外，编译模式另补值级选择器。
@@ -1404,6 +1654,16 @@ return {
       const [flowMarkdownPortal, setFlowMarkdownPortal] = React.useState(null)
       const [busyTool, setBusyTool] = React.useState(null)
       const [showJumpLatest, setShowJumpLatest] = React.useState(false)
+      const flowRulesStorageKey = RT.storageKey('flow.presentation-rules')
+      const readFlowRules = () => {
+        try {
+          const raw = localStorage.getItem(flowRulesStorageKey)
+          return typeof raw === 'string' && raw.trim() ? raw : '[]'
+        } catch (e) { return '[]' }
+      }
+      const writeFlowRules = (raw) => {
+        try { localStorage.setItem(flowRulesStorageKey, raw) } catch (e) {}
+      }
       const [flowZoom, setFlowZoom] = React.useState(() => {
         try { const n = Number(localStorage.getItem(RT.storageKey('flow.zoom'))); return n >= 60 && n <= 150 ? n : 100 } catch (e) { return 100 }
       })
@@ -1411,9 +1671,17 @@ return {
       const [flowSelectedSeqs, setFlowSelectedSeqs] = React.useState([])
       const [flowTargetSession, setFlowTargetSession] = React.useState('')
       const [flowBringPopup, setFlowBringPopup] = React.useState(false)
+      const [flowAddPopup, setFlowAddPopup] = React.useState(false)
+      const [flowAddTargetSession, setFlowAddTargetSession] = React.useState('')
+      const [flowAddAnchor, setFlowAddAnchor] = React.useState(null)
       const [flowTreeOpen, setFlowTreeOpen] = React.useState({})
       const [flowUiBusy, setFlowUiBusy] = React.useState(false)
       const [flowUiNotice, setFlowUiNotice] = React.useState('')
+      // 大流镜 Zoom 会话互通：⇪ 带入后点选目标会话；普通“选择会话”入口已移除。
+      const [zoomPick, setZoomPick] = React.useState([])
+      const [zoomRelay, setZoomRelay] = React.useState(null) // { source, text } | null
+      const zoomPromptRef = React.useRef('') // 开工台输入镜像（面板全量重渲染后恢复；模型分支调整经 Host RPC 也不丢）
+      const flowMindMapPositionsRef = React.useRef(new Map()) // scope/node -> 手工布局；静默刷新后恢复
       const readSessionsSnapshot = () => {
         if (RT.bundleId !== 'flow') return undefined
         try {
@@ -1702,6 +1970,7 @@ return {
       const htmlRef = React.useRef({})
       const htmlScrollRef = React.useRef(null) // 静默刷新前记录的滚动位置（effect 里恢复，防自动刷新打断阅读）
       const seqRef = React.useRef({}) // toolId -> 最新请求序号：丢弃过期响应，防 provider/模型联动竞态
+      const interactiveActionSeqRef = React.useRef({}) // toolId -> 在途显式动作；后台重挂/轮询不得抢占用户点击
       // 流程右侧调用卡的最短动画跨 innerHTML 轮询续播：scope 隔离主/子会话，key 对应调用 seq。
       const flowAnimRef = React.useRef({ scope: null, visible: 0, seen: new Set(), expires: new Map(), introEnds: new Map(), statuses: new Map(), outputStarts: new Map(), outputExpires: new Map(), timers: new Map() })
       const managingRef = React.useRef(false)
@@ -1720,6 +1989,7 @@ return {
       const flowFollowStateBySessionRef = React.useRef(new Map()) // Harness 跟随切换后重建 Flowglass crumbs
       const flowHarnessNavTargetRef = React.useRef(null) // 只有 Flowglass 主动导航的目标会话才恢复返回链
       const suppressFlowClickUntilRef = React.useRef(0)
+      const sidebarSessionMenuRef = React.useRef(null) // 原生左栏三点菜单最近一次所属 Session
 
       const exitFlowZen = async () => {
         const el = drawerRef.current
@@ -2114,7 +2384,7 @@ return {
           const copy = head && head.querySelector('[data-flow-copy]')
           if (head) head.insertBefore(previewButton, copy || null)
         }
-        // 助手详情默认使用官方 Markdown 预览；用户显式切回原文后，
+        // 助手详情与结构化 Skill 说明默认使用官方 Markdown 预览；用户显式切回原文后，
         // 自动刷新保持原文，关闭详情后清掉例外，下次打开恢复预览。
         if (key && !flowMarkdownPreviewKey && flowMarkdownDisabledKeyRef.current !== key) {
           setFlowMarkdownPreviewKey(key)
@@ -2181,6 +2451,18 @@ return {
       const hookSession = props.useSessions((s) => (s && s.current ? String(s.current) : undefined))
       const hookFlowSessionIds = props.useSessions((s) => (s ? s.ids : undefined))
       const hookFlowSessionsById = props.useSessions((s) => (s ? s.byId : undefined))
+      const useWorkspacesHook = typeof props.useWorkspaces === 'function' ? props.useWorkspaces : () => undefined
+      const hookWorkspaceItems = useWorkspacesHook((s) => (s && Array.isArray(s.items) ? s.items : undefined))
+      const hookArchivedSessionIds = useWorkspacesHook((s) => (s && Array.isArray(s.archivedSessionIds) ? s.archivedSessionIds : undefined))
+      let fallbackArchivedSessionIds = []
+      if (!hookArchivedSessionIds && workspacesClient && workspacesClient.list && typeof workspacesClient.list.getSnapshot === 'function') {
+        try {
+          const snapshot = workspacesClient.list.getSnapshot()
+          if (snapshot && Array.isArray(snapshot.archivedSessionIds)) fallbackArchivedSessionIds = snapshot.archivedSessionIds
+        } catch (e) {}
+      }
+      const archivedSessionIds = (hookArchivedSessionIds || fallbackArchivedSessionIds).map(String)
+      const archivedSessionSet = new Set(archivedSessionIds)
       const rawFlowSessionIds = hookFlowSessionIds != null
         ? hookFlowSessionIds
         : (RT.bundleId === 'flow' && serviceSessionsSnapshot ? serviceSessionsSnapshot.ids : undefined)
@@ -2189,17 +2471,19 @@ return {
         : (RT.bundleId === 'flow' && serviceSessionsSnapshot ? serviceSessionsSnapshot.byId : undefined)
       // better-sidebar 的适配快照可能只给 byId，或把 ids 保留为 Set/其他可迭代容器。
       // 业务层统一收敛成数组，绝不直接假设 ids 可迭代。
-      const flowSessionIds = Array.isArray(rawFlowSessionIds)
+      const allFlowSessionIds = Array.isArray(rawFlowSessionIds)
         ? rawFlowSessionIds
         : (rawFlowSessionIds && typeof rawFlowSessionIds[Symbol.iterator] === 'function'
             ? Array.from(rawFlowSessionIds)
             : (rawFlowSessionsById && typeof rawFlowSessionsById === 'object'
                 ? (rawFlowSessionsById instanceof Map ? [...rawFlowSessionsById.keys()] : Object.keys(rawFlowSessionsById))
                 : []))
+      const flowSessionIds = allFlowSessionIds.map(String).filter((id) => !archivedSessionSet.has(id))
       const flowSessionRow = (id) => rawFlowSessionsById instanceof Map
         ? rawFlowSessionsById.get(id)
         : (rawFlowSessionsById && typeof rawFlowSessionsById === 'object' ? rawFlowSessionsById[id] : undefined)
       const currentSessionId = props.sessionId || (hookSession || lsSession) || undefined
+      const harnessSelectedSessionId = hookSession || lsSession || props.sessionId || undefined
       // cwd：按 currentSessionId 经 Host RPC 查询（宿主视角 byId 记录不可靠）；hook 按自身 current 查作兜底
       const [sessionCwd, setSessionCwd] = React.useState(undefined)
       React.useEffect(() => {
@@ -2216,6 +2500,74 @@ return {
         return row && typeof row.cwd === 'string' && row.cwd ? row.cwd : undefined
       })
       const currentCwd = props.cwd || sessionCwd || hookCwd
+      // 并发记录按工作区持久化；Session 切换/原生右侧栏重挂后仍能恢复同一次大流镜。
+      const zoomLogCwdRef = React.useRef(currentCwd || '')
+      if (currentCwd) zoomLogCwdRef.current = currentCwd
+      const flowZoomLogStorageKey = () => {
+        const cwdKey = String(zoomLogCwdRef.current || 'default').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+        return RT.storageKey('flow.zoom-runs.' + cwdKey)
+      }
+      const readFlowZoomLog = () => {
+        try {
+          const raw = localStorage.getItem(flowZoomLogStorageKey())
+          if (!raw) return { open: false, activeId: '', runs: [] }
+          const parsed = JSON.parse(raw)
+          if (!parsed || typeof parsed !== 'object') return { open: false, activeId: '', runs: [] }
+          if (!archivedSessionSet.size || !Array.isArray(parsed.runs)) return parsed
+          const runs = parsed.runs.map((run) => {
+            if (!run || !Array.isArray(run.rounds)) return null
+            const rounds = run.rounds.map((round) => {
+              if (!round || !Array.isArray(round.sids)) return null
+              const keep = round.sids.map((sid, i) => ({ sid: String(sid), i })).filter((item) => !archivedSessionSet.has(item.sid))
+              return {
+                ...round,
+                sourceSids: Array.isArray(round.sourceSids) ? round.sourceSids.map(String).filter((sid) => !archivedSessionSet.has(sid)) : [],
+                sids: keep.map((item) => item.sid),
+                routes: keep.map((item) => (Array.isArray(round.routes) ? round.routes[item.i] : '') || ''),
+                efforts: keep.map((item) => (Array.isArray(round.efforts) ? round.efforts[item.i] : '') || ''),
+              }
+            }).filter((round) => round && round.sids.length)
+            const latest = rounds[rounds.length - 1]
+            return latest ? { ...run, rounds, sids: latest.sids, routes: latest.routes, efforts: latest.efforts } : null
+          }).filter(Boolean)
+          const active = runs.find((run) => run.id === parsed.activeId) || runs[runs.length - 1]
+          const round = active && (active.rounds.find((item) => item.id === parsed.roundId) || active.rounds[active.rounds.length - 1])
+          return { ...parsed, runs, activeId: active ? active.id : '', roundId: round ? round.id : '' }
+        } catch (e) { return { open: false, activeId: '', runs: [] } }
+      }
+      const writeFlowZoomLog = (state) => {
+        try {
+          // 合并回写而非覆盖：Host 返回的 state.zoomRuns 已被「归档 Session 过滤」裁剪（仅供显示），
+          // 直接覆盖会把成员已归档的历史批次从存储里永久抹掉。以磁盘原文为底——本次出现的 run
+          // 覆盖更新/追加，没出现的（被过滤的）原样保留。
+          const prevRaw = (() => {
+            try {
+              const p = JSON.parse(localStorage.getItem(flowZoomLogStorageKey()) || 'null')
+              return p && Array.isArray(p.runs) ? p.runs : []
+            } catch (e) { return [] }
+          })()
+          const merged = prevRaw.slice()
+          const indexById = new Map()
+          merged.forEach((run, i) => { if (run && typeof run.id === 'string') indexById.set(run.id, i) })
+          const stateRuns = state && Array.isArray(state.zoomRuns) ? state.zoomRuns : []
+          for (const run of stateRuns) {
+            if (!run || typeof run.id !== 'string') continue
+            const at = indexById.get(run.id)
+            if (typeof at === 'number') merged[at] = run
+            else { indexById.set(run.id, merged.length); merged.push(run) }
+          }
+          localStorage.setItem(flowZoomLogStorageKey(), JSON.stringify({
+            open: !!(state && state.zoom),
+            activeId: state && typeof state.zoomRunId === 'string' ? state.zoomRunId : '',
+            roundId: state && typeof state.zoomRoundId === 'string' ? state.zoomRoundId : '',
+            runs: merged.slice(-20),
+            view: state && (state.zoomView === 'detail' || state.zoomView === 'map') ? state.zoomView : 'compact',
+            mode: state && state.zoomMode === 'near' ? 'near' : 'panorama',
+            focusSid: state && typeof state.zoomFocusSid === 'string' ? state.zoomFocusSid : '',
+            lastFocusSid: state && typeof state.zoomLastFocusSid === 'string' ? state.zoomLastFocusSid : '',
+          }))
+        } catch (e) {}
+      }
       // cwd 用 ref 固定：1.5s 轮询 interval 持有旧闭包，读取 ref 才能跟随「切工作区」拿到最新激活 cwd
       const cwdRef = React.useRef(currentCwd)
       cwdRef.current = currentCwd
@@ -2353,7 +2705,8 @@ return {
         const t = setTimeout(() => {
           const st = stateRef.current.flow
           if (activeRef.current !== 'flow' || !openRef.current || managingRef.current) return
-          if (!st || st.live === false) return
+          if (!st || st.live === false || st.settings === true) return
+          if (zoomComposerBusy()) return // 开工台编辑中：不抢重渲染
           if (typeof loadPanelRef.current === 'function') loadPanelRef.current('flow', '__refresh', null, { silent: true })
         }, 150)
         return () => { try { clearTimeout(t) } catch (e) {} }
@@ -2362,6 +2715,91 @@ return {
       React.useEffect(() => {
         if (!flowTargetSession || !flowSessionIds.includes(flowTargetSession)) setFlowTargetSession(currentSessionId || flowSessionIds[0] || '')
       }, [currentSessionId, flowSessionIds, flowTargetSession])
+
+      // 原生左侧会话三点菜单没有扩展槽：以捕获阶段记录触发按钮，再给刚打开的
+      // Rename/Fork/Archive 菜单追加一个 DOM 菜单项。动作只改 Flowglass 持久化并发组，
+      // 不调用导航，因此“加入分支”不会把当前并发上下文切走。
+      React.useEffect(() => {
+        const titleOf = (id) => {
+          const row = flowSessionRow(id) || {}
+          return String(row.displayTitle || row.title || '')
+        }
+        const sessionForActionLabel = (label) => {
+          let name = ''
+          let m = /^会话“(.+)”的操作$/u.exec(label)
+          if (m) name = m[1]
+          else { m = /^Session actions for (.+)$/u.exec(label); if (m) name = m[1] }
+          if (!name) return ''
+          const matches = flowSessionIds.filter((id) => titleOf(id) === name)
+          if (matches.length === 1) return matches[0]
+          if (currentSessionId && matches.includes(currentSessionId)) return currentSessionId
+          return ''
+        }
+        const activeRound = () => {
+          const log = readFlowZoomLog()
+          const runs = Array.isArray(log.runs) ? log.runs : []
+          const run = runs.find((item) => item && item.id === log.activeId) || runs[runs.length - 1]
+          if (!run || !Array.isArray(run.rounds) || !run.rounds.length) return null
+          const round = run.rounds.find((item) => item && item.id === log.roundId) || run.rounds[run.rounds.length - 1]
+          return round && Array.isArray(round.sids) ? round : null
+        }
+        const onPointerDown = (e) => {
+          const button = e.target && e.target.closest ? e.target.closest('button[aria-label]') : null
+          if (!button) return
+          const sid = sessionForActionLabel(button.getAttribute('aria-label') || '')
+          if (sid) sidebarSessionMenuRef.current = { sid, anchor: button }
+        }
+        const enhance = () => {
+          const pending = sidebarSessionMenuRef.current
+          if (!pending || !document.body) return
+          for (const menu of document.body.querySelectorAll('[role="menu"]')) {
+            if (menu.querySelector('[data-flow-sidebar-join]')) continue
+            const items = [...menu.querySelectorAll('[role="menuitem"]')]
+            const labels = items.map((item) => String(item.textContent || '').trim())
+            const isSessionMenu = labels.some((x) => x === '重命名' || x === 'Rename')
+              && labels.some((x) => x === '分叉会话' || x === 'Fork session')
+              && labels.some((x) => x === '归档会话' || x === 'Archive session')
+            if (!isSessionMenu) continue
+            const template = items[items.length - 1]
+            const wrap = template && template.parentElement
+            const viewport = wrap && wrap.parentElement
+            if (!wrap || !viewport) continue
+            const clone = wrap.cloneNode(true)
+            const button = clone.querySelector('[role="menuitem"]')
+            if (!button) continue
+            button.setAttribute('data-flow-sidebar-join', '1')
+            button.removeAttribute('aria-haspopup'); button.removeAttribute('aria-expanded')
+            const spans = button.querySelectorAll('span')
+            if (spans[0]) spans[0].textContent = '＋'
+            const round = activeRound()
+            let label = '加入当前并发分支'
+            let disabled = false
+            if (!round) { label = '暂无当前并发'; disabled = true }
+            else if (round.sids.includes(pending.sid)) { label = '已在当前并发中'; disabled = true }
+            else if (round.sids.length >= 4) { label = '当前并发已满'; disabled = true }
+            else {
+              const member = flowSessionRow(round.sids[0]) || {}
+              const candidate = flowSessionRow(pending.sid) || {}
+              if (member.cwd && candidate.cwd && member.cwd !== candidate.cwd) { label = '不在当前工作区'; disabled = true }
+            }
+            if (spans[1]) spans[1].textContent = label
+            else button.textContent = label
+            button.disabled = disabled
+            button.addEventListener('click', (event) => {
+              event.preventDefault(); event.stopPropagation()
+              if (button.disabled || typeof loadPanelRef.current !== 'function') return
+              Promise.resolve(loadPanelRef.current('flow', 'fzoom-run-add', { dataset: { sid: pending.sid } }, { silent: true }))
+                .then(() => { setFlowUiNotice('已加入当前并发：' + titleOf(pending.sid)); try { pending.anchor.click() } catch (err) {} })
+                .catch((err) => { setError('加入当前并发失败: ' + String((err && err.message) || err)) })
+            })
+            viewport.appendChild(clone)
+          }
+        }
+        document.addEventListener('pointerdown', onPointerDown, true)
+        const observer = new MutationObserver(() => { Promise.resolve().then(enhance) })
+        if (document.body) observer.observe(document.body, { childList: true, subtree: true })
+        return () => { document.removeEventListener('pointerdown', onPointerDown, true); observer.disconnect() }
+      }, [currentSessionId, flowSessionIds.join('\u0001')])
 
       React.useEffect(() => {
         setFlowSelectedSeqs([])
@@ -2407,6 +2845,19 @@ return {
         return flow ? (flow.getAttribute('data-flow-scope') || '') : ''
       }
 
+      // 大流镜看板根 / 开工台输入读取（开工台是 Host HTML + 客户端行为，不经 Host RPC）
+      const flowBoardEl = () => {
+        const el = panelRef.current && panelRef.current.querySelector('[data-flow][data-flow-board]')
+        return el || null
+      }
+      const zoomComposerText = () => {
+        const b = flowBoardEl()
+        const input = b && b.querySelector('[data-zoom-prompt]')
+        return input ? String(input.value || '') : ''
+      }
+      // 开工台输入非空 → 暂停静默轮询/事件窗重拉：面板每次全量 innerHTML 重渲染会冲掉正在输入的任务文本
+      const zoomComposerBusy = () => Boolean(flowBoardEl() && zoomComposerText().trim())
+
       const setFlowZoomLevel = (value) => {
         const levels = [60, 75, 90, 100, 110, 125, 150]
         const nearest = levels.reduce((best, n) => Math.abs(n - value) < Math.abs(best - value) ? n : best, 100)
@@ -2420,14 +2871,16 @@ return {
         setFlowZoomLevel(levels[Math.max(0, Math.min(levels.length - 1, at + direction))])
       }
 
-      const branchFlowAt = async (seq) => {
-        const source = flowScope()
+      const branchFlowAt = async (seq, sourceSessionId) => {
+        const source = sourceSessionId || flowScope()
         if (!source || !Number.isFinite(Number(seq))) return
         if (!sessionsClient || typeof sessionsClient.fork !== 'function') { setError('Harness 当前版本不支持会话分支'); return }
         setFlowUiBusy(true); setFlowUiNotice('正在创建分支会话…')
         try {
           const childId = await sessionsClient.fork({ sessionId: source, atSeq: Number(seq), increaseTitle: true })
           sessionsClient.open(childId)
+          const reopen = () => { try { if (nativeOpenTab) nativeOpenTab() } catch (e) {} }
+          try { ctx.timeout(reopen, 0); ctx.timeout(reopen, 180) } catch (e) {}
           setFlowUiNotice('已创建分支会话')
           setFlowSelectedSeqs([])
           setFlowBringPopup(false)
@@ -2521,6 +2974,272 @@ return {
         finally { setFlowUiBusy(false) }
       }
 
+      // ===== 大流镜开工台/互通执行器（客户端行为）=====
+      // create() 落定时列表投影可能尚未刷到 binding：短重试挂接（与 resolveSessionProvideInfoWithRetry 同构）
+      const resolveZoomBinding = async (sid) => {
+        for (let i = 0; i < 10; i++) {
+          try {
+            const b = sessionsClient && typeof sessionsClient.binding === 'function' ? sessionsClient.binding(sid) : undefined
+            if (b && b.session && typeof b.session.prompt === 'function') return b
+          } catch (e) {}
+          await new Promise((r) => setTimeout(r, 150))
+        }
+        return undefined
+      }
+      // 直接发送 = 目标会话排队执行一条用户消息（ISession.prompt mode 'queue'：运行中排队、空闲立即开工）
+      const sendTextToSession = async (sid, text) => {
+        const b = await resolveZoomBinding(sid)
+        if (!b) throw new Error('会话不可用或未上线')
+        const res = await b.session.prompt([{ type: 'text', text }], 'queue')
+        if (!res || res.ok !== true) throw new Error((res && res.error && res.error.message) || '发送被拒绝')
+      }
+      // 模型分支：开工台每条分支一个路由 select（值 'provider/model'，'' = 默认跟随当前）
+      const zoomLaneValues = () => {
+        const b = flowBoardEl()
+        if (!b) return []
+        return [...b.querySelectorAll('[data-zoom-lane]')].map((s) => String(s.value || ''))
+      }
+      const zoomEffortValues = () => {
+        const b = flowBoardEl()
+        if (!b) return []
+        return [...b.querySelectorAll('[data-zoom-effort]')].map((s) => String(s.value || ''))
+      }
+      // 经 remote.session.selectModel 落模型（GUI 模型选择同一 RPC）；必须在首次 prompt 前调用
+      const selectSessionModel = async (sid, route, reasoningEffort) => {
+        const slash = route.indexOf('/')
+        if (slash <= 0) return
+        const remoteSession = ctx.get('remote.session')
+        if (!remoteSession || typeof remoteSession.selectModel !== 'function') throw new Error('模型选择通道不可用')
+        const res = await remoteSession.selectModel({
+          sessionId: sid,
+          provider: route.slice(0, slash),
+          model: route.slice(slash + 1),
+          ...(reasoningEffort ? { reasoningEffort } : {}),
+        })
+        if (!res || res.ok !== true) throw new Error((res && res.error && res.error.message) || 'selectModel 被拒绝')
+      }
+      const renameSession = async (sid, title) => {
+        const b = await resolveZoomBinding(sid)
+        if (!b || !b.session || typeof b.session.rename !== 'function') return
+        const res = await b.session.rename(String(title).slice(0, 120))
+        if (res && res.ok === false) throw new Error((res.error && res.error.message) || '会话重命名失败')
+      }
+      const zoomBranchTitle = (prompt, index, count, route) => {
+        const task = String(prompt || '并发任务').replace(/\s+/g, ' ').trim().slice(0, 42)
+        const model = route ? route.slice(route.indexOf('/') + 1) : '跟随当前'
+        return '⚡ ' + task + ' · 分支 ' + (index + 1) + '/' + count + ' · ' + model
+      }
+      const currentSessionIsBlank = (sessionId) => {
+        const row = sessionId ? flowSessionRow(sessionId) : null
+        if (row && typeof row.blank === 'boolean') return row.blank
+        try {
+          const binding = sessionId && sessionsClient && typeof sessionsClient.binding === 'function'
+            ? sessionsClient.binding(sessionId)
+            : null
+          const source = binding && binding.eventSource
+          const snap = source && typeof source.getSnapshot === 'function' ? source.getSnapshot() : null
+          return !!(snap && Array.isArray(snap.entries) && snap.entries.length === 0)
+        } catch (e) { return false }
+      }
+      // ⚡ 同时开始：旧会话从当前完成轮次 fork，新会话在当前工作区 create；
+      // 然后按需 selectModel（含 reasoningEffort）→ prompt，最后登记进看板。
+      const executeZoomLaunch = async () => {
+        const prompt = zoomComposerText().trim()
+        if (!prompt) { setFlowUiNotice('先输入同一个任务再同时开始'); return }
+        const lanes = zoomLaneValues()
+        const efforts = zoomEffortValues()
+        const board = flowBoardEl()
+        const activeSids = board ? String(board.getAttribute('data-zoom-active-sids') || '').split(',').filter(Boolean).slice(0, 4) : []
+        const continueExisting = activeSids.length >= 2
+        const count = continueExisting ? activeSids.length : Math.max(1, Math.min(4, lanes.length || 2))
+        // 以大流镜当前选中的 Session 为准；实时向 Host 查询 cwd，避免原生侧栏 props/useSessions 切换延迟。
+        // Harness 当前选中 Session 是工作区归属权威；大流镜 scope 可能仍是切换前的旧会话。
+        const sourceSessionId = harnessSelectedSessionId || currentSessionId || flowScope()
+        let launchCwd = currentCwd
+        let launchWorkspaceId = ''
+        // Browser 端 Workspace Controller 是分组归属的权威来源；Host scoped ctx 可能看不到 workspaceRegistry。
+        if (sourceSessionId && Array.isArray(hookWorkspaceItems)) {
+          const owner = hookWorkspaceItems.find((w) => w && Array.isArray(w.sessionIds) && w.sessionIds.some((sid) => String(sid) === sourceSessionId))
+          if (owner && owner.workspaceId != null) launchWorkspaceId = String(owner.workspaceId)
+        }
+        if (!launchWorkspaceId && sourceSessionId && workspacesClient && workspacesClient.list && typeof workspacesClient.list.getSnapshot === 'function') {
+          try {
+            const snapshot = workspacesClient.list.getSnapshot()
+            const owner = snapshot && Array.isArray(snapshot.items)
+              ? snapshot.items.find((w) => w && Array.isArray(w.sessionIds) && w.sessionIds.some((sid) => String(sid) === sourceSessionId))
+              : null
+            if (owner && owner.workspaceId != null) launchWorkspaceId = String(owner.workspaceId)
+          } catch (e) {}
+        }
+        if (sourceSessionId) {
+          try {
+            const info = await host.call(RT.rpc('session-info'), { session: sourceSessionId })
+            if (info && info.ok && typeof info.cwd === 'string' && info.cwd) launchCwd = info.cwd
+            if (!launchWorkspaceId && info && info.ok && typeof info.workspaceId === 'string' && info.workspaceId) launchWorkspaceId = info.workspaceId
+          } catch (e) {}
+        }
+        const forkCurrent = !continueExisting && Boolean(sourceSessionId) && !currentSessionIsBlank(sourceSessionId)
+        // 按实际路径检查能力：已有会话的 1→N 只需要 fork；空白会话首次并发只需要 create；
+        // N→N 继续只需要现有 Session binding。不能因无关 API 缺失让按钮静默返回。
+        if (!sessionsClient) { setError('Harness 会话服务不可用'); setFlowUiNotice('同时开始失败：Harness 会话服务不可用'); return }
+        if (forkCurrent && typeof sessionsClient.fork !== 'function') { setError('Harness 当前版本不支持从已有会话分支'); setFlowUiNotice('同时开始失败：缺少会话分支能力'); return }
+        if (!forkCurrent && !continueExisting && typeof sessionsClient.create !== 'function') { setError('Harness 当前版本不支持新建并发会话'); setFlowUiNotice('同时开始失败：缺少新建会话能力'); return }
+        setFlowUiBusy(true); setFlowUiNotice(continueExisting
+          ? '正在继续当前 ' + count + ' 个分支…'
+          : '正在' + (forkCurrent ? '从当前会话分叉 ' : '在当前工作区新建 ') + count + ' 个会话并开工…')
+        const created = []
+        const failed = []
+        try {
+          for (let i = 0; i < count; i++) {
+            try {
+              const sid = continueExisting
+                ? activeSids[i]
+                : forkCurrent
+                  ? await sessionsClient.fork({ sessionId: sourceSessionId, increaseTitle: true })
+                  : await sessionsClient.create(launchWorkspaceId ? { workspaceId: launchWorkspaceId } : (launchCwd ? { cwd: launchCwd } : {}))
+              const route = lanes[i] || ''
+              if (route) await selectSessionModel(sid, route, efforts[i] || '')
+              if (!continueExisting) await renameSession(sid, zoomBranchTitle(prompt, i, count, route))
+              await sendTextToSession(sid, prompt)
+              created.push(sid)
+            } catch (e) { failed.push(String((e && e.message) || e)) }
+          }
+          if (created.length && typeof loadPanelRef.current === 'function') {
+            const joinedSids = continueExisting ? activeSids : created
+            loadPanelRef.current('flow', 'fzoom-joined', { dataset: {
+              sids: joinedSids.join(','),
+              meta: JSON.stringify({
+                prompt, routes: lanes.slice(0, count), efforts: efforts.slice(0, count),
+                sourceSids: continueExisting ? activeSids : (sourceSessionId ? [sourceSessionId] : []),
+                baseHistoryId: continueExisting && board ? (board.getAttribute('data-zoom-run-id') || '') : '',
+                baseRoundId: continueExisting && board ? (board.getAttribute('data-zoom-round-id') || '') : '',
+              }),
+            } }, { silent: true })
+          }
+          // 空白“新会话”只承担开工入口；分支启动后直接进入第一条实际工作会话。
+          // 已有会话上的分叉仍留在父会话，方便继续查看父级与分支对比。
+          if (!forkCurrent && created.length) {
+            const target = created[0]
+            const followState = stateRef.current.flow
+            if (followState) flowFollowStateBySessionRef.current.set(target, followState)
+            flowHarnessNavTargetRef.current = target
+            try { await navigateHarnessSession({ sessionId: target }) }
+            catch (e) {
+              flowHarnessNavTargetRef.current = null
+              flowFollowStateBySessionRef.current.delete(target)
+              throw e
+            }
+          }
+          const input = board && board.querySelector('[data-zoom-prompt]')
+          if (input) input.value = ''
+          zoomPromptRef.current = ''
+          setFlowUiNotice((continueExisting
+            ? '已继续当前 ' + created.length + ' 个分支'
+            : '已' + (forkCurrent ? '从当前会话分叉并' : '在当前工作区新建并') + '开工 ' + created.length + ' 个会话') + (failed.length ? '，' + failed.length + ' 个失败：' + failed[0] : ''))
+        } catch (e) { setError('同时开始失败: ' + String((e && e.message) || e)) }
+        finally { setFlowUiBusy(false) }
+      }
+      // 从对比网格某一轮同时派生所有会话，形成新的并发批次（不自动追加消息）。
+      const executeZoomRoundFork = async (el) => {
+        if (!sessionsClient || typeof sessionsClient.fork !== 'function') { setError('Harness 当前版本不支持会话分支'); return }
+        let spec = []
+        try { spec = JSON.parse(el.getAttribute('data-spec') || '[]') } catch (e) {}
+        spec = Array.isArray(spec) ? spec.filter((x) => x && typeof x.sid === 'string' && Number.isFinite(Number(x.seq))).slice(0, 4) : []
+        if (spec.length < 2) { setFlowUiNotice('本轮至少需要两个可分支的会话'); return }
+        const turn = el.getAttribute('data-turn') || ''
+        const targetCount = Math.max(2, Math.min(4, zoomLaneValues().length || spec.length))
+        const baseHistoryId = el.getAttribute('data-history') || ''
+        const baseRoundId = el.getAttribute('data-round') || ''
+        setFlowUiBusy(true); setFlowUiNotice('正在从第 ' + turn + ' 轮执行 ' + spec.length + '→' + targetCount + '…')
+        const created = [], failed = []
+        try {
+          for (let i = 0; i < targetCount; i++) {
+            const item = spec[i % spec.length]
+            try {
+              const child = await sessionsClient.fork({ sessionId: item.sid, atSeq: Number(item.seq), increaseTitle: true })
+              await renameSession(child, '⚡ 第 ' + turn + ' 轮 · 分支 ' + (i + 1) + '/' + targetCount)
+              created.push(child)
+            }
+            catch (e) { failed.push(String((e && e.message) || e)) }
+          }
+          if (created.length && typeof loadPanelRef.current === 'function') {
+            await loadPanelRef.current('flow', 'fzoom-joined', { dataset: {
+              sids: created.join(','),
+              meta: JSON.stringify({ prompt: '第 ' + turn + ' 轮并发', routes: created.map(() => ''), efforts: created.map(() => ''), sourceSids: spec.map((x) => x.sid), baseHistoryId, baseRoundId }),
+            } }, { silent: true })
+          }
+          setFlowUiNotice('已从第 ' + turn + ' 轮完成 ' + spec.length + '→' + created.length + (failed.length ? '，失败 ' + failed.length + ' 个：' + failed[0] : ''))
+        } finally { setFlowUiBusy(false) }
+      }
+      // 单列本轮 1→N：N 取当前 composer 的并发数量，并继承所选历史的轮次前缀。
+      const executeZoomCellFork = async (sourceSid, seq, turn, baseHistoryId, baseRoundId) => {
+        if (!sourceSid || !Number.isFinite(Number(seq)) || !sessionsClient || typeof sessionsClient.fork !== 'function') return
+        const targetCount = Math.max(2, Math.min(4, zoomLaneValues().length || 2))
+        setFlowUiBusy(true); setFlowUiNotice('正在从第 ' + turn + ' 轮创建 1→' + targetCount + ' 分支…')
+        try {
+          const created = []
+          for (let i = 0; i < targetCount; i++) {
+            const child = await sessionsClient.fork({ sessionId: sourceSid, atSeq: Number(seq), increaseTitle: true })
+            await renameSession(child, '⚡ 第 ' + turn + ' 轮 · 分支 ' + (i + 1) + '/' + targetCount)
+            created.push(child)
+          }
+          if (typeof loadPanelRef.current === 'function') {
+            loadPanelRef.current('flow', 'fzoom-joined', { dataset: {
+              sids: created.join(','),
+              meta: JSON.stringify({ prompt: '第 ' + turn + ' 轮分支', routes: created.map(() => ''), efforts: created.map(() => ''), sourceSids: [sourceSid], baseHistoryId, baseRoundId }),
+            } }, { silent: true })
+          }
+          setFlowUiNotice('已从第 ' + turn + ' 轮建立 1→' + targetCount + ' 对比分支')
+        } catch (e) { setError('本轮分支失败: ' + String((e && e.message) || e)) }
+        finally { setFlowUiBusy(false) }
+      }
+      // 不切换 Harness 当前会话：在当前工作区创建一个空 Session，并直接加入当前并发组。
+      const executeZoomAddNewSession = async () => {
+        if (!sessionsClient || typeof sessionsClient.create !== 'function') { setFlowUiNotice('当前版本不支持新建 Session'); return }
+        const sourceSessionId = harnessSelectedSessionId || currentSessionId || flowScope()
+        let workspaceId = ''
+        if (sourceSessionId && Array.isArray(hookWorkspaceItems)) {
+          const owner = hookWorkspaceItems.find((w) => w && Array.isArray(w.sessionIds) && w.sessionIds.some((sid) => String(sid) === sourceSessionId))
+          if (owner && owner.workspaceId != null) workspaceId = String(owner.workspaceId)
+        }
+        setFlowUiBusy(true); setFlowUiNotice('正在新建 Session 并加入当前并发…')
+        try {
+          const sid = await sessionsClient.create(workspaceId ? { workspaceId } : (currentCwd ? { cwd: currentCwd } : {}))
+          await renameSession(sid, '⚡ 加入当前并发 · 新会话')
+          if (typeof loadPanelRef.current === 'function') {
+            await loadPanelRef.current('flow', 'fzoom-run-add', { dataset: { sid } }, { silent: true })
+          }
+          setFlowUiNotice('已新建并加入 Session ' + String(sid).replace(/^session-/, '').slice(0, 8))
+        } catch (e) { setError('新建并加入失败: ' + String((e && e.message) || e)) }
+        finally { setFlowUiBusy(false) }
+      }
+      // 带入/发送到选中：文本源 = ⇪ 带入暂存优先，其次开工台输入；目标 = 点选集合（排除带入源自身）
+      const executeZoomCast = async (send) => {
+        const text = (zoomRelay && zoomRelay.text ? zoomRelay.text : zoomComposerText()).trim()
+        const targets = zoomPick.filter((sid) => !zoomRelay || sid !== zoomRelay.source)
+        if (!text) { setFlowUiNotice('先输入任务，或点卡片的 ⇪ 带入它的最新结论'); return }
+        if (!targets.length) { setFlowUiNotice('先点选至少一个目标会话'); return }
+        setFlowUiBusy(true); setFlowUiNotice(send ? '正在直接发送到选中会话…' : '正在带入选中会话草稿…')
+        let okCount = 0, failCount = 0, firstErr = ''
+        try {
+          for (const sid of targets) {
+            try {
+              if (send) await sendTextToSession(sid, text)
+              else await putFlowContextIntoDraft(sid, text, true)
+              okCount++
+            } catch (e) { failCount++; if (!firstErr) firstErr = String((e && e.message) || e) }
+          }
+          setFlowUiNotice((send ? '已直接发送 ' : '已带入草稿 ') + okCount + ' 个会话' + (failCount ? '，' + failCount + ' 个失败：' + firstErr : ''))
+          setZoomPick([]); setZoomRelay(null)
+          if (!zoomRelay) {
+            const board = flowBoardEl()
+            const input = board && board.querySelector('[data-zoom-prompt]')
+            if (input) input.value = ''
+            zoomPromptRef.current = ''
+          }
+        } finally { setFlowUiBusy(false) }
+      }
+
       // Zoom 仅缩放流镜画布内容，header/工具栏与滚动容器保持原尺寸。
       React.useEffect(() => {
         const flow = panelRef.current && panelRef.current.querySelector('[data-flow]')
@@ -2529,11 +3248,162 @@ return {
         if (body) body.style.setProperty('--tb-flow-zoom', String(flowZoom / 100))
       }, [active, html, flowZoom])
 
+      // 导图画布：节点可自由拖动，空白处拖动平移；边线跟随节点。布局保存在 ref 中，
+      // 避免 2s 实时刷新把用户正在整理的导图复位。
+      React.useEffect(() => {
+        const root = panelRef.current
+        const viewport = root && root.querySelector('[data-flow-mindmap]')
+        if (!viewport || active !== 'flow') return undefined
+        const canvas = viewport.querySelector('.fl-mindmap-canvas')
+        if (!canvas) return undefined
+        const scope = viewport.getAttribute('data-map-scope') || 'current'
+        const keyOf = (node) => scope + '/' + (node.getAttribute('data-map-node') || '')
+        const nodes = [...canvas.querySelectorAll('[data-map-node]')]
+        for (const node of nodes) {
+          const saved = flowMindMapPositionsRef.current.get(keyOf(node))
+          if (saved) { node.style.left = saved.x + 'px'; node.style.top = saved.y + 'px' }
+        }
+        const updateEdges = () => {
+          const base = canvas.getBoundingClientRect()
+          const sx = canvas.offsetWidth ? base.width / canvas.offsetWidth : 1
+          const sy = canvas.offsetHeight ? base.height / canvas.offsetHeight : 1
+          const rect = (r) => ({ x: (r.left - base.left) / sx, y: (r.top - base.top) / sy, w: r.width / sx, h: r.height / sy })
+          const nodeRects = new Map([...canvas.querySelectorAll('[data-map-node]')].map((node) => [node.getAttribute('data-map-node') || '', rect(node.getBoundingClientRect())]))
+          for (const path of canvas.querySelectorAll('[data-map-from][data-map-to]')) {
+            const fromId = path.getAttribute('data-map-from') || ''
+            const toId = path.getAttribute('data-map-to') || ''
+            const ar = nodeRects.get(fromId), br = nodeRects.get(toId)
+            if (!ar || !br) continue
+            const acx = ar.x + ar.w / 2, acy = ar.y + ar.h / 2
+            const bcx = br.x + br.w / 2, bcy = br.y + br.h / 2
+            const dx = bcx - acx, dy = bcy - acy
+            const vertical = br.y >= ar.y + ar.h + 12 || ar.y >= br.y + br.h + 12
+            const x1 = vertical ? acx : (dx >= 0 ? ar.x + ar.w : ar.x)
+            const y1 = vertical ? (dy >= 0 ? ar.y + ar.h : ar.y) : acy
+            const x2 = vertical ? bcx : (dx >= 0 ? br.x : br.x + br.w)
+            const y2 = vertical ? (dy >= 0 ? br.y : br.y + br.h) : bcy
+            let blocked = false
+            for (const [id, obstacle] of nodeRects) {
+              if (id === fromId || id === toId) continue
+              const left = obstacle.x - 8, right = obstacle.x + obstacle.w + 8
+              const top = obstacle.y - 8, bottom = obstacle.y + obstacle.h + 8
+              for (let step = 1; step < 24; step++) {
+                const t = step / 24
+                const px = x1 + (x2 - x1) * t, py = y1 + (y2 - y1) * t
+                if (px >= left && px <= right && py >= top && py <= bottom) { blocked = true; break }
+              }
+              if (blocked) break
+            }
+            let d = 'M ' + x1 + ' ' + y1 + ' L ' + x2 + ' ' + y2
+            if (blocked && !vertical) {
+              const mid = (x1 + x2) / 2
+              d = 'M ' + x1 + ' ' + y1 + ' H ' + mid + ' V ' + y2 + ' H ' + x2
+            } else if (blocked) {
+              const mid = (y1 + y2) / 2
+              d = 'M ' + x1 + ' ' + y1 + ' V ' + mid + ' H ' + x2 + ' V ' + y2
+            }
+            path.setAttribute('d', d)
+          }
+        }
+        updateEdges()
+        let drag = null
+        const onDown = (e) => {
+          if (e.button !== 0 || (e.target && e.target.closest && e.target.closest('button,a,input,select,textarea'))) return
+          const node = e.target && e.target.closest ? e.target.closest('[data-map-node]') : null
+          if (node) {
+            const base = canvas.getBoundingClientRect()
+            const scale = canvas.offsetWidth ? base.width / canvas.offsetWidth : 1
+            drag = { kind: 'node', node, x: e.clientX, y: e.clientY, left: parseFloat(node.style.left) || 0, top: parseFloat(node.style.top) || 0, scale }
+          } else {
+            drag = { kind: 'pan', x: e.clientX, y: e.clientY, left: viewport.scrollLeft, top: viewport.scrollTop }
+            viewport.classList.add('is-panning')
+          }
+          try { viewport.setPointerCapture(e.pointerId) } catch (err) {}
+          e.preventDefault()
+        }
+        const onMove = (e) => {
+          if (!drag) return
+          if (drag.kind === 'node') {
+            const x = Math.max(0, drag.left + (e.clientX - drag.x) / drag.scale)
+            const y = Math.max(0, drag.top + (e.clientY - drag.y) / drag.scale)
+            drag.node.style.left = x + 'px'; drag.node.style.top = y + 'px'
+            flowMindMapPositionsRef.current.set(keyOf(drag.node), { x, y })
+            updateEdges()
+          } else {
+            viewport.scrollLeft = drag.left - (e.clientX - drag.x)
+            viewport.scrollTop = drag.top - (e.clientY - drag.y)
+          }
+          e.preventDefault()
+        }
+        const finish = (e) => {
+          if (!drag) return
+          drag = null
+          viewport.classList.remove('is-panning')
+          try { viewport.releasePointerCapture(e.pointerId) } catch (err) {}
+        }
+        const reset = root.querySelector('[data-map-reset]')
+        const onReset = () => {
+          for (const node of nodes) {
+            const x = Number(node.getAttribute('data-map-default-x')) || 0
+            const y = Number(node.getAttribute('data-map-default-y')) || 0
+            node.style.left = x + 'px'; node.style.top = y + 'px'
+            flowMindMapPositionsRef.current.delete(keyOf(node))
+          }
+          viewport.scrollLeft = 0; viewport.scrollTop = 0; updateEdges()
+        }
+        viewport.addEventListener('pointerdown', onDown)
+        viewport.addEventListener('pointermove', onMove)
+        viewport.addEventListener('pointerup', finish)
+        viewport.addEventListener('pointercancel', finish)
+        if (reset) reset.addEventListener('click', onReset)
+        return () => {
+          viewport.removeEventListener('pointerdown', onDown)
+          viewport.removeEventListener('pointermove', onMove)
+          viewport.removeEventListener('pointerup', finish)
+          viewport.removeEventListener('pointercancel', finish)
+          if (reset) reset.removeEventListener('click', onReset)
+        }
+      }, [active, html])
+
+      // “添加其他 Session”既可点击，也可把候选项拖入目标 Session 区；全程不切换 Harness 会话。
+      React.useEffect(() => {
+        const root = panelRef.current
+        const drop = root && root.querySelector('[data-zoom-add-drop]')
+        if (!drop || active !== 'flow') return undefined
+        const candidates = [...root.querySelectorAll('[data-zoom-add-drag][data-sid]')]
+        const onStart = (e) => {
+          const sid = e.currentTarget.getAttribute('data-sid') || ''
+          if (!sid || !e.dataTransfer) return
+          e.dataTransfer.effectAllowed = 'copy'
+          e.dataTransfer.setData('text/plain', sid)
+        }
+        const onOver = (e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; drop.classList.add('is-drop-target') }
+        const onLeave = (e) => { if (!drop.contains(e.relatedTarget)) drop.classList.remove('is-drop-target') }
+        const onDrop = (e) => {
+          e.preventDefault(); drop.classList.remove('is-drop-target')
+          const sid = e.dataTransfer ? e.dataTransfer.getData('text/plain') : ''
+          if (/^[\w-]{1,100}$/.test(sid) && typeof loadPanelRef.current === 'function') {
+            loadPanelRef.current('flow', 'fzoom-run-add', { dataset: { sid } }, { silent: true })
+          }
+        }
+        for (const candidate of candidates) candidate.addEventListener('dragstart', onStart)
+        drop.addEventListener('dragover', onOver)
+        drop.addEventListener('dragleave', onLeave)
+        drop.addEventListener('drop', onDrop)
+        return () => {
+          for (const candidate of candidates) candidate.removeEventListener('dragstart', onStart)
+          drop.removeEventListener('dragover', onOver)
+          drop.removeEventListener('dragleave', onLeave)
+          drop.removeEventListener('drop', onDrop)
+        }
+      }, [active, html])
+
       // 框选模式：在主滚动区拖出选框，用视口几何与可选卡片求交。
       React.useEffect(() => {
         const flow = panelRef.current && panelRef.current.querySelector('[data-flow]')
         const body = flow && flow.querySelector('.tb-pane-body')
         if (!flow || !body || active !== 'flow') return undefined
+        if (flow.hasAttribute('data-flow-board')) return undefined // 大流镜 Zoom 总览：无可框选卡片，不接管指针
         flow.setAttribute('data-flow-select-mode', '1')
         for (const card of flow.querySelectorAll('[data-flow-select-seq]')) {
           const seq = Number(card.getAttribute('data-flow-select-seq'))
@@ -2614,6 +3484,43 @@ return {
         }
       }, [active, html, flowSelectedSeqs, flowUiBusy])
 
+      // 开工台（发消息）自动收回：打开时点面板空白处即折叠——落在开工台自身、添加/带入浮层、
+      // 侧栏、历史抽屉、卡片与任意交互控件上都不干预（保留原生行为，也避免与动作请求竞态）。
+      React.useEffect(() => {
+        if (active !== 'flow') return undefined
+        const pane = panelRef.current
+        if (!pane) return undefined
+        const onComposerBlankDown = (e) => {
+          if (e.button !== 0 || flowUiBusy) return
+          if (!pane.querySelector('.fl-zoom-composer')) return
+          const t = e.target
+          if (!t || typeof t.closest !== 'function') return
+          if (t.closest('.fl-zoom-composer,[data-action="fzoom-composer"],.tb-flow-add-popup,.tb-flow-bring-popup,.fl-rail,.fl-zoom-history-drawer,button,a,input,select,textarea,label,[data-action],[data-flow-branch],[data-flow-select-seq],[data-map-node],[data-zoom-add-drop]')) return
+          if (typeof loadPanelRef.current === 'function') loadPanelRef.current('flow', 'fzoom-composer', null)
+        }
+        pane.addEventListener('pointerdown', onComposerBlankDown)
+        return () => { try { pane.removeEventListener('pointerdown', onComposerBlankDown) } catch (e) {} }
+      }, [active, html, flowUiBusy])
+
+      // 大流镜点选可视：选中描边 + 点选模式光标；看板每次全量重渲染后恢复开工台输入文本；
+      // 离开看板（退出总览/切工具）清空点选、带入暂存与输入镜像
+      React.useEffect(() => {
+        const board = flowBoardEl()
+        if (active !== 'flow' || !board) {
+          if (zoomPick.length) setZoomPick([])
+          if (zoomRelay) setZoomRelay(null)
+          zoomPromptRef.current = ''
+          return
+        }
+        board.classList.toggle('fl-zoom-picking', !!zoomRelay)
+        for (const card of board.querySelectorAll('[data-sid]')) {
+          const sid = card.getAttribute('data-sid') || ''
+          card.classList.toggle('fl-zoom-picked', zoomPick.includes(sid))
+        }
+        const input = board.querySelector('[data-zoom-prompt]')
+        if (input && input.value !== zoomPromptRef.current) input.value = zoomPromptRef.current
+      }, [active, html, zoomPick, zoomRelay])
+
       function collectFields() {
         const fields = {}
         const box = panelRef.current
@@ -2630,8 +3537,13 @@ return {
         if (!toolId) { setHtml(null); return }
         attemptedRef.current[toolId] = true // 标记已发起请求（refreshTools 兜底据此判定是否补打）
         const silent = Boolean(opts && opts.silent) // 静默刷新（自动轮询）：不转圈、不清错误
+        // 显式交互优先：用户点「近观」等动作在途时，Session effect 的空动作重挂或 2s
+        // 静默刷新若后发，会抬高 seq 并把交互响应当成过期结果丢弃，表现为按钮完全切不动。
+        // 后台请求跳过本轮即可；动作落定后下一次轮询会自然补上。
+        if ((silent || !action) && interactiveActionSeqRef.current[toolId]) return
         const seq = (seqRef.current[toolId] || 0) + 1
         seqRef.current[toolId] = seq
+        if (!silent && action) interactiveActionSeqRef.current[toolId] = seq
         if (!silent) setBusyTool(toolId)
         if (!silent) setError(null)
         // 联动切换在途锁定：禁用面板内 select，避免在陈旧 DOM 上继续操作（成功响应会整体重渲染解锁）
@@ -2649,6 +3561,18 @@ return {
             if (action === 'fmore') flowSuppressHistoryAnimRef.current = true
           }
           let fields = collectFields()
+          const persistFlowRules = toolId === 'flow' && ['fsave-rule', 'fcreate-rule', 'fapply-rule-json', 'ftoggle-rule', 'fdelete-rule', 'freset-rules'].includes(action)
+          if (toolId === 'flow') {
+            fields.__flowPresentationRules = readFlowRules()
+            fields.__flowZoomLog = JSON.stringify(readFlowZoomLog())
+            fields.__flowArchivedSessionIds = JSON.stringify(archivedSessionIds)
+            // Harness 普通 fork/create Session 没有 subagent 血缘；完整标题只在 Client
+            // useSessions 快照里。把当前可见会话的紧凑索引交给 Host，用“分支 i/n”恢复同组全景。
+            fields.__flowSessionIndex = JSON.stringify(flowSessionIds.slice(0, 200).map((id) => {
+              const row = flowSessionRow(id) || {}
+              return { id: String(id), title: String(row.displayTitle || row.title || '').slice(0, 160), cwd: String(row.cwd || '').slice(0, 260) }
+            }).filter((x) => x.id && x.title))
+          }
           if (el) {
             // 点击元素自身的 data-* 属性随请求带回（data-key / data-hash / data-path 等）
             const ds = el.dataset || {}
@@ -2686,9 +3610,11 @@ return {
           const res = await Promise.race([callP, timeoutP])
           if (seqRef.current[toolId] !== seq) return // 已有更新的请求发出：过期响应直接丢弃（联动切换竞态修复）；DOM 由新请求的响应接管
           if (res && res.ok) {
+            if (persistFlowRules) writeFlowRules(JSON.stringify((res.state && res.state.presentationRules) || []))
             retryCountRef.current[toolId] = 0 // 成功：清零一次性重试计数
             stateRef.current[toolId] = res.state
             htmlRef.current[toolId] = res.html
+            if (toolId === 'flow' && ['fzoom', 'fzoom-open', 'fzoom-joined', 'fzoom-run', 'fzoom-round', 'fzoom-view', 'fzoom-focus-back', 'fzoom-focus-current', 'fzoom-run-add', 'fzoom-run-remove'].includes(action)) writeFlowZoomLog(res.state)
             // 会话 scope 变化（Harness 自己切换会话）默认进入新流镜底部；
             // Flowglass 内部 fback 则由 flowScrollIntentRef 恢复上级保存位置。
             const currentFlow = panelRef.current && panelRef.current.querySelector('[data-flow][data-flow-scope]')
@@ -2710,7 +3636,11 @@ return {
                 htmlScrollRef.current = { tool: toolId, scrolls }
               } catch (e) {}
             }
-            setHtml(res.html)
+            // 切 Harness 会话时保留当前大流镜画面，等目标 Session 真正生效后一次性换页。
+            // 若先 setHtml 再导航，原生 Session Tab 会经历“旧页聚焦 → 卸载 → 新页重开”；
+            // 后面的双定时重开又会重复挂载，表现为明显闪屏。
+            const deferFlowNavigationRender = toolId === 'flow' && action === 'fzoom-open' && !!res.navigateSession
+            if (!deferFlowNavigationRender) setHtml(res.html)
             // Host 只在 Flowglass 已开启“子代理跟随”且用户主动点击进入时返回该指令。
             // 使用 SessionRuntime 导航会让 Harness 的会话列表、会话页和持久选中态一起更新。
             if (toolId === 'flow' && res.navigateSession) {
@@ -2729,6 +3659,13 @@ return {
                 if (target) flowFollowStateBySessionRef.current.delete(target)
                 setError('Flowglass 已切换，但 Harness 跟随失败: ' + String((e && e.message) || e))
               }
+              // 原生右侧栏是 Session 绑定视图；真正观察到 currentSessionId 变更后，
+              // 下方会话 effect 只重开一次，避免导航前后的重复挂载闪屏。
+            }
+            // 大流镜 ⇪ 带入：Host 已取源会话最新结论 → 暂存并进入点选模式（点卡选目标后带入/发送）
+            if (toolId === 'flow' && res.zoomRelay && typeof res.zoomRelay.text === 'string' && res.zoomRelay.text) {
+              setZoomRelay({ source: String(res.zoomRelay.sourceSessionId || ''), text: res.zoomRelay.text })
+              setFlowUiNotice('已暂存该会话的最新结论 —— 点选目标会话卡片后「带入草稿」或「直接发送」')
             }
             // 自动刷新约定：工具 HTML 带 data-autorefresh="ms" → 抽屉静默定时重拉（静默 = 不转圈）
             const am = /data-autorefresh="(\d+)"/.exec(res.html)
@@ -2787,6 +3724,7 @@ return {
           // 原先「过期 return 跳过 unlock」+「后发请求锁不到已禁用的 select」组合会让控件
           // 永久禁用至下次成功动作。成功路径锁的是即将被 innerHTML 替换的旧节点，无害。
           unlock()
+          if (interactiveActionSeqRef.current[toolId] === seq) delete interactiveActionSeqRef.current[toolId]
           if (seqRef.current[toolId] === seq) setBusyTool((cur) => (cur === toolId ? null : cur))
         }
       }
@@ -3085,6 +4023,9 @@ return {
           if (followState) stateRef.current.flow = followState
           if (sidChanged) {
             flowHarnessNavTargetRef.current = null
+            if (isFlowFollow && nativeOpenTab) {
+              try { ctx.timeout(() => { try { nativeOpenTab() } catch (e) {} }, 0) } catch (e) {}
+            }
             if (!isFlowFollow) {
               // 用户手动切换 Session：不沿用之前 Flowglass 的临时返回链。
               flowFollowStateBySessionRef.current.clear()
@@ -3130,6 +4071,7 @@ return {
         if (!isOpen || !active || !curAutoMs) return undefined
         const disp = ctx.interval(() => {
           if (managingRef.current) return
+          if (zoomComposerBusy()) return // 开工台编辑中：不抢重渲染（清空/开工后自动恢复）
           if (typeof loadPanelRef.current === 'function') loadPanelRef.current(active, '__refresh', null, { silent: true })
         }, curAutoMs)
         return () => { try { disp() } catch (e) {} }
@@ -3220,7 +4162,11 @@ return {
         if (active === 'flow' && branch) {
           e.preventDefault()
           e.stopPropagation()
-          branchFlowAt(Number(branch.getAttribute('data-seq')))
+          const detail = branch.closest('[data-flow-detail-session]')
+          const sourceSid = detail ? (detail.getAttribute('data-flow-detail-session') || '') : ''
+          const turn = branch.getAttribute('data-turn') || ''
+          if (sourceSid && turn) executeZoomCellFork(sourceSid, Number(branch.getAttribute('data-seq')), turn, branch.getAttribute('data-history') || '', branch.getAttribute('data-round') || '')
+          else branchFlowAt(Number(branch.getAttribute('data-seq')), sourceSid)
           return
         }
         const previewBtn = t && t.closest ? t.closest('[data-flow-markdown-preview]') : null
@@ -3242,6 +4188,89 @@ return {
           copyFlowRailContent(copyBtn)
           return
         }
+        const ruleEdit = t && t.closest ? t.closest('[data-flow-rule-edit]') : null
+        const ruleNew = t && t.closest ? t.closest('[data-flow-rule-new]') : null
+        const ruleCancel = t && t.closest ? t.closest('[data-flow-rule-cancel]') : null
+        if (active === 'flow' && (ruleEdit || ruleNew || ruleCancel)) {
+          e.preventDefault()
+          e.stopPropagation()
+          const box = panelRef.current
+          if (!box) return
+          const targetCard = ruleEdit ? ruleEdit.closest('.fl-rule-card') : ruleNew ? box.querySelector('.fl-rule-new') : ruleCancel.closest('.fl-rule-card')
+          const opening = !ruleCancel && targetCard && !targetCard.classList.contains('fl-rule-open')
+          for (const card of box.querySelectorAll('.fl-rule-card.fl-rule-open')) card.classList.remove('fl-rule-open')
+          for (const button of box.querySelectorAll('[data-flow-rule-edit],[data-flow-rule-new]')) button.setAttribute('aria-expanded', 'false')
+          if (opening && targetCard) {
+            targetCard.classList.add('fl-rule-open')
+            const trigger = ruleEdit || ruleNew
+            trigger.setAttribute('aria-expanded', 'true')
+            const first = targetCard.querySelector('input:not([type="hidden"])')
+            if (first && typeof first.focus === 'function') first.focus()
+          }
+          return
+        }
+        // 大流镜开工台：客户端行为按钮（不经 Host RPC）
+        const zLaunch = t && t.closest ? t.closest('[data-zoom-launch]') : null
+        if (active === 'flow' && zLaunch) {
+          e.preventDefault()
+          e.stopPropagation()
+          Promise.resolve(executeZoomLaunch()).catch((err) => {
+            const message = '同时开始失败: ' + String((err && err.message) || err)
+            setError(message)
+            setFlowUiNotice(message)
+            setFlowUiBusy(false)
+          })
+          return
+        }
+        const zAddNew = t && t.closest ? t.closest('[data-zoom-add-new]') : null
+        if (active === 'flow' && zAddNew) {
+          e.preventDefault()
+          e.stopPropagation()
+          Promise.resolve(executeZoomAddNewSession()).catch((err) => {
+            const message = '新建并加入失败: ' + String((err && err.message) || err)
+            setError(message); setFlowUiNotice(message); setFlowUiBusy(false)
+          })
+          return
+        }
+        const zAddPicker = t && t.closest ? t.closest('[data-zoom-add-picker]') : null
+        if (active === 'flow' && zAddPicker) {
+          e.preventDefault()
+          e.stopPropagation()
+          const r = zAddPicker.getBoundingClientRect()
+          const vw = zAddPicker.ownerDocument.defaultView.innerWidth
+          const vh = zAddPicker.ownerDocument.defaultView.innerHeight
+          const width = Math.min(360, vw - 24)
+          const height = Math.min(440, vh - 24)
+          const left = Math.max(12, Math.min(r.right - width, vw - width - 12))
+          const top = r.bottom + 6 + height <= vh - 12 ? r.bottom + 6 : Math.max(12, r.top - height - 6)
+          setFlowAddAnchor({ left: left + 'px', top: top + 'px', width: width + 'px', maxHeight: height + 'px' })
+          setFlowAddTargetSession('')
+          setFlowTreeOpen(currentCwd ? { [currentCwd]: true } : {})
+          setFlowAddPopup(true)
+          setFlowUiNotice('')
+          return
+        }
+        const zRoundFork = t && t.closest ? t.closest('[data-zoom-round-fork]') : null
+        if (active === 'flow' && zRoundFork) {
+          e.preventDefault()
+          e.stopPropagation()
+          executeZoomRoundFork(zRoundFork)
+          return
+        }
+        // 大流镜带入模式：点分支/根卡 = 切换目标选中，而不是进入会话
+        // （⇪ 带入按钮自身是 data-action="fzoom-relay"，仍走正常 RPC 取源会话结论）
+        if (active === 'flow' && zoomRelay) {
+          const relayBtn = t && t.closest ? t.closest('[data-action="fzoom-relay"]') : null
+          const board = flowBoardEl()
+          const card = !relayBtn && board && board.contains(t) && t.closest ? t.closest('[data-sid]') : null
+          if (card) {
+            e.preventDefault()
+            e.stopPropagation()
+            const sid = card.getAttribute('data-sid') || ''
+            if (sid) setZoomPick((cur) => (cur.includes(sid) ? cur.filter((x) => x !== sid) : [...cur, sid]))
+            return
+          }
+        }
         const el = t && t.closest ? t.closest('[data-action]') : null
         if (!el) return
         e.preventDefault()
@@ -3252,11 +4281,23 @@ return {
       function onPanelKeyDown(e) {
         if (!active || e.key !== 'Enter') return
         const t = e.target
+        // 大流镜开工台：回车即「同时开始」
+        if (active === 'flow' && t && t.matches && t.matches('[data-zoom-prompt]') && !e.shiftKey) {
+          e.preventDefault()
+          executeZoomLaunch()
+          return
+        }
         if (!(t && t.matches && t.matches('[data-field]'))) return
         e.preventDefault()
         const box = panelRef.current
         const btn = box && box.querySelector('[data-action="query"], [data-action="query-record"]')
         if (btn) loadPanel(active, btn.getAttribute('data-action') || '', btn)
+      }
+
+      // 开工台输入镜像：input 事件委托（React onInput 走合成事件，原生 input 冒泡到 frame 即可）
+      function onPanelInput(e) {
+        const t = e.target
+        if (t && t.matches && t.matches('[data-zoom-prompt]')) zoomPromptRef.current = String(t.value || '')
       }
 
       // 面板契约扩展：select 等控件加 data-action-onchange="xxx"，change 即触发该动作（无需手动按钮）。
@@ -3373,7 +4414,31 @@ return {
         }))
       })()
 
-      const flowZoomControl = active !== 'flow' || managing || flowBringPopup ? null : React.createElement('div', { className: 'tb-flow-zoom-float' + (flowSelectedSeqs.length ? ' with-selection' : '') },
+      const flowAddRound = (() => {
+        const log = readFlowZoomLog()
+        const runs = Array.isArray(log.runs) ? log.runs : []
+        const run = runs.find((item) => item && item.id === log.activeId) || runs[runs.length - 1]
+        if (!run || !Array.isArray(run.rounds) || !run.rounds.length) return null
+        const round = run.rounds.find((item) => item && item.id === log.roundId) || run.rounds[run.rounds.length - 1]
+        return round && Array.isArray(round.sids) ? round : null
+      })()
+      const flowAddMemberIds = flowAddRound ? flowAddRound.sids : []
+      const flowAddWorkspaceCwd = flowAddMemberIds.length ? String((flowSessionRow(flowAddMemberIds[0]) || {}).cwd || '') : ''
+      const flowAddGroups = flowSessionGroups.map((group) => ({
+        ...group,
+        sessions: group.sessions.filter(({ id }) => !flowAddMemberIds.includes(id)),
+      })).filter((group) => group.sessions.length)
+      const addSelectedFlowSession = async () => {
+        if (!flowAddTargetSession || !flowAddRound || flowAddRound.sids.length >= 4 || typeof loadPanelRef.current !== 'function') return
+        setFlowUiBusy(true); setFlowUiNotice('正在加入当前并发…')
+        try {
+          await loadPanelRef.current('flow', 'fzoom-run-add', { dataset: { sid: flowAddTargetSession } }, { silent: true })
+          setFlowAddPopup(false); setFlowAddTargetSession(''); setFlowUiNotice('已加入当前并发')
+        } catch (e) { setError('加入当前并发失败: ' + String((e && e.message) || e)) }
+        finally { setFlowUiBusy(false) }
+      }
+
+      const flowZoomControl = active !== 'flow' || managing || flowBringPopup || flowAddPopup ? null : React.createElement('div', { className: 'tb-flow-zoom-float' + (flowSelectedSeqs.length ? ' with-selection' : '') },
         React.createElement('div', { className: 'tb-flow-zoom', title: '缩放流镜画布，不改变 header 和滚动区尺寸' },
           React.createElement('button', { type: 'button', className: 'tb-flow-zoom-btn', disabled: flowZoom <= 60, onClick: () => stepFlowZoom(-1) }, '−'),
           React.createElement('button', { type: 'button', className: 'tb-flow-zoom-value tb-flow-zoom-btn', title: '恢复 100%', onClick: () => setFlowZoomLevel(100) }, flowZoom + '%'),
@@ -3450,6 +4515,62 @@ return {
           React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, onClick: () => setFlowBringPopup(false) }, '取消'),
           React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy || !flowTargetSession, title: '追加到目标会话草稿，不自动发送', onClick: sendSelectedFlow }, '带入草稿'),
         ),
+      )
+
+      const flowAddDialog = active !== 'flow' || managing || !flowAddPopup ? null : React.createElement('div', { className: 'tb-flow-bring-popup tb-flow-add-popup', style: flowAddAnchor || undefined },
+        React.createElement('div', { className: 'tb-flow-popup-head' },
+          React.createElement('span', null, '添加到当前并发 · ' + flowAddMemberIds.length + ' 个会话'),
+          React.createElement('button', { type: 'button', className: 'tb-flow-icon-btn', title: '关闭', onClick: () => setFlowAddPopup(false) }, '×'),
+        ),
+        React.createElement('div', { className: 'tb-flow-session-tree', role: 'tree', 'aria-label': '按工作区分组选择要加入并发的会话' },
+          flowAddGroups.map((group) => {
+            const sameWorkspace = !flowAddWorkspaceCwd || group.cwd === flowAddWorkspaceCwd
+            return React.createElement('div', { className: 'tb-flow-tree-group', key: group.cwd, role: 'group' },
+              React.createElement('button', {
+                type: 'button', className: 'tb-flow-tree-workspace' + (flowTreeOpen[group.cwd] ? ' open' : ''), title: group.cwd,
+                'aria-expanded': Boolean(flowTreeOpen[group.cwd]),
+                onClick: () => setFlowTreeOpen((cur) => ({ ...cur, [group.cwd]: !cur[group.cwd] })),
+              },
+                React.createElement('svg', { className: 'tb-flow-tree-folder', viewBox: '0 0 16 16', width: 14, height: 14, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+                  React.createElement('path', { d: 'M1.8 4.2h4l1.3 1.5h7.1v6.6a1.3 1.3 0 0 1-1.3 1.3H3.1a1.3 1.3 0 0 1-1.3-1.3z' }),
+                  React.createElement('path', { d: 'M1.8 5.7V3.8a1.3 1.3 0 0 1 1.3-1.3h2.7l1.3 1.7h5.8a1.3 1.3 0 0 1 1.3 1.3v.2' }),
+                ),
+                React.createElement('span', { className: 'tb-flow-tree-label' }, group.label),
+                React.createElement('span', { className: 'tb-flow-tree-count' }, group.sessions.length),
+                React.createElement('span', { className: 'tb-flow-tree-chevron', 'aria-hidden': true }, '▶'),
+              ),
+              flowTreeOpen[group.cwd] ? group.sessions.map(({ id, row }) => {
+                const label = row && (row.displayTitle || row.title) ? (row.displayTitle || row.title) : id
+                return React.createElement('button', {
+                  type: 'button', role: 'treeitem', key: id, disabled: !sameWorkspace, draggable: sameWorkspace,
+                  className: 'tb-flow-tree-session' + (flowAddTargetSession === id ? ' on' : ''),
+                  'aria-selected': flowAddTargetSession === id,
+                  title: sameWorkspace ? label + '\n' + id : label + '\n不在当前并发的工作区',
+                  onClick: () => { if (sameWorkspace) setFlowAddTargetSession(id) },
+                  onDragStart: sameWorkspace ? (e) => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData('text/plain', id) } : undefined,
+                }, React.createElement('span', null, label), React.createElement('span', { className: 'tb-flow-tree-id' }, String(id).replace(/^session-/, '').slice(0, 8)))
+              }) : null,
+            )
+          }),
+        ),
+        flowUiNotice ? React.createElement('div', { className: 'tb-flow-toolbar-note', title: flowUiNotice }, flowUiNotice) : null,
+        React.createElement('div', { className: 'tb-flow-popup-actions' },
+          React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, onClick: () => setFlowAddPopup(false) }, '取消'),
+          React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, onClick: () => Promise.resolve(executeZoomAddNewSession()).then(() => setFlowAddPopup(false)) }, '新建并加入'),
+          React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy || !flowAddTargetSession, onClick: addSelectedFlowSession }, '加入分支'),
+        ),
+      )
+
+      // 大流镜操作条：点选模式/带入暂存激活时浮出——显示带入源、已选目标数，
+      // 「带入草稿」追加到目标输入区（沿用带入会话机制，不自动发送），「直接发送」走 ISession.prompt 排队开工
+      const zoomActionBar = active !== 'flow' || managing || !(zoomRelay || zoomPick.length) ? null : React.createElement('div', { className: 'tb-flow-selection-bar' },
+        zoomRelay ? React.createElement('span', { className: 'tb-flow-zoom-relay-src', title: '带入来源会话：' + zoomRelay.source }, '⇪ ' + String(zoomRelay.source).replace(/^session-/, '').slice(0, 8)) : null,
+        React.createElement('span', { className: 'tb-flow-selection-count', title: '已选 ' + zoomPick.length + ' 个目标会话' }, zoomPick.length),
+        React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, title: '把内容追加到目标会话输入区草稿（不自动发送）', onClick: () => executeZoomCast(false) }, '带入草稿'),
+        React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, title: '直接向目标会话发送（运行中排队、空闲立即开工）', onClick: () => executeZoomCast(true) }, '直接发送'),
+        React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, onClick: () => { setZoomPick([]); setZoomRelay(null); setFlowUiNotice('') } }, '清除'),
+        flowUiBusy ? React.createElement('span', { className: 'tb-tab-spin' }) : null,
+        flowUiNotice ? React.createElement('span', { className: 'tb-flow-toolbar-note', title: flowUiNotice }, flowUiNotice) : null,
       )
 
       // 主题切换按钮：暗色下显示太阳（点击切亮），亮色下显示月亮（点击切暗）；theme 服务缺失时不渲染
@@ -3854,15 +4975,18 @@ return {
               '暂无工具\n运行工具插件（如 Jira）后自动出现在这里；已停止的插件可在右上角管理按钮里重新启动',
             )
       } else {
-        body = React.createElement('div', { className: 'tb-frame', ref: panelRef, onClick: onPanelClick, onKeyDown: onPanelKeyDown, onPointerDown: onFlowRailResizeDown },
+        body = React.createElement('div', { className: 'tb-frame', ref: panelRef, onClick: onPanelClick, onKeyDown: onPanelKeyDown, onInput: onPanelInput, onPointerDown: onFlowRailResizeDown },
           error ? React.createElement('div', { className: 'tb-error' }, String(error)) : null,
           copied ? React.createElement('div', { className: 'tb-banner tb-banner-info' }, String(copied)) : null,
+          active === 'flow' && flowUiNotice ? React.createElement('div', { className: 'tb-banner tb-banner-info', title: flowUiNotice }, String(flowUiNotice)) : null,
           html
             ? React.createElement('div', { className: 'tb-panel-html', dangerouslySetInnerHTML: { __html: html } })
             : React.createElement('div', { className: 'tb-notice' }, '加载面板…'),
           flowZoomControl,
           flowSelectionBar,
           flowBringDialog,
+          flowAddDialog,
+          zoomActionBar,
           showJumpLatest ? React.createElement('button', {
             type: 'button',
             className: 'tb-jump-latest',
@@ -3992,6 +5116,7 @@ return {
         visible,
         sessionId: props.sessionId,
         useSessions: typeof props.useSessions === 'function' ? props.useSessions : () => undefined,
+        useWorkspaces: typeof props.useWorkspaces === 'function' ? props.useWorkspaces : () => undefined,
       })
     }
 

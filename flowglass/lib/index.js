@@ -2036,6 +2036,13 @@ return {
       // tree 模式的 rootC 也是一个合法 Session：从侧栏直接进入叶子分支时，树只有根、没有
       // allBranches。若只从 allBranches 选目标，「近观」会被误判为无目标并 disabled。
       const selectableCards = rootC ? shownCards : allBranches
+      // 进入大流镜的默认尺度（fzoom 打开时置位，消费即删）：全景有多张卡可看才默认全景；
+      // 单卡会话（普通/新会话的全景只有它自己，没有信息量）默认近观，直接用完整流镜铺满画布。
+      if (st.zoomAutoMode) {
+        delete st.zoomAutoMode
+        st.zoomMode = shownCards.length > 1 ? 'panorama' : 'near'
+        st.zoomMotion = shownCards.length > 1 ? 'overview' : 'focus'
+      }
       const nearMode = st.zoomMode === 'near'
       // 近观的权威目标是当前实际查看的 st.sid，而不是“最新并发轮”的第一条输出。
       // 当前 Session 可能只是该轮 sourceSids，不在 activeRound.sids 中；此时构造一张临时卡读取它本身。
@@ -2106,8 +2113,17 @@ return {
           '<div class="fl-zoom-stats">' + esc(stats) + '</div>'
       }
       const openTip = st.follow ? '进入该会话的流镜视角，并切换 Harness' : '进入该会话的流镜视角'
+      const zoomHelp = [
+        '• 大流镜是并发任务的容器：全景并排查看/对比全部分支，近观用完整流镜铺满画布。',
+        '• 进入时按内容选默认尺度：多分支（并发组/血缘树）默认全景；单会话（新会话）默认近观。',
+        '• 全景支持 精简 / 详细 / 导图 三种视图；点分支卡自然放大到近观，点「全景」返回。',
+        '• 全景发送是 N→N 续跑当前组；近观发送是从当前会话发起 1→N。',
+        '• 「大流镜历史」按轮次保存并发拓扑，从旧轮继续会开新历史分支，原历史不覆盖。',
+        '• 分支头卡 ⇪ 把该会话最新结论带入其他会话（带入草稿或直接发送）。',
+        '• 「显示规则」与普通流镜共用同一份配置，按工具名/命令/子命令改写卡片标题与徽章。',
+      ].join('\n')
       const parts = []
-      parts.push('<div class="jr-tabpanel tb-root tb-pane' + (zoomMotion ? ' fl-zoom-motion-' + zoomMotion : '') + '" data-flow' + (!nearMode ? ' data-flow-board="1"' : '') + ' data-flow-view="' + esc(zoomView) + '" data-flow-scope="' + esc(sid) + '" data-zoom-active-sids="' + esc(continueBranches.map((c) => c.rec.sid).join(',')) + '" data-zoom-run-id="' + esc(activeRun ? activeRun.id : '') + '" data-zoom-round-id="' + esc(activeRound ? activeRound.id : '') + '" data-flow-has-older="' + (nearFlow && nearFlow.hasOlder ? '1' : '0') + '" data-flow-visible="' + (nearFlow ? nearFlow.shown.length : shownCards.length) + '" data-flow-total="' + (nearFlow ? nearFlow.nodes.length : total) + '" data-autorefresh="' + (st.live ? '2000' : '') + '" data-tab-badge="' + (st.live && runningCount ? String(runningCount) + '活' : '') + '">')
+      parts.push('<div class="jr-tabpanel tb-root tb-pane' + (zoomMotion ? ' fl-zoom-motion-' + zoomMotion : '') + '" data-flow' + (!nearMode ? ' data-flow-board="1"' : '') + ' data-flow-view="' + esc(zoomView) + '" data-flow-scope="' + esc(sid) + '" data-zoom-active-sids="' + esc(continueBranches.map((c) => c.rec.sid).join(',')) + '" data-zoom-run-id="' + esc(activeRun ? activeRun.id : '') + '" data-zoom-round-id="' + esc(activeRound ? activeRound.id : '') + '" data-flow-has-older="' + (nearFlow && nearFlow.hasOlder ? '1' : '0') + '" data-flow-visible="' + (nearFlow ? nearFlow.shown.length : shownCards.length) + '" data-flow-total="' + (nearFlow ? nearFlow.nodes.length : total) + '" data-autorefresh="' + (st.live && !st.settings ? '2000' : '') + '" data-tab-badge="' + (st.live && runningCount ? String(runningCount) + '活' : '') + '">')
       parts.push('<div class="tb-pane-head">')
       parts.push('<div class="tb-row">' +
         '<span class="tb-sec-label">大流镜</span>' +
@@ -2120,6 +2136,11 @@ return {
         '<button type="button" class="tb-chip' + (st.live ? ' tb-chip-on' : '') + '" data-action="toggle-live">' + (st.live ? '● 实时同步中' : '⏸ 已暂停') + '</button>' +
         '<button type="button" class="tb-chip' + (st.follow ? ' tb-chip-on' : '') + '" data-action="toggle-follow" title="开启后，从总览进入会话会同时切换 DeepSeek Harness 主会话">' + (st.follow ? '● 子代理跟随' : '○ 子代理跟随') + '</button>' +
         '<button type="button" class="tb-btn tb-btn-sm" data-action="refresh">刷新</button>' +
+        '<button type="button" class="tb-btn tb-btn-sm" data-action="fsettings" title="配置工具卡片的声明式显示规则">⚙ 显示规则</button>' +
+        '<span class="fl-info" tabindex="0" aria-label="大流镜使用说明">' +
+          '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7.2v4"/><circle cx="8" cy="4.7" r=".7" fill="currentColor" stroke="none"/></svg>' +
+          '<span class="fl-info-pop">' + esc(zoomHelp) + '</span>' +
+        '</span>' +
       '</div>')
       // 开工台（客户端行为，不经 Host RPC：输入/启动按钮由 Client 面板委托读写）：
       // 同一任务 ⚡ 同时开始 —— 旧会话从当前完成轮次分叉，新会话在同一工作区新建；每条
@@ -2359,7 +2380,10 @@ return {
         const target = nearFlow.items.find((it) => it.seq === st.expanded && (it.kind === 'call' || it.kind === 'msg'))
         if (target) parts.push(target.kind === 'call' ? detailRail(target, st.freshSeq === target.seq, st.presentationRules) : msgRail(target, st.freshSeq === target.seq))
       }
+      // 大流镜内同样支持显示规则侧栏（与普通流镜共用配置；打开时自动刷新已由根 div 暂停）
+      if (st.settings) parts.push(presentationRulesRail(st, st.freshSettings === true))
       delete st.freshSeq
+      delete st.freshSettings
       parts.push('</div>')
       return parts.join('')
     }
@@ -2599,6 +2623,8 @@ return {
             st.zoomScope = 'run'; st.zoomRunId = latest.run.id; st.zoomRoundId = latest.round.id; st.zoomFocusSid = ''
           } else st.zoomScope = 'tree'
           st.zoomBoundSessionId = session || st.sid || ''
+          // 进入大流镜时的默认观察尺度交由 renderZoom 按全景卡数选择（多卡→全景；单卡→近观），消费即删。
+          st.zoomAutoMode = true
         }
         st.expanded = null
         st.settings = false

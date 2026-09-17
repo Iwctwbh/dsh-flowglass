@@ -474,6 +474,8 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
         && src.indexOf("mode: state && state.zoomMode === 'near' ? 'near' : 'panorama'") >= 0
         && src.indexOf('lastFocusSid: state && typeof state.zoomLastFocusSid') >= 0
         && src.indexOf('writeFlowZoomLog(res.state)') >= 0
+        && src.indexOf('合并回写而非覆盖') >= 0 && src.indexOf('indexById') >= 0
+        && src.indexOf('merged.slice(-20)') >= 0
         && src.indexOf('const deferFlowNavigationRender') >= 0
         && src.indexOf('if (!deferFlowNavigationRender) setHtml(res.html)') >= 0
         && src.indexOf('if (isFlowFollow && nativeOpenTab)') >= 0
@@ -525,12 +527,23 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
         && src.indexOf("loadPanelRef.current('flow', 'fzoom-run-add'") >= 0
         && css.indexOf('.fl-zoom-add-picker{') >= 0 && css.indexOf('.fl-zoom-composer-targets.is-drop-target{') >= 0
         && css.indexOf('.tb-flow-add-popup{position:fixed') >= 0
-        && css.indexOf('backdrop-filter:blur(18px) saturate(135%)') >= 0
-        && css.indexOf('.tb-flow-bring-popup,.fl-rail,.fl-zoom-history-drawer,.tb-flow-zoom-float,.tb-flow-selection-bar{') >= 0)
-    check('并发会话标题带任务/分支序号/模型指向，历史树位于右侧',
+        && css.indexOf('backdrop-filter:blur(26px) saturate(175%)') >= 0
+        && css.indexOf('.tb-flow-bring-popup,.fl-rail,.fl-zoom-history-drawer,.tb-flow-zoom-float,.tb-flow-selection-bar,.fl-info-pop,.fl-zoom-add-pop,.tb-jump-latest,.jr-resize-badge{') >= 0
+        && css.indexOf('@keyframes jrDrawerUp{') >= 0
+        && css.indexOf('.tb-flow-bring-popup::before,.fl-info-pop::before,.fl-zoom-add-pop::before{') >= 0
+        && css.indexOf('.fl-info:hover .fl-info-pop,.fl-info:focus .fl-info-pop{display:block;animation:jrDrawerUp .12s ease-out}') >= 0)
+    check('并发会话标题带任务/分支序号/模型指向，历史树位于右侧；拓扑不写死进标题（由 zoomTopology 按轮次现算）',
       src.indexOf('zoomBranchTitle') >= 0 && src.indexOf("' · 分支 '") >= 0
+        && src.indexOf("' 轮 · ' + spec.length + '→'") < 0
+        && src.indexOf("' 轮 · 1→' + targetCount") < 0
+        && src.indexOf("轮分支 1→'") < 0 && src.indexOf("轮并发 ' + spec.length") < 0
         && css.indexOf('.fl-zoom-history-drawer{position:absolute;right:0') >= 0
         && css.indexOf('width:max-content;min-width:max-content;margin-inline:auto') >= 0)
+    check('开工台（发消息）点面板空白处自动收回，落在控件/卡片/浮层上不受影响',
+      src.indexOf('onComposerBlankDown') >= 0
+        && src.indexOf("t.closest('.fl-zoom-composer") >= 0
+        && src.indexOf("loadPanelRef.current('flow', 'fzoom-composer', null)") >= 0)
+    check('info 说明气泡加宽减少换行', css.indexOf('.fl-info-pop{position:absolute;right:0;top:30px;z-index:20;width:min(660px,84vw)') >= 0)
     check('大流镜互通：⇪ 带入暂存 + 点选目标 + 带入草稿/直接发送',
       src.indexOf('setZoomRelay({ source:') >= 0
         && src.indexOf('res.zoomRelay') >= 0
