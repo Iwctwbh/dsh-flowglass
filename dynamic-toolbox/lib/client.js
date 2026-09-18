@@ -2850,13 +2850,25 @@ return {
         const el = panelRef.current && panelRef.current.querySelector('[data-flow][data-flow-board]')
         return el || null
       }
+      // 开工台宿主根：全景 = 看板根；近观（分支单会话 1→N）刻意不带 data-flow-board（保留框选手势），
+      // 但开工台仍渲染在同一 [data-flow] 根下——由开工台输入框回溯宿主根。否则近观里任务文本、
+      // 模型/思考分支与启动属性（data-zoom-active-sids/run/round）全部读丢：点 ⚡ 永远误判空输入，
+      // 只提示「先输入同一个任务再同时开始」，且 2s 轮询不暂停、输入镜像不恢复。
+      const flowZoomHostEl = () => {
+        const board = flowBoardEl()
+        if (board) return board
+        const root = panelRef.current
+        const prompt = root && root.querySelector('[data-zoom-prompt]')
+        return prompt && typeof prompt.closest === 'function' ? prompt.closest('[data-flow]') : null
+      }
       const zoomComposerText = () => {
-        const b = flowBoardEl()
+        const b = flowZoomHostEl()
         const input = b && b.querySelector('[data-zoom-prompt]')
-        return input ? String(input.value || '') : ''
+        // DOM 暂时缺席（全量重渲染间隙）时用输入镜像兜底，不误解用户的已输入任务
+        return input ? String(input.value || '') : String(zoomPromptRef.current || '')
       }
       // 开工台输入非空 → 暂停静默轮询/事件窗重拉：面板每次全量 innerHTML 重渲染会冲掉正在输入的任务文本
-      const zoomComposerBusy = () => Boolean(flowBoardEl() && zoomComposerText().trim())
+      const zoomComposerBusy = () => Boolean(flowZoomHostEl() && zoomComposerText().trim())
 
       const setFlowZoomLevel = (value) => {
         const levels = [60, 75, 90, 100, 110, 125, 150]
@@ -2995,12 +3007,12 @@ return {
       }
       // 模型分支：开工台每条分支一个路由 select（值 'provider/model'，'' = 默认跟随当前）
       const zoomLaneValues = () => {
-        const b = flowBoardEl()
+        const b = flowZoomHostEl()
         if (!b) return []
         return [...b.querySelectorAll('[data-zoom-lane]')].map((s) => String(s.value || ''))
       }
       const zoomEffortValues = () => {
-        const b = flowBoardEl()
+        const b = flowZoomHostEl()
         if (!b) return []
         return [...b.querySelectorAll('[data-zoom-effort]')].map((s) => String(s.value || ''))
       }
@@ -3043,18 +3055,25 @@ return {
       }
       // ⚡ 同时开始：旧会话从当前完成轮次 fork，新会话在当前工作区 create；
       // 然后按需 selectModel（含 reasoningEffort）→ prompt，最后登记进看板。
+      // 近观 1→N 可「沿用当前会话」（开工台 chip）：当前会话作为分支 1 直接继续，只新建 N−1 个分支，
+      // 并带 linkSource 让 Host 把新轮次接进来源会话所属的大流镜历史（延长或派生，原历史不覆盖）。
       const executeZoomLaunch = async () => {
         const prompt = zoomComposerText().trim()
         if (!prompt) { setFlowUiNotice('先输入同一个任务再同时开始'); return }
         const lanes = zoomLaneValues()
         const efforts = zoomEffortValues()
-        const board = flowBoardEl()
+        const board = flowZoomHostEl()
         const activeSids = board ? String(board.getAttribute('data-zoom-active-sids') || '').split(',').filter(Boolean).slice(0, 4) : []
         const continueExisting = activeSids.length >= 2
         const count = continueExisting ? activeSids.length : Math.max(1, Math.min(4, lanes.length || 2))
+        // 近观（无 data-flow-board）才渲染「沿用当前会话」chip；全景 N→N 续跑天然复用现有分支
+        const reuseEl = !continueExisting && board && !board.hasAttribute('data-flow-board') ? board.querySelector('[data-zoom-reuse]') : null
+        const reuseCurrent = !!(reuseEl && reuseEl.getAttribute('aria-pressed') === 'true')
         // 以大流镜当前选中的 Session 为准；实时向 Host 查询 cwd，避免原生侧栏 props/useSessions 切换延迟。
         // Harness 当前选中 Session 是工作区归属权威；大流镜 scope 可能仍是切换前的旧会话。
         const sourceSessionId = harnessSelectedSessionId || currentSessionId || flowScope()
+        // 「沿用」的权威目标 = 正在近观的会话（flowScope），而不是 Harness 选中态——避免 follow 关闭时发错会话
+        const effSourceId = reuseCurrent ? (flowScope() || sourceSessionId) : sourceSessionId
         let launchCwd = currentCwd
         let launchWorkspaceId = ''
         // Browser 端 Workspace Controller 是分组归属的权威来源；Host scoped ctx 可能看不到 workspaceRegistry。
@@ -3078,18 +3097,45 @@ return {
             if (!launchWorkspaceId && info && info.ok && typeof info.workspaceId === 'string' && info.workspaceId) launchWorkspaceId = info.workspaceId
           } catch (e) {}
         }
-        const forkCurrent = !continueExisting && Boolean(sourceSessionId) && !currentSessionIsBlank(sourceSessionId)
+        const forkCurrent = !continueExisting && Boolean(effSourceId) && !currentSessionIsBlank(effSourceId)
         // 按实际路径检查能力：已有会话的 1→N 只需要 fork；空白会话首次并发只需要 create；
         // N→N 继续只需要现有 Session binding。不能因无关 API 缺失让按钮静默返回。
         if (!sessionsClient) { setError('Harness 会话服务不可用'); setFlowUiNotice('同时开始失败：Harness 会话服务不可用'); return }
         if (forkCurrent && typeof sessionsClient.fork !== 'function') { setError('Harness 当前版本不支持从已有会话分支'); setFlowUiNotice('同时开始失败：缺少会话分支能力'); return }
         if (!forkCurrent && !continueExisting && typeof sessionsClient.create !== 'function') { setError('Harness 当前版本不支持新建并发会话'); setFlowUiNotice('同时开始失败：缺少新建会话能力'); return }
-        setFlowUiBusy(true); setFlowUiNotice(continueExisting
-          ? '正在继续当前 ' + count + ' 个分支…'
-          : '正在' + (forkCurrent ? '从当前会话分叉 ' : '在当前工作区新建 ') + count + ' 个会话并开工…')
+        setFlowUiBusy(true); setFlowUiNotice(reuseCurrent
+          ? '正在沿用当前会话开工（再新建 ' + Math.max(0, count - 1) + ' 个分支）…'
+          : continueExisting
+            ? '正在继续当前 ' + count + ' 个分支…'
+            : '正在' + (forkCurrent ? '从当前会话分叉 ' : '在当前工作区新建 ') + count + ' 个会话并开工…')
         const created = []
         const failed = []
         try {
+          if (reuseCurrent) {
+            // 先派生 N−1 个新分支（从当前完成轮次），再统一发送——新任务不得进入分叉前缀。
+            // 源会话即分支 1：只按需应用模型路由并发送任务，不改名（保留会话身份）。
+            const spawned = []
+            for (let i = 1; i < count; i++) {
+              try {
+                const sid = forkCurrent
+                  ? await sessionsClient.fork({ sessionId: effSourceId, increaseTitle: true })
+                  : await sessionsClient.create(launchWorkspaceId ? { workspaceId: launchWorkspaceId } : (launchCwd ? { cwd: launchCwd } : {}))
+                const route = lanes[i] || ''
+                if (route) await selectSessionModel(sid, route, efforts[i] || '')
+                await renameSession(sid, zoomBranchTitle(prompt, i, count, route))
+                spawned.push(sid)
+              } catch (e) { failed.push(String((e && e.message) || e)) }
+            }
+            try {
+              const route0 = lanes[0] || ''
+              if (route0) await selectSessionModel(effSourceId, route0, efforts[0] || '')
+              await sendTextToSession(effSourceId, prompt)
+              created.push(effSourceId)
+            } catch (e) { failed.push(String((e && e.message) || e)) }
+            for (const sid of spawned) {
+              try { await sendTextToSession(sid, prompt); created.push(sid) } catch (e) { failed.push(String((e && e.message) || e)) }
+            }
+          } else {
           for (let i = 0; i < count; i++) {
             try {
               const sid = continueExisting
@@ -3104,21 +3150,24 @@ return {
               created.push(sid)
             } catch (e) { failed.push(String((e && e.message) || e)) }
           }
+          }
           if (created.length && typeof loadPanelRef.current === 'function') {
             const joinedSids = continueExisting ? activeSids : created
             loadPanelRef.current('flow', 'fzoom-joined', { dataset: {
               sids: joinedSids.join(','),
               meta: JSON.stringify({
                 prompt, routes: lanes.slice(0, count), efforts: efforts.slice(0, count),
-                sourceSids: continueExisting ? activeSids : (sourceSessionId ? [sourceSessionId] : []),
+                sourceSids: continueExisting ? activeSids : (effSourceId ? [effSourceId] : []),
                 baseHistoryId: continueExisting && board ? (board.getAttribute('data-zoom-run-id') || '') : '',
                 baseRoundId: continueExisting && board ? (board.getAttribute('data-zoom-round-id') || '') : '',
+                // 近观 1→N：把新轮次接进来源会话所属的大流镜历史（Host 按成员/来源轮次解析基线）
+                ...(!continueExisting && board && !board.hasAttribute('data-flow-board') && effSourceId ? { linkSource: effSourceId } : {}),
               }),
             } }, { silent: true })
           }
           // 空白“新会话”只承担开工入口；分支启动后直接进入第一条实际工作会话。
-          // 已有会话上的分叉仍留在父会话，方便继续查看父级与分支对比。
-          if (!forkCurrent && created.length) {
+          // 已有会话上的分叉仍留在父会话，方便继续查看父级与分支对比；「沿用」时当前会话即分支 1，不导航。
+          if (!forkCurrent && !reuseCurrent && created.length) {
             const target = created[0]
             const followState = stateRef.current.flow
             if (followState) flowFollowStateBySessionRef.current.set(target, followState)
@@ -3133,9 +3182,11 @@ return {
           const input = board && board.querySelector('[data-zoom-prompt]')
           if (input) input.value = ''
           zoomPromptRef.current = ''
-          setFlowUiNotice((continueExisting
-            ? '已继续当前 ' + created.length + ' 个分支'
-            : '已' + (forkCurrent ? '从当前会话分叉并' : '在当前工作区新建并') + '开工 ' + created.length + ' 个会话') + (failed.length ? '，' + failed.length + ' 个失败：' + failed[0] : ''))
+          setFlowUiNotice((reuseCurrent
+            ? '已沿用当前会话开工' + (created.length > 1 ? '，新建 ' + (created.length - 1) + ' 个分支' : '')
+            : continueExisting
+              ? '已继续当前 ' + created.length + ' 个分支'
+              : '已' + (forkCurrent ? '从当前会话分叉并' : '在当前工作区新建并') + '开工 ' + created.length + ' 个会话') + (failed.length ? '，' + failed.length + ' 个失败：' + failed[0] : ''))
         } catch (e) { setError('同时开始失败: ' + String((e && e.message) || e)) }
         finally { setFlowUiBusy(false) }
       }
@@ -3232,7 +3283,7 @@ return {
           setFlowUiNotice((send ? '已直接发送 ' : '已带入草稿 ') + okCount + ' 个会话' + (failCount ? '，' + failCount + ' 个失败：' + firstErr : ''))
           setZoomPick([]); setZoomRelay(null)
           if (!zoomRelay) {
-            const board = flowBoardEl()
+            const board = flowZoomHostEl()
             const input = board && board.querySelector('[data-zoom-prompt]')
             if (input) input.value = ''
             zoomPromptRef.current = ''
@@ -3503,9 +3554,9 @@ return {
       }, [active, html, flowUiBusy])
 
       // 大流镜点选可视：选中描边 + 点选模式光标；看板每次全量重渲染后恢复开工台输入文本；
-      // 离开看板（退出总览/切工具）清空点选、带入暂存与输入镜像
+      // 离开看板（退出总览/切工具/近观收起开工台）清空点选、带入暂存与输入镜像
       React.useEffect(() => {
-        const board = flowBoardEl()
+        const board = flowZoomHostEl()
         if (active !== 'flow' || !board) {
           if (zoomPick.length) setZoomPick([])
           if (zoomRelay) setZoomRelay(null)

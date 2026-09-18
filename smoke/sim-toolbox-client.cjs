@@ -434,6 +434,18 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
         && src.indexOf('onPanelInput') >= 0 && src.indexOf('onInput: onPanelInput') >= 0
         && (src.match(/zoomComposerBusy\(\)/g) || []).length >= 2
         && css.indexOf('.fl-zoom-composer{') >= 0 && css.indexOf('.fl-zoom-prompt{') >= 0)
+    check('大流镜开工台：近观 1→N 不带 data-flow-board（保留框选），由开工台回溯宿主根读取输入/分支/启动属性',
+      src.indexOf('const flowZoomHostEl') >= 0
+        && src.indexOf("prompt.closest('[data-flow]')") >= 0
+        && (src.match(/flowZoomHostEl\(\)/g) || []).length >= 7
+        && src.indexOf("String(zoomPromptRef.current || '')") >= 0)
+    check('大流镜开工台：近观可「沿用当前会话」——源会话作为分支 1 继续，只新建 N−1 个分支并接进同一历史',
+      src.indexOf("board.querySelector('[data-zoom-reuse]')") >= 0
+        && src.indexOf("reuseEl.getAttribute('aria-pressed')") >= 0
+        && src.indexOf('const reuseCurrent = !!') >= 0
+        && src.indexOf('const spawned = []') >= 0
+        && src.indexOf('sendTextToSession(effSourceId, prompt)') >= 0
+        && src.indexOf('linkSource: effSourceId') >= 0)
     check('大流镜开工：旧会话 fork / 新会话同工作区 create + 模型思考强度先于 prompt',
       src.indexOf("querySelectorAll('[data-zoom-lane]')") >= 0
         && src.indexOf("querySelectorAll('[data-zoom-effort]')") >= 0
@@ -452,7 +464,7 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
         && src.indexOf('w.sessionIds.some((sid) => String(sid) === sourceSessionId)') >= 0
         && src.indexOf("b.session.prompt([{ type: 'text', text }], 'queue')") >= 0
         && src.indexOf("await loadPanelRef.current('flow', 'fzoom-joined'") >= 0
-        && src.indexOf("if (!forkCurrent && created.length)") >= 0
+        && src.indexOf("if (!forkCurrent && !reuseCurrent && created.length)") >= 0
         && src.indexOf("await navigateHarnessSession({ sessionId: target })") >= 0
         && css.indexOf('.fl-zoom-lane-group{') >= 0 && css.indexOf('.fl-zoom-badge-model{') >= 0)
     check('大流镜已有分支组发送下一轮时复用 Session，不再新建',

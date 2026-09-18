@@ -3604,7 +3604,9 @@ return {
         '• 大流镜是并发任务的容器：全景并排查看/对比全部分支，近观用完整流镜铺满画布。',
         '• 进入时按内容选默认尺度：多分支（并发组/血缘树）默认全景；单会话（新会话）默认近观。',
         '• 全景支持 精简 / 详细 / 导图 三种视图；点分支卡自然放大到近观，点「全景」返回。',
+        '• 导图按「会话竖列 × 历史轮次」画整棵分支树：同列竖线 = 沿用继续，跨列斜线 = 分叉，覆盖全部轮次。',
         '• 全景发送是 N→N 续跑当前组；近观发送是从当前会话发起 1→N。',
+        '• 近观开工台可开「沿用当前会话」：当前会话作为分支 1 直接继续，只新建剩余分支，本轮接进同一条大流镜历史。',
         '• 「大流镜历史」按轮次保存并发拓扑，从旧轮继续会开新历史分支，原历史不覆盖。',
         '• 分支头卡 ⇪ 把该会话最新结论带入其他会话（带入草稿或直接发送）。',
         '• 「显示规则」与普通流镜共用同一份配置，按工具名/命令/子命令改写卡片标题与徽章。',
@@ -3648,14 +3650,27 @@ return {
             '<select class="tb-select fl-zoom-lane fl-zoom-lane-effort" data-field="zoomEffort.' + i + '" data-action-onchange="fzoom-effort" data-lane="' + i + '" data-zoom-effort="1"' + (!lane ? ' disabled' : '') + '>' + effortOptions(lane, st.zoomEfforts[i] || '') + '</select>' +
           '</span>'
         ).join('')
+        // 近观 1→N 可「沿用当前会话」：当前会话作为分支 1 直接继续，只新建 N−1 个分支。
+        // Client 启动时读 chip 的 aria-pressed（data-zoom-reuse）；开关经 fzoom-reuse 回写 state，重渲染不丢。
+        const zoomReuseOn = nearMode && selectedCard && st.zoomReuse === true
+        const reuseChip = nearMode && selectedCard
+          ? '<button type="button" class="tb-chip' + (zoomReuseOn ? ' tb-chip-on' : '') + '" data-action="fzoom-reuse" data-zoom-reuse="1" aria-pressed="' + (zoomReuseOn ? 'true' : 'false') + '" title="开启后：当前会话作为分支 1 直接继续，只新建 ' + (targetBranchCount - 1) + ' 个新分支；本轮接进同一条大流镜历史">沿用当前会话</button>'
+          : ''
+        const zoomComposerContext = continueCurrentGroup && activeRun && activeRound
+          ? '<div class="fl-zoom-composer-context"><strong>发送到当前 ' + activeRound.sids.length + ' 个会话</strong><span>' + esc(oneLine(activeRun.prompt || '并发任务', 28)) + ' · ' + esc(zoomTopology(activeRun)) + '</span><div class="fl-zoom-composer-targets" data-zoom-add-drop="1">' + currentConversationItems + addSessionMenu + '</div></div>'
+          : nearMode && selectedCard
+            ? '<div class="fl-zoom-composer-context"><strong>' + (zoomReuseOn ? '沿用当前会话，再新建 ' + (targetBranchCount - 1) + ' 个分支（1→' + targetBranchCount + '）' : '从当前单会话发起 1→' + targetBranchCount) + '</strong><span>来源 Session：' + esc(selectedCard.rec.sid.replace(/^session-/, '').slice(0, 8)) + '</span></div>'
+            : '<div class="fl-zoom-composer-context"><strong>新建并发会话</strong><span>输入一次，创建并发送到 ' + targetBranchCount + ' 个 Session</span></div>'
+        const zoomPromptPlaceholder = continueCurrentGroup ? '这条消息将同时发送到上面列出的 Session' : nearMode && selectedCard ? (zoomReuseOn ? '这条消息将发送到当前会话，并派生 ' + (targetBranchCount - 1) + ' 个新分支' : '这条消息将从当前 Session 派生并发送到新分支') : '输入第一个任务，创建新的并发 Session'
+        const zoomLaunchLabel = continueCurrentGroup ? '发送到当前 ' + continueBranches.length + ' 个会话' : nearMode && selectedCard ? (zoomReuseOn ? '沿用当前会话 + 新建 ' + (targetBranchCount - 1) + ' 个分支' : '从当前会话发起 1→' + targetBranchCount) : '新建 ' + st.zoomLanes.length + ' 个会话并发送'
         parts.push('<div class="fl-zoom-composer">' +
-          (continueCurrentGroup && activeRun && activeRound ? '<div class="fl-zoom-composer-context"><strong>发送到当前 ' + activeRound.sids.length + ' 个会话</strong><span>' + esc(oneLine(activeRun.prompt || '并发任务', 28)) + ' · ' + esc(zoomTopology(activeRun)) + '</span><div class="fl-zoom-composer-targets" data-zoom-add-drop="1">' + currentConversationItems + addSessionMenu + '</div></div>' : nearMode && selectedCard ? '<div class="fl-zoom-composer-context"><strong>从当前单会话发起 1→' + targetBranchCount + '</strong><span>来源 Session：' + esc(selectedCard.rec.sid.replace(/^session-/, '').slice(0, 8)) + '</span></div>' : '<div class="fl-zoom-composer-context"><strong>新建并发会话</strong><span>输入一次，创建并发送到 ' + targetBranchCount + ' 个 Session</span></div>') +
-          '<textarea class="tb-input fl-zoom-prompt" data-zoom-prompt="1" rows="2" placeholder="' + (continueCurrentGroup ? '这条消息将同时发送到上面列出的 Session' : nearMode && selectedCard ? '这条消息将从当前 Session 派生并发送到新分支' : '输入第一个任务，创建新的并发 Session') + '"></textarea>' +
-          '<div class="fl-zoom-composer-controls">' + laneSelects +
+          zoomComposerContext +
+          '<textarea class="tb-input fl-zoom-prompt" data-zoom-prompt="1" rows="2" placeholder="' + zoomPromptPlaceholder + '"></textarea>' +
+          '<div class="fl-zoom-composer-controls">' + laneSelects + reuseChip +
             '<span class="fl-zoom-target-label">目标分支数</span>' +
             '<span class="fl-zoom-count" title="新并发将生成的目标分支数">' + [2, 3, 4].map((n) => '<button type="button" class="tb-chip' + (st.zoomLanes.length === n ? ' tb-chip-on' : '') + '" data-action="fzoom-lanes" data-count="' + n + '">' + n + '</button>').join('') + '</span>' +
             '<span class="fl-zoom-composer-spacer"></span>' +
-            '<button type="button" class="tb-btn tb-btn-sm tb-btn-primary" data-zoom-launch="1">⚡ ' + (continueCurrentGroup ? '发送到当前 ' + continueBranches.length + ' 个会话' : nearMode && selectedCard ? '从当前会话发起 1→' + targetBranchCount : '新建 ' + st.zoomLanes.length + ' 个会话并发送') + '</button>' +
+            '<button type="button" class="tb-btn tb-btn-sm tb-btn-primary" data-zoom-launch="1">⚡ ' + zoomLaunchLabel + '</button>' +
           '</div></div>')
       }
       // 显示方式与历史保留为轻量工具行；并发路径、目标 Session 与发送输入统一收进上方发送区。
@@ -3704,18 +3719,101 @@ return {
             const colGap = 94
             const rowGap = 54
             const rootW = 190
-            const rows = comparison.rows
-            const laneWidth = branches.length * nodeW + Math.max(0, branches.length - 1) * colGap
-            const canvasW = Math.max(760, laneWidth + 220)
-            const laneStartX = Math.round((canvasW - laneWidth) / 2)
-            const rootX = Math.round((canvasW - rootW) / 2)
             const rootY = 24
             const firstRowY = 156
-            const canvasH = Math.max(520, firstRowY + rows.length * nodeH + Math.max(0, rows.length - 1) * rowGap + 44)
             const nodePos = new Map()
             const nodeHtml = []
             const turnHtml = []
             const edges = []
+            let canvasW = 760
+            let canvasH = 520
+            // 分支树导图（run 视角且有历史轮次）：每条会话一条竖列（分叉的新会话插到来源列右侧），
+            // 历史的每个轮次一行；每节点一条父边——同列竖线 = 沿用继续，跨列斜线 = 分叉。
+            // 覆盖全部轮次，不再只画最新一轮的分支（单分支继续/子组派生都在同一棵树上）。
+            const runRounds = st.zoomScope === 'run' && activeRun && Array.isArray(activeRun.rounds) ? activeRun.rounds : []
+            if (runRounds.length) {
+              const MAP_CAP_ROUNDS = 8
+              const MAP_CAP_LANES = 8
+              const workRounds = runRounds.filter((r) => r && r.kind !== 'initial').slice(-MAP_CAP_ROUNDS)
+              const laneOrder = [] // 会话竖列顺序：首现追加；分叉插到来源列右侧
+              const laneTurn = new Map() // sid → 已分配的最近日志 turn（分叉会话含继承前缀）
+              const latestNode = new Map() // sid → 最近一次出现的节点 id
+              const titleIndex = new Map((Array.isArray(st.__zoomSessionIndex) ? st.__zoomSessionIndex : []).map((x) => [x.id, x.title]))
+              const mapCards = []
+              for (const round of workRounds) for (const s of round.sids) if (!mapCards.some((c) => c.rec.sid === s)) mapCards.push({ rec: { sid: s } })
+              const mapCompare = await buildZoomTurnCompare(mapCards)
+              // 第一遍：定列（laneOrder）与每节点的日志 turn——沿用 = 自身 turn+1；新分会话 = 来源当前 turn+1
+              const nodeRows = []
+              workRounds.forEach((round, rowIdx) => {
+                const ri = runRounds.indexOf(round) // 历史轮次序号（含初始轮），与历史抽屉的「第 N 轮」一致
+                const sources = round.sourceSids.length ? round.sourceSids : (ri > 0 ? runRounds[ri - 1].sids : [])
+                const inserted = new Map()
+                const rowNodes = []
+                round.sids.forEach((sid, i) => {
+                  const src = sources.includes(sid) ? sid : (sources.length ? sources[Math.min(i, sources.length - 1)] : null)
+                  if (!laneOrder.includes(sid)) {
+                    if (laneOrder.length >= MAP_CAP_LANES) return
+                    if (src && laneOrder.includes(src)) {
+                      const at = laneOrder.indexOf(src) + 1 + (inserted.get(src) || 0)
+                      laneOrder.splice(at, 0, sid)
+                      inserted.set(src, (inserted.get(src) || 0) + 1)
+                    } else laneOrder.push(sid)
+                  }
+                  const turn = (laneTurn.has(sid) ? laneTurn.get(sid) : (src && laneTurn.has(src) ? laneTurn.get(src) : 0)) + 1
+                  laneTurn.set(sid, turn)
+                  rowNodes.push({ sid, round, ri, rowIdx, src, turn })
+                })
+                nodeRows.push(rowNodes)
+              })
+              const treeLaneWidth = laneOrder.length * nodeW + Math.max(0, laneOrder.length - 1) * colGap
+              canvasW = Math.max(760, treeLaneWidth + 220)
+              const laneStartX = Math.round((canvasW - treeLaneWidth) / 2)
+              const rootX = Math.round((canvasW - rootW) / 2)
+              canvasH = Math.max(520, firstRowY + nodeRows.length * nodeH + Math.max(0, nodeRows.length - 1) * rowGap + 44)
+              nodePos.set('root', { x: rootX, y: rootY, w: rootW, h: 84 })
+              nodeHtml.push('<article class="fl-map-node fl-map-root" data-map-node="root" data-map-default-x="' + rootX + '" data-map-default-y="' + rootY + '" style="left:' + rootX + 'px;top:' + rootY + 'px;width:' + rootW + 'px"><strong>⚡ ' + esc(oneLine((activeRun && activeRun.prompt) || '当前并发', 28)) + '</strong><span>' + esc(zoomTopology(activeRun)) + ' · ' + laneOrder.length + ' 个会话</span></article>')
+              nodeRows.forEach((rowNodes2, rowIdx) => {
+                if (!rowNodes2.length) return
+                const ri = rowNodes2[0].ri
+                const rowY = firstRowY + rowIdx * (nodeH + rowGap)
+                turnHtml.push('<div class="fl-map-turn-label" style="left:' + Math.max(12, laneStartX - 86) + 'px;top:' + (rowY + Math.round(nodeH / 2) - 15) + 'px"><span>' + ri + '</span><strong>第 ' + ri + ' 轮</strong></div>')
+                // 同一轮内先成节点、再统一连边：边的来源解析到「上一轮」的状态（分叉边从被分叉的那一轮连出），
+                // 最后才更新 latestNode——避免同轮相邻节点互相串链。
+                for (const n of rowNodes2) {
+                  const lane = laneOrder.indexOf(n.sid)
+                  const nodeId = 'r' + n.ri + '-' + n.sid
+                  n.nodeId = nodeId
+                  n.from = n.src && latestNode.has(n.src) ? latestNode.get(n.src) : 'root'
+                  const x = laneStartX + lane * (nodeW + colGap)
+                  const y = rowY
+                  nodePos.set(nodeId, { x, y, w: nodeW, h: nodeH })
+                  const grouped = mapCompare.perSession.get(n.sid)
+                  const value = grouped ? grouped.get(n.turn) : null
+                  const lastAi = value ? value.items.filter((it) => it.kind === 'msg' && it.role === 'ai' && !it.streaming).slice(-1)[0] : null
+                  const branchSeq = lastAi ? (lastAi.finalSeq != null ? lastAi.finalSeq : lastAi.seq) : null
+                  const result = oneLine((value && value.result) || '（本轮尚无完整回答）', 92)
+                  const card = bySid.get(n.sid)
+                  const title = titleIndex.get(n.sid) || (card && card.sum && card.sum.title) || ''
+                  const label = title ? oneLine(title, 16) : '会话 ' + (lane + 1)
+                  nodeHtml.push('<article class="fl-map-node" data-map-node="' + nodeId + '" data-map-default-x="' + x + '" data-map-default-y="' + y + '" data-flow-detail-session="' + esc(n.sid) + '" style="left:' + x + 'px;top:' + y + 'px;width:' + nodeW + 'px">' +
+                    '<header><strong>' + esc(label) + '</strong><span>第 ' + n.ri + ' 轮</span></header>' +
+                    '<p>' + esc(result) + '</p>' +
+                    (branchSeq == null ? '' : '<button type="button" class="fl-map-branch" data-flow-branch data-history="' + esc(activeRun.id) + '" data-round="' + esc(n.round.id) + '" data-turn="' + n.ri + '" data-seq="' + branchSeq + '" title="以 ' + esc(label) + ' 的第 ' + n.ri + ' 轮回答为唯一来源，创建 ' + targetBranchCount + ' 个新 Session">从这里发起 1→' + targetBranchCount + '</button>') +
+                  '</article>')
+                }
+                for (const n of rowNodes2) {
+                  if (!edges.some((e) => e.from === n.from && e.to === n.nodeId)) edges.push({ from: n.from, to: n.nodeId })
+                  latestNode.set(n.sid, n.nodeId)
+                }
+              })
+            } else {
+            // 无并发历史（血缘树/推断并发）：保留按日志轮次 × 当前分支列的旧版布局
+            const rows = comparison.rows
+            const laneWidth = branches.length * nodeW + Math.max(0, branches.length - 1) * colGap
+            canvasW = Math.max(760, laneWidth + 220)
+            const laneStartX = Math.round((canvasW - laneWidth) / 2)
+            const rootX = Math.round((canvasW - rootW) / 2)
+            canvasH = Math.max(520, firstRowY + rows.length * nodeH + Math.max(0, rows.length - 1) * rowGap + 44)
             nodePos.set('root', { x: rootX, y: rootY, w: rootW, h: 84 })
             nodeHtml.push('<article class="fl-map-node fl-map-root" data-map-node="root" data-map-default-x="' + rootX + '" data-map-default-y="' + rootY + '" style="left:' + rootX + 'px;top:' + rootY + 'px;width:' + rootW + 'px"><strong>⚡ ' + esc(oneLine((activeRun && activeRun.prompt) || '当前并发', 28)) + '</strong><span>' + esc(zoomTopology(activeRun)) + ' · ' + branches.length + ' 个会话</span></article>')
             for (let r = 0; r < rows.length; r++) {
@@ -3741,6 +3839,7 @@ return {
                   (branchSeq == null || !activeRun || !activeRound ? '' : '<button type="button" class="fl-map-branch" data-flow-branch data-history="' + esc(activeRun.id) + '" data-round="' + esc(activeRound.id) + '" data-turn="' + displayTurn + '" data-seq="' + branchSeq + '" title="以会话 ' + (i + 1) + ' 的第 ' + displayTurn + ' 轮回答为唯一来源，创建 ' + targetBranchCount + ' 个新 Session">从这里发起 1→' + targetBranchCount + '</button>') +
                 '</article>')
               }
+            }
             }
             const connectorPath = (a, b, fromId, toId) => {
               const acx = a.x + a.w / 2, acy = a.y + a.h / 2
@@ -3989,6 +4088,8 @@ return {
       if (typeof st.zoomLastFocusSid !== 'string') st.zoomLastFocusSid = ''
       if (st.zoomMode !== 'panorama' && st.zoomMode !== 'near') st.zoomMode = st.zoomFocusSid ? 'near' : 'panorama'
       if (typeof st.zoomComposerOpen !== 'boolean') st.zoomComposerOpen = false
+      // 近观开工台「沿用当前会话」：开启后 1→N 时当前会话作为分支 1 直接继续，只新建 N−1 个分支
+      if (typeof st.zoomReuse !== 'boolean') st.zoomReuse = false
       if (typeof st.zoomHistoryOpen !== 'boolean') st.zoomHistoryOpen = false
       if (!Array.isArray(st.zoomExpandedHistories)) st.zoomExpandedHistories = []
       if (!Array.isArray(st.zoomRuns)) st.zoomRuns = []
@@ -4128,6 +4229,7 @@ return {
         st.zoomView = el.view === 'detail' ? 'detail' : el.view === 'map' ? 'map' : 'compact'
       }
       else if (action === 'fzoom-composer') st.zoomComposerOpen = !st.zoomComposerOpen
+      else if (action === 'fzoom-reuse') st.zoomReuse = !st.zoomReuse
       else if (action === 'fzoom-history') st.zoomHistoryOpen = !st.zoomHistoryOpen
       else if (action === 'fzoom-history-toggle' && typeof el.run === 'string' && st.zoomRuns.some((run) => run.id === el.run)) {
         st.zoomExpandedHistories = st.zoomExpandedHistories.includes(el.run)
@@ -4185,8 +4287,14 @@ return {
           let meta = {}
           try { meta = el.meta ? JSON.parse(el.meta) : {} } catch (e) {}
           const now = Date.now()
-          const base = typeof meta.baseHistoryId === 'string' ? st.zoomRuns.find((x) => x.id === meta.baseHistoryId) : null
-          const baseAt = base && typeof meta.baseRoundId === 'string' ? base.rounds.findIndex((x) => x.id === meta.baseRoundId) : -1
+          let base = typeof meta.baseHistoryId === 'string' ? st.zoomRuns.find((x) => x.id === meta.baseHistoryId) : null
+          let baseAt = base && typeof meta.baseRoundId === 'string' ? base.rounds.findIndex((x) => x.id === meta.baseRoundId) : -1
+          // 近观 1→N 的历史归属：Client 只带来源会话（linkSource），由 Host 解析它所属历史的
+          // 最近成员/来源轮作为基线——命中最新轮且无子历史时延长同一历史，否则开派生分支，原历史不覆盖。
+          if (!base && typeof meta.linkSource === 'string' && /^[\w-]{1,80}$/.test(meta.linkSource)) {
+            const hit = latestZoomRunForSession(st.zoomRuns, meta.linkSource)
+            if (hit) { base = hit.run; baseAt = hit.run.rounds.findIndex((x) => x.id === hit.round.id) }
+          }
           const appendExisting = !!(base && baseAt === base.rounds.length - 1 && !st.zoomRuns.some((x) => x.parentId === base.id))
           const prefix = base ? base.rounds.slice(0, baseAt >= 0 ? baseAt + 1 : base.rounds.length).map((x) => ({ ...x, sids: x.sids.slice(), sourceSids: x.sourceSids.slice(), routes: x.routes.slice(), efforts: x.efforts.slice() })) : []
           const sourceSids = Array.isArray(meta.sourceSids) ? [...new Set(meta.sourceSids.map(String).filter((s) => /^[\w-]{1,80}$/.test(s)))].slice(0, 4) : []

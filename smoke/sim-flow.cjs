@@ -673,10 +673,54 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
   check('大流镜：已有分支组的发送区明确目标 Session', namedFleet.html.indexOf('⚡ 发送到当前 2 个会话') >= 0
     && namedFleet.html.indexOf('发送到当前 2 个会话') >= 0
     && namedFleet.html.indexOf('data-zoom-active-sids="s-fleet-1,s-fleet-2"') >= 0)
+  check('大流镜：全景 N→N 续跑天然复用分支，不渲染「沿用当前会话」chip', namedFleet.html.indexOf('data-zoom-reuse') < 0)
   namedFleet = await h({ action: 'fzoom-focus-current', fields: { __flowSessionIndex: fleetIndex }, state: namedFleet.state, root: ROOT, session: 's-fleet-1' })
   check('大流镜：近观并发是当前 Session 的 1→N，不冒充全景 N→N 继续', namedFleet.state.zoomMode === 'near'
     && namedFleet.html.indexOf('⚡ 从当前会话发起 1→2') >= 0 && namedFleet.html.indexOf('data-zoom-active-sids=""') >= 0
     && namedFleet.html.indexOf('⚡ 发送到当前 2 个会话') < 0)
+  check('大流镜：近观开工台保留输入与模型分支但不带看板标记（Client 由开工台回溯宿主根）',
+    namedFleet.html.indexOf('data-zoom-prompt') >= 0 && namedFleet.html.indexOf('data-zoom-lane') >= 0
+      && namedFleet.html.indexOf('data-flow-board') < 0)
+  namedFleet = await h({ action: 'fzoom-reuse', fields: { __flowSessionIndex: fleetIndex }, state: namedFleet.state, root: ROOT, session: 's-fleet-1' })
+  check('大流镜：近观开工台可开「沿用当前会话」（chip 回写 + 文案切换）', namedFleet.state.zoomReuse === true
+    && namedFleet.html.indexOf('data-zoom-reuse="1"') >= 0 && namedFleet.html.indexOf('aria-pressed="true"') >= 0
+    && namedFleet.html.indexOf('沿用当前会话 + 新建 1 个分支') >= 0
+    && namedFleet.html.indexOf('这条消息将发送到当前会话，并派生 1 个新分支') >= 0)
+  namedFleet = await h({ action: 'fzoom-reuse', fields: { __flowSessionIndex: fleetIndex }, state: namedFleet.state, root: ROOT, session: 's-fleet-1' })
+  check('大流镜：「沿用当前会话」可关回（恢复纯派生 1→N 文案）', namedFleet.state.zoomReuse === false
+    && namedFleet.html.indexOf('aria-pressed="false"') >= 0 && namedFleet.html.indexOf('⚡ 从当前会话发起 1→2') >= 0)
+  // 近观「沿用当前会话」：linkSource 把新轮次接进来源会话所属历史（延长同一历史，不另起记录）；
+  // 轮次 sids 允许包含来源会话本身（当前会话 = 分支 1）。
+  let reuseSt = { live: true, follow: true, limit: 60, sid: 's-main', home: 's-main', expanded: null, crumbs: [], zoom: true, zoomScope: 'run', zoomRuns: [], zoomRunId: '', zoomRoundId: '' }
+  reuseSt = (await h({ action: 'fzoom-joined', fields: { __el: {
+    sids: 's-main,s-live', meta: JSON.stringify({ prompt: '你好', sourceSids: ['s-main'], routes: ['', ''], efforts: ['', ''] }),
+  } }, state: reuseSt, root: ROOT, session: 's-main' })).state
+  const reuseRunId = reuseSt.zoomRunId
+  reuseSt = (await h({ action: 'fzoom-joined', fields: { __el: {
+    sids: 's-main,s-fleet-1', meta: JSON.stringify({ prompt: '近观沿用 1→2', sourceSids: ['s-main'], linkSource: 's-main', routes: ['', ''], efforts: ['', ''] }),
+  } }, state: reuseSt, root: ROOT, session: 's-main' })).state
+  check('大流镜：近观沿用 1→N 延长同一条历史，当前会话保留为新一轮分支 1', reuseSt.zoomRuns.length === 1
+    && reuseSt.zoomRunId === reuseRunId
+    && reuseSt.zoomRuns[0].rounds.length === 3
+    && reuseSt.zoomRuns[0].rounds[2].sids.join(',') === 's-main,s-fleet-1'
+    && reuseSt.zoomRuns[0].rounds[2].sourceSids.join(',') === 's-main'
+    && reuseSt.zoomRuns[0].rounds[2].prompt === '近观沿用 1→2')
+  // 分支树导图：会话竖列 × 全部历史轮次——r2 只有 s-main（沿用）与 s-fleet-1（分叉），s-live 缺轮留空；
+  // 沿用 = 同列竖边，分叉 = 来源斜边，首列从根任务出边；分叉新列插到来源列右侧。
+  const reuseMap = await h({ action: 'fzoom-view', fields: { __el: { view: 'map' } }, state: reuseSt, root: ROOT, session: 's-main' })
+  const mapX = (id) => { const m = reuseMap.html.match(new RegExp('data-map-node="' + id + '" data-map-default-x="(\\d+)"')); return m ? Number(m[1]) : -1 }
+  check('大流镜导图：分支树覆盖全部轮次（沿用/分叉/缺轮各就其位）', reuseMap.state.zoomView === 'map'
+    && reuseMap.html.indexOf('data-map-node="r1-s-main"') >= 0 && reuseMap.html.indexOf('data-map-node="r1-s-live"') >= 0
+    && reuseMap.html.indexOf('data-map-node="r2-s-main"') >= 0 && reuseMap.html.indexOf('data-map-node="r2-s-fleet-1"') >= 0
+    && reuseMap.html.indexOf('data-map-node="r2-s-live"') < 0
+    && reuseMap.html.indexOf('· 3 个会话') >= 0)
+  check('大流镜导图：沿用=同列竖边、分叉=来源斜边（首列从根任务出边）',
+    reuseMap.html.indexOf('data-map-from="root" data-map-to="r1-s-main"') >= 0
+      && reuseMap.html.indexOf('data-map-from="root" data-map-to="r1-s-live"') >= 0
+      && reuseMap.html.indexOf('data-map-from="r1-s-main" data-map-to="r2-s-main"') >= 0
+      && reuseMap.html.indexOf('data-map-from="r1-s-main" data-map-to="r2-s-fleet-1"') >= 0)
+  check('大流镜导图：分叉的新列插到来源列右侧（s-fleet-1 位于 s-main 与 s-live 之间）',
+    mapX('r2-s-fleet-1') > mapX('r1-s-main') && mapX('r2-s-fleet-1') < mapX('r1-s-live'))
   const sourceOnlyRun = {
     id: 'run-source-only', at: 10, prompt: '来源会话并发', name: '来源会话并发', parentId: '', forkRoundId: '',
     rounds: [
