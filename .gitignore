@@ -15,3 +15,6 @@ Desktop.ini
 deepseek-harness/
 # 编译合集产物（npm bundle 生成物，dist 整目录不入库；发布走 npm pack/CI artifact）
 dist/
+
+# 本机项目记忆指针，不进入公开仓库
+.memory-project.json
