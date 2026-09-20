@@ -5,6 +5,7 @@
   "displayName": "流镜",
   "mode": "native-static",
   "dynamicApprovalRequired": false,
+  "componentRows": [],
   "features": {
     "explicit": [
       "flow"
@@ -15,14 +16,14 @@
       "flow"
     ]
   },
-  "fingerprint": "b7be167f0fe9b44c",
+  "fingerprint": "9993aff4747634e0",
   "builderVersion": "2",
   "sourceHashes": {
-    "plugins/flow/tool.js": "d0ab9bdc81a4d20858dbb1095e1641e8eb28b84e5f003cb9e40c366cf85e4800",
-    "plugins/toolbox/client.js": "69c69a5876703a91d32f3a3e38ef911ffebad3f99185656bfb48bb6c907c76eb",
-    "plugins/toolbox/host.js": "c260aee9b7da1376b0d9a518003acb973b3b1a78a235a3d3277741efb4a92b3a",
-    "shared/host.js": "b9d52bee6e64721e677518272cb936266adb0947bfa9e9f29e2f02a4d0912a3b",
-    "shared/runtime.js": "75a6fc739f9e2e018d61c4ace46b24fbe9af8648ec24b549f4e84d2c68f375a5"
+    "plugins/flow/tool.js": "a857ad57a992eae1e23d3fe09a0fccc0e68503d9689ff369bb942e8696d50347",
+    "plugins/toolbox/client.js": "8212e08b6670c11f99bf992d2f5d7db81b56945a79f10e2598c8f2df74e87921",
+    "plugins/toolbox/host.js": "57b5f69cfafefcfdce774b40915273641bb7c0da086271a20426a815bd5ba8c9",
+    "shared/host.js": "187bbb33748d213484b3e9b58f127a1cf4c5b13f765e81cda0970d5e9f827f4d",
+    "shared/runtime.js": "a4722a241681f3e359c4d2948263d3ac570df4264e6f5f7ae510485144303794"
   },
   "profile": {
     "mode": "static-bundle",

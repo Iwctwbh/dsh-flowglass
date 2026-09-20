@@ -410,6 +410,7 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
       && pr.html.indexOf('>命令</span>') < 0 && pr.html.indexOf('>记忆</span>') < 0)
 
   const configuredPreferences = JSON.stringify({
+    language: 'zh-CN',
     keepOpenOnSessionSwitch: false,
     zoomEnabled: false,
     defaultBranchCount: 4,
@@ -422,6 +423,25 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
     && configured.state.zoomView === 'map' && configured.state.zoomLanes.length === 4)
   configured = await h({ action: 'fzoom', fields: { __flowPreferences: configuredPreferences }, state: configured.state, root: ROOT, session: 's-main' })
   check('关闭大流镜后旧入口动作也不会重新打开', configured.state.zoom === false && configured.html.indexOf('data-flow-board="1"') < 0)
+
+  // 语言偏好切换为英文 (en)
+  const enPreferences = JSON.stringify({
+    language: 'en',
+    keepOpenOnSessionSwitch: true,
+    zoomEnabled: true,
+    defaultBranchCount: 2,
+    defaultZoomView: 'compact',
+    refreshMs: 2000,
+  })
+  let enView = await h({ action: '', fields: { __flowPreferences: enPreferences }, state: null, root: ROOT, session: 's-main' })
+  check('偏好切换为英文后渲染英文实时流镜界面', enView.html.indexOf('Live Flow') >= 0
+    && enView.html.indexOf('● Live syncing') >= 0
+    && enView.html.indexOf('Flowglass instructions') >= 0
+    && enView.html.indexOf('⛶ Flow Zoom') >= 0)
+  let enZoom = await h({ action: 'fzoom', fields: { __flowPreferences: enPreferences }, state: enView.state, root: ROOT, session: 's-main' })
+  check('英文模式下大流镜渲染英文标题与控件', enZoom.html.indexOf('Flow Zoom') >= 0
+    && enZoom.html.indexOf('Panorama') >= 0
+    && enZoom.html.indexOf('Inspect') >= 0)
 
   // Skill 详情：语义化名称/资源/Markdown 说明，原始 XML 收进折叠区。
   let sk = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-skill-detail' })

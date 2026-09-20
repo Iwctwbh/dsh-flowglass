@@ -86,6 +86,7 @@ dsh plugin --profile web remove dsh-flowglass
 
 在 Harness 侧栏「插件」中打开 `flowglass` 详情页，可配置：
 
+- 界面语言切换（简体中文 / English）；
 - 切换 Session 时是否保持流镜展开；
 - 是否启用大流镜；
 - 默认分支数量；
