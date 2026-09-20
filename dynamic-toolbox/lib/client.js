@@ -6,6 +6,7 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
     const React = require('react')
     const TOOLBOX_MARKDOWN_TEXT = null
+    const TOOLBOX_UI_PRIMITIVES = null
     const TOOLBOX_CREATE_PORTAL = null
     const name = "dsh-dynamic-toolbox/client"
     const inject = ['slots', 'remote', 'timer', 'sessions']
@@ -18,6 +19,7 @@ window.__ModuleLoader__.load({
   "artifactService": "toolboxArtifactsDynamicToolbox",
   "remoteService": "toolboxNativeDynamicToolbox",
   "remoteNamespace": "toolboxNativeDynamicToolbox",
+  "bridgeService": "toolboxNativeBridgeDynamicToolbox",
   "rpcPrefix": "toolbox.dynamic-toolbox",
   "storagePrefix": "dsh.toolbox.dynamic-toolbox",
   "eventPrefix": "tb-dynamic-toolbox",
@@ -93,9 +95,9 @@ const TOOLBOX_RUNTIME = (() => {
       invocation: { kind: 'direct' },
       parameters: [{
         name: 'request', wire: 'request', source: 'json',
-        codec: { mode: 'strict', typeSymbol: "dsh-dynamic-toolbox#JsonRequest", schema: json },
+        codec: { mode: 'strict', typeSymbol: "dsh-dynamic-toolbox#JsonRequest", schema: json, create: () => json },
       }],
-      result: { mode: 'strict', typeSymbol: "dsh-dynamic-toolbox#JsonResult", schema: json },
+      result: { mode: 'strict', typeSymbol: "dsh-dynamic-toolbox#JsonResult", schema: json, create: () => json },
     })
     const remoteContribution = Object.freeze({
       package: "dsh-dynamic-toolbox",
@@ -160,6 +162,10 @@ return {
       && typeof TOOLBOX_CREATE_PORTAL !== 'undefined'
       && typeof TOOLBOX_CREATE_PORTAL === 'function'
       ? TOOLBOX_CREATE_PORTAL : null
+    const flowUiPrimitives = RT.bundleId === 'flow'
+      && typeof TOOLBOX_UI_PRIMITIVES !== 'undefined'
+      && TOOLBOX_UI_PRIMITIVES
+      ? TOOLBOX_UI_PRIMITIVES : null
     // Client-side fallback for a split reload: DSH can hot-reload client.js
     // while the native Host half stays resident until process restart.
     const FLOW_COPY_ICON_HTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1.5"></rect><path d="M3 11H2.5A1.5 1.5 0 0 1 1 9.5v-7A1.5 1.5 0 0 1 2.5 1h7A1.5 1.5 0 0 1 11 2.5V3"></path></svg>'
@@ -203,7 +209,8 @@ return {
       if (!sessionsClient) throw new Error('sessions 服务不可用')
       const target = String(request.sessionId)
       const parent = request.parentSessionId ? String(request.parentSessionId) : ''
-      if (request.kind === 'subagent' && parent && typeof sessionsClient.openSubagent === 'function') {
+      let navigationTarget = target
+      if (request.kind === 'subagent' && parent) {
         let address = typeof sessionsClient.subagentAddress === 'function' ? sessionsClient.subagentAddress(target) : null
         if (!address && typeof sessionsClient.refreshSubagents === 'function') {
           try { await sessionsClient.refreshSubagents(parent) } catch (e) {}
@@ -217,7 +224,16 @@ return {
             : null
           if (entry && entry.mode) address = { parentSessionId: parent, childSessionId: target, mode: entry.mode }
         }
-        if (address) { sessionsClient.openSubagent(address); return }
+        if (address) navigationTarget = address
+      }
+      const uiWorkspace = ctx.get('uiWorkspace')
+      if (uiWorkspace && typeof uiWorkspace.openSession === 'function') {
+        uiWorkspace.openSession(navigationTarget)
+        return
+      }
+      if (navigationTarget !== target && typeof sessionsClient.openSubagent === 'function') {
+        sessionsClient.openSubagent(navigationTarget)
+        return
       }
       if (typeof sessionsClient.open !== 'function') throw new Error('sessions.open 不可用')
       sessionsClient.open(target)
@@ -890,6 +906,44 @@ return {
       '.fl-rule-source[open]>summary{margin-bottom:7px}',
       '.fl-rule-source .tb-textarea{min-height:210px;resize:vertical;margin-bottom:7px}',
       '@media(max-width:620px){.fl-rule-grid{grid-template-columns:minmax(0,1fr)}}',
+      // 插件详情页中的 Flowglass 官方配置页（plugins.bundle.config）。
+      '.fg-settings{display:flex;flex-direction:column;gap:16px;margin:20px 0 26px;color:var(--dsw-alias-label-primary,#dcdee4);font-family:inherit}',
+      '.fg-settings-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}',
+      '.fg-settings-title{margin:0;font-size:16px;line-height:1.4;font-weight:650}',
+      '.fg-settings-sub{margin:4px 0 0;color:var(--dsw-alias-label-secondary,#9a9ba6);font-size:12px;line-height:1.6}',
+      '.fg-settings-section{display:flex;flex-direction:column;gap:12px;padding:16px;border:1px solid var(--dsw-alias-border-l1,#35363e);border-radius:10px;background:var(--dsw-alias-bg-base,#17181d)}',
+      '.fg-settings-section-head{display:flex;align-items:center;justify-content:space-between;gap:12px}',
+      '.fg-settings-section h3{margin:0;font-size:14px;font-weight:650}',
+      '.fg-settings-note{margin:0;color:var(--dsw-alias-label-secondary,#9a9ba6);font-size:11.5px;line-height:1.6}',
+      '.fg-settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px}',
+      '.fg-settings-row{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:42px}',
+      '.fg-settings-copy{display:flex;flex-direction:column;gap:2px;min-width:0}',
+      '.fg-settings-copy>strong{font-size:12.5px;font-weight:600}',
+      '.fg-settings-copy>small{color:var(--dsw-alias-label-tertiary,#777884);font-size:10.5px;line-height:1.45}',
+      '.fg-settings-select,.fg-settings-input{width:min(210px,45%);height:30px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2,#454650);border-radius:6px;background:var(--dsw-alias-bg-layer-1,#26272e);color:inherit;font:inherit;font-size:12px;box-sizing:border-box}',
+      '.fg-settings-input.is-official{height:auto;padding:0;border:0;background:transparent}',
+      '.fg-settings-toggle{position:relative;flex:none;width:36px;height:21px;padding:0;border:1px solid var(--dsw-alias-border-l2,#454650);border-radius:999px;background:var(--dsw-alias-bg-layer-1,#26272e);cursor:pointer}',
+      '.fg-settings-toggle>span{position:absolute;left:2px;top:2px;width:15px;height:15px;border-radius:50%;background:var(--dsw-alias-label-tertiary,#777884);transition:transform .15s,background .15s}',
+      '.fg-settings-toggle.is-on{border-color:var(--tb-accent,#3f6fd9);background:var(--tb-accent,#3f6fd9)}',
+      '.fg-settings-toggle.is-on>span{transform:translateX(15px);background:#fff}',
+      '.fg-settings-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}',
+      '.fg-settings-button{height:30px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2,#454650);border-radius:6px;background:transparent;color:inherit;font:inherit;font-size:12px;cursor:pointer}',
+      '.fg-settings-button:hover{border-color:var(--tb-accent-border,rgba(91,141,239,.55));color:var(--tb-active-text,#7fa7f0)}',
+      '.fg-settings-button.primary{border-color:var(--tb-accent,#3f6fd9);background:var(--tb-accent,#3f6fd9);color:#fff}',
+      '.fg-settings-button.danger:hover{border-color:#ef5350;color:#f28b82}',
+      '.fg-settings-button:disabled{opacity:.45;cursor:not-allowed}',
+      '.fg-settings-status{margin-right:auto;font-size:11.5px;color:var(--tb-done-text,#81c784)}',
+      '.fg-settings-status.is-error{color:var(--tb-danger-text,#f28b82)}',
+      '.fg-settings-rules{display:flex;flex-direction:column;gap:10px}',
+      '.fg-settings-rule{display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid var(--dsw-alias-border-l1,#35363e);border-radius:8px;background:var(--dsw-alias-bg-layer-1,#222329)}',
+      '.fg-settings-rule.is-off{opacity:.62}',
+      '.fg-settings-rule-head{display:flex;align-items:center;gap:9px}',
+      '.fg-settings-rule-head>strong{flex:1;min-width:0;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.fg-settings-rule-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}',
+      '.fg-settings-rule-grid label{display:flex;flex-direction:column;gap:4px;min-width:0;color:var(--dsw-alias-label-tertiary,#777884);font-size:10.5px}',
+      '.fg-settings-rule-grid .fg-settings-input{width:100%;max-width:none}',
+      '.fg-settings-color{width:100%;height:30px;padding:2px;border:1px solid var(--dsw-alias-border-l2,#454650);border-radius:6px;background:var(--dsw-alias-bg-layer-1,#26272e);cursor:pointer}',
+      '@media(max-width:760px){.fg-settings-grid{grid-template-columns:minmax(0,1fr)}.fg-settings-rule-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}',
       '.fl-skill-hero{display:flex;align-items:center;gap:7px;padding:8px;border:1px solid var(--tb-accent-border,rgba(91,141,239,.38));border-radius:7px;background:var(--tb-accent-bg,rgba(91,141,239,.08))}',
       '.fl-skill-hero>.fl-tag{color:var(--tb-active-text,#7fa7f0);background:rgba(91,141,239,.13)}',
       '.fl-skill-hero>strong{flex:1;min-width:0;font-family:ui-monospace,Consolas,monospace;font-size:calc(13px*var(--tb-fs-detail,1));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
@@ -1126,14 +1180,104 @@ return {
       subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn) },
     }
 
-    // ===== 右侧栏兼容承载（仅原生 flow bundle；一次只激活一条注册路径）=====
+    // ===== Flowglass 产品设置（官方插件详情页 + 流镜运行时共用） =====
+    // 内置默认随 Git/npm 包发布；用户修改和自定义显示规则只写浏览器 localStorage。
+    const FLOW_SETTINGS_EVENT = RT.event('flow-settings-changed')
+    const FLOW_PREFERENCES_KEY = RT.storageKey('flow.preferences')
+    const FLOW_RULES_KEY = RT.storageKey('flow.presentation-rules')
+    const FLOW_PREFERENCES_DEFAULTS = Object.freeze({
+      keepOpenOnSessionSwitch: true,
+      zoomEnabled: true,
+      defaultBranchCount: 2,
+      defaultZoomView: 'compact',
+      refreshMs: 2000,
+    })
+    const FLOW_DEFAULT_PRESENTATION_RULES = Object.freeze([
+      { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['git', 'git.exe'], displayName: 'Git', actions: [], badge: 'Git', color: '#f05032' },
+      { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['gh', 'gh.exe', 'github', 'github.exe'], displayName: 'GitHub', actions: [], badge: 'GitHub', color: '#8b949e' },
+      { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['pnpm', 'pnpm.cmd', 'pnpm.exe'], displayName: 'pnpm', actions: [], badge: 'pnpm', color: '#f69220' },
+      { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['npm', 'npm.cmd', 'npm.exe'], displayName: 'npm', actions: [], badge: 'npm', color: '#cb3837' },
+      { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['dsh', 'dsh.cmd', 'dsh.exe'], displayName: 'DSH', actions: [], badge: 'DSH', color: '#7fa7f0' },
+      { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['python', 'python.exe', 'python3', 'python3.exe', 'py', 'py.exe'], displayName: 'Python', actions: [], badge: 'Python', color: '#3776ab' },
+    ])
+    const flowDefaultPresentationRules = JSON.stringify(FLOW_DEFAULT_PRESENTATION_RULES)
+    const cloneFlowRules = (rules) => JSON.parse(JSON.stringify(rules))
+    const normalizeFlowPreferences = (value) => {
+      const p = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+      const branchCount = Number(p.defaultBranchCount)
+      const refreshMs = Number(p.refreshMs)
+      return {
+        keepOpenOnSessionSwitch: p.keepOpenOnSessionSwitch !== false,
+        zoomEnabled: p.zoomEnabled !== false,
+        defaultBranchCount: branchCount === 3 || branchCount === 4 ? branchCount : 2,
+        defaultZoomView: p.defaultZoomView === 'detail' || p.defaultZoomView === 'map' ? p.defaultZoomView : 'compact',
+        refreshMs: [0, 1000, 2000, 5000, 10000].includes(refreshMs) ? refreshMs : 2000,
+      }
+    }
+    const readFlowPreferences = () => {
+      try {
+        const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(FLOW_PREFERENCES_KEY)
+        return normalizeFlowPreferences(raw ? JSON.parse(raw) : FLOW_PREFERENCES_DEFAULTS)
+      } catch (e) { return normalizeFlowPreferences(FLOW_PREFERENCES_DEFAULTS) }
+    }
+    const splitFlowRuleList = (value) => String(value || '').split(',').map((item) => item.trim()).filter(Boolean)
+    const normalizeFlowRulesForStorage = (value) => {
+      const rules = typeof value === 'string' ? JSON.parse(value || '[]') : value
+      if (!Array.isArray(rules) || rules.length > 24) throw new Error('显示规则必须是数组，最多 24 条')
+      return rules.map((rule, index) => {
+        if (!rule || typeof rule !== 'object' || Array.isArray(rule)) throw new Error('第 ' + (index + 1) + ' 条显示规则无效')
+        const tools = Array.isArray(rule.tools) ? rule.tools.map(String).map((item) => item.trim()).filter(Boolean) : []
+        const executables = Array.isArray(rule.executables) ? rule.executables.map(String).map((item) => item.trim()).filter(Boolean) : []
+        if (!tools.length || !executables.length) throw new Error('第 ' + (index + 1) + ' 条规则需要原始工具和可执行文件')
+        const color = String(rule.color || '#81c784').toLowerCase()
+        if (!/^#[0-9a-f]{6}$/.test(color)) throw new Error('第 ' + (index + 1) + ' 条规则颜色无效')
+        return {
+          enabled: rule.enabled !== false,
+          tools: [...new Set(tools)].slice(0, 8),
+          executables: [...new Set(executables)].slice(0, 12),
+          displayName: String(rule.displayName || '').trim().slice(0, 80),
+          actions: [...new Set(Array.isArray(rule.actions) ? rule.actions.map(String).map((item) => item.trim()).filter(Boolean) : [])].slice(0, 32),
+          badge: String(rule.badge || '').trim().slice(0, 12),
+          color,
+        }
+      })
+    }
+    const readFlowRules = () => {
+      try {
+        const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(FLOW_RULES_KEY)
+        return typeof raw === 'string' ? raw : flowDefaultPresentationRules
+      } catch (e) { return flowDefaultPresentationRules }
+    }
+    const readFlowRuleObjects = () => {
+      try { return normalizeFlowRulesForStorage(readFlowRules()) }
+      catch (e) { return cloneFlowRules(FLOW_DEFAULT_PRESENTATION_RULES) }
+    }
+    const writeFlowRules = (raw) => {
+      if (typeof localStorage === 'undefined') return
+      localStorage.setItem(FLOW_RULES_KEY, raw)
+    }
+    const writeFlowSettings = (preferences, rules) => {
+      const nextPreferences = normalizeFlowPreferences(preferences)
+      const nextRules = normalizeFlowRulesForStorage(rules)
+      if (typeof localStorage === 'undefined') throw new Error('当前浏览器不支持本地设置')
+      localStorage.setItem(FLOW_PREFERENCES_KEY, JSON.stringify(nextPreferences))
+      localStorage.setItem(FLOW_RULES_KEY, JSON.stringify(nextRules))
+      try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(FLOW_SETTINGS_EVENT)) } catch (e) {}
+      return { preferences: nextPreferences, rules: nextRules }
+    }
+
+    // ===== 官方右侧栏承载（Flowglass + 原生静态工具箱）=====
     // 接入层级（0.1.5 计划）：Harness 原生 sidebarRightTabs + slots
     //   > Better Sidebar >= 0.19 原生桥 > 固定右侧兜底面板。
     // 服务可晚于流镜出现/被 HMR 替换，所以两条桥都用 ctx.inject 驱动，并用这个
-    // 小 store 让已挂载的独立入口/Drawer 同步让位/恢复。完整 dynamic-toolbox 不接管为“流镜” Tab。
+    // 小 store 让已挂载的独立入口/Drawer 同步让位/恢复。原生静态工具箱只走 Harness
+    // 官方下拉框/Tab，不再注册独立导航入口或 shell.overlay 抽屉。
     const FLOW_TAB_ID = 'dsh-flowglass:flow'
     const FLOW_NATIVE_ID = 'dsh-flowglass/native' // 原生 page type 的 definition id（body/title 同 id 注册）
     const FLOW_NATIVE_KIND = 'dsh-flowglass:flow' // openTab 寻址的 kind
+    const TOOLBOX_NATIVE_ID = 'dsh-dynamic-toolbox/native'
+    const TOOLBOX_NATIVE_KIND = 'dsh-dynamic-toolbox:toolbox'
+    const OFFICIAL_TOOLBOX_ONLY = RT.bundleId === 'dynamic-toolbox'
     const integrationListeners = new Set()
     const integration = {
       service: null, // betterSidebar 服务
@@ -1158,6 +1302,10 @@ return {
     }
     // 原生 openTab 句柄（sidebarRightTabs 注入回调内置位；null = 原生不可用）
     let nativeOpenTab = null
+    // 原生流镜 Tab 的展开意图跨 Session 保留。Harness 的右侧栏页面按 Session 重挂，
+    // 旧 Tab 在切换过程中可能先隐藏/卸载；用目标 Session 区分“导航重挂”与用户主动关闭。
+    let nativeFlowVisible = false
+    let nativeFlowReopenSession = ''
 
     function useIntegrationActive() {
       const [, force] = React.useState(0)
@@ -1599,6 +1747,143 @@ return {
       )
     }
 
+    // Harness 官方插件详情配置页：注册到 plugins.bundle.config，设置先暂存，保存后才写 localStorage。
+    function FlowglassPluginSettings() {
+      const initialPreferences = React.useMemo ? React.useMemo(() => readFlowPreferences(), []) : readFlowPreferences()
+      const initialRules = React.useMemo ? React.useMemo(() => readFlowRuleObjects(), []) : readFlowRuleObjects()
+      const [preferences, setPreferences] = React.useState(initialPreferences)
+      const [rules, setRules] = React.useState(initialRules)
+      const [savedKey, setSavedKey] = React.useState(() => JSON.stringify({ preferences: initialPreferences, rules: initialRules }))
+      const [notice, setNotice] = React.useState(null)
+      const currentKey = JSON.stringify({ preferences, rules })
+      const dirty = currentKey !== savedKey
+      const h = React.createElement
+      const UiButton = flowUiPrimitives && flowUiPrimitives.Button
+      const UiSwitch = flowUiPrimitives && flowUiPrimitives.Switch
+      const UiInput = flowUiPrimitives && flowUiPrimitives.Input
+      const button = (props, child) => UiButton
+        ? h(UiButton, { variant: props.primary ? 'primary' : 'outline', size: 'sm', ...props, primary: undefined }, child)
+        : h('button', { type: 'button', ...props, primary: undefined }, child)
+      const setPreference = (key, value) => {
+        setPreferences((current) => ({ ...current, [key]: value }))
+        setNotice(null)
+      }
+      const setRule = (index, patch) => {
+        setRules((current) => current.map((rule, at) => at === index ? { ...rule, ...patch } : rule))
+        setNotice(null)
+      }
+      const toggle = (label, value, onChange) => UiSwitch
+        ? h(UiSwitch, { checked: value, onChange, label })
+        : h('button', {
+          type: 'button', role: 'switch', 'aria-label': label, 'aria-checked': value ? 'true' : 'false',
+          className: 'fg-settings-toggle' + (value ? ' is-on' : ''), onClick: () => onChange(!value),
+        }, h('span', null))
+      const option = (value, label) => h('option', { key: String(value), value: String(value) }, label)
+      const preferenceRow = (title, description, control) => h('div', { className: 'fg-settings-row' },
+        h('span', { className: 'fg-settings-copy' }, h('strong', null, title), h('small', null, description)),
+        control,
+      )
+      const reloadStaged = () => {
+        const nextPreferences = readFlowPreferences()
+        const nextRules = readFlowRuleObjects()
+        setPreferences(nextPreferences)
+        setRules(nextRules)
+        setSavedKey(JSON.stringify({ preferences: nextPreferences, rules: nextRules }))
+        setNotice(null)
+      }
+      const save = (event) => {
+        if (event && typeof event.preventDefault === 'function') event.preventDefault()
+        try {
+          const saved = writeFlowSettings(preferences, rules)
+          const nextRules = cloneFlowRules(saved.rules)
+          setPreferences(saved.preferences)
+          setRules(nextRules)
+          setSavedKey(JSON.stringify({ preferences: saved.preferences, rules: nextRules }))
+          setNotice({ error: false, text: '设置已保存，并已应用到当前浏览器中的流镜。' })
+        } catch (error) {
+          setNotice({ error: true, text: String((error && error.message) || error) })
+        }
+      }
+      const ruleCards = rules.map((rule, index) => {
+        const title = rule.displayName || rule.executables[0] || '未命名规则'
+        const input = (label, key, value, placeholder, list) => h('label', { key },
+          h('span', null, label),
+          h(UiInput || 'input', {
+            className: 'fg-settings-input' + (UiInput ? ' is-official' : ''), value, placeholder,
+            onChange: (event) => setRule(index, { [key]: list ? splitFlowRuleList(event.currentTarget.value) : event.currentTarget.value }),
+          }),
+        )
+        return h('article', { key: index, className: 'fg-settings-rule' + (rule.enabled ? '' : ' is-off') },
+          h('div', { className: 'fg-settings-rule-head' },
+            toggle('启用规则 ' + (index + 1), rule.enabled, (enabled) => setRule(index, { enabled })),
+            h('span', { className: 'fl-rule-dot', style: { background: rule.color } }),
+            h('strong', null, title),
+            button({
+              type: 'button', className: 'fg-settings-button danger',
+              onClick: () => { setRules((current) => current.filter((_item, at) => at !== index)); setNotice(null) },
+            }, '删除'),
+          ),
+          h('div', { className: 'fg-settings-rule-grid' },
+            input('原始工具（逗号分隔）', 'tools', (rule.tools || []).join(', '), 'pwsh, bash', true),
+            input('可执行文件（逗号分隔）', 'executables', (rule.executables || []).join(', '), 'git, git.exe', true),
+            input('显示名称', 'displayName', rule.displayName || '', '可留空', false),
+            input('子命令（逗号分隔）', 'actions', (rule.actions || []).join(', '), '为空时匹配任意子命令', true),
+            input('徽章', 'badge', rule.badge || '', '可留空', false),
+            h('label', { key: 'color' }, h('span', null, '颜色'), h('input', {
+              type: 'color', className: 'fg-settings-color', value: rule.color || '#81c784',
+              onChange: (event) => setRule(index, { color: event.currentTarget.value }),
+            })),
+          ),
+        )
+      })
+      return h('div', { 'data-dsh-toolbox-scope': RT.domValue() },
+        h('form', { className: 'fg-settings', onSubmit: save },
+          h('div', { className: 'fg-settings-head' },
+            h('div', null,
+              h('h2', { className: 'fg-settings-title' }, 'Flowglass 设置'),
+              h('p', { className: 'fg-settings-sub' }, '配置仅保存在当前浏览器；内置默认规则随插件包发布，自定义规则不会写入 Git 或 npm 包。'),
+            ),
+          ),
+          h('section', { className: 'fg-settings-section' },
+            h('div', { className: 'fg-settings-section-head' }, h('h3', null, '行为与大流镜')),
+            h('div', { className: 'fg-settings-grid' },
+              preferenceRow('切换 Session 时保持展开', '仅延续已展开的流镜；主动关闭后不会自动弹回。',
+                toggle('切换 Session 时保持展开', preferences.keepOpenOnSessionSwitch, (value) => setPreference('keepOpenOnSessionSwitch', value))),
+              preferenceRow('启用大流镜', '关闭后隐藏大流镜入口，并退出已经打开的大流镜。',
+                toggle('启用大流镜', preferences.zoomEnabled, (value) => setPreference('zoomEnabled', value))),
+              preferenceRow('默认分支数量', '新会话第一次打开并发开工台时使用。',
+                h('select', { className: 'fg-settings-select', value: String(preferences.defaultBranchCount), onChange: (event) => setPreference('defaultBranchCount', Number(event.currentTarget.value)) },
+                  option(2, '2 个分支'), option(3, '3 个分支'), option(4, '4 个分支'))),
+              preferenceRow('大流镜默认视图', '没有已保存历史视图时采用。',
+                h('select', { className: 'fg-settings-select', value: preferences.defaultZoomView, onChange: (event) => setPreference('defaultZoomView', event.currentTarget.value) },
+                  option('compact', '精简'), option('detail', '详细'), option('map', '导图'))),
+              preferenceRow('轮询刷新', '事件推送仍然生效；关闭表示只使用事件驱动刷新。',
+                h('select', { className: 'fg-settings-select', value: String(preferences.refreshMs), onChange: (event) => setPreference('refreshMs', Number(event.currentTarget.value)) },
+                  option(0, '关闭轮询'), option(1000, '1 秒'), option(2000, '2 秒'), option(5000, '5 秒'), option(10000, '10 秒'))),
+            ),
+          ),
+          h('section', { className: 'fg-settings-section' },
+            h('div', { className: 'fg-settings-section-head' },
+              h('div', null, h('h3', null, '工具显示规则'), h('p', { className: 'fg-settings-note' }, '按顺序匹配，首条命中生效；默认规则和自定义规则都可关闭、编辑或删除。')),
+              h('div', { className: 'fg-settings-actions' },
+                button({
+                  type: 'button', className: 'fg-settings-button', disabled: rules.length >= 24,
+                  onClick: () => { setRules((current) => [...current, { enabled: true, tools: ['pwsh'], executables: [], displayName: '', actions: [], badge: '', color: '#81c784' }]); setNotice(null) },
+                }, '添加规则'),
+                button({ type: 'button', className: 'fg-settings-button', onClick: () => { setRules(cloneFlowRules(FLOW_DEFAULT_PRESENTATION_RULES)); setNotice(null) } }, '恢复内置规则'),
+              ),
+            ),
+            h('div', { className: 'fg-settings-rules' }, ruleCards.length ? ruleCards : h('p', { className: 'fg-settings-note' }, '当前没有显示规则。保存空列表后，刷新也不会恢复默认规则。')),
+          ),
+          h('div', { className: 'fg-settings-actions' },
+            notice ? h('span', { className: 'fg-settings-status' + (notice.error ? ' is-error' : ''), role: notice.error ? 'alert' : 'status' }, notice.text) : null,
+            button({ type: 'button', className: 'fg-settings-button', disabled: !dirty, onClick: reloadStaged }, '放弃更改'),
+            button({ type: 'submit', primary: true, className: 'fg-settings-button primary', disabled: !dirty }, '保存设置'),
+          ),
+        ),
+      )
+    }
+
 
     // 横向滚动行：滚轮纵转横。React 根节点的 wheel 监听是 passive（preventDefault 会告警且无效），故挂原生非 passive
     function HRow(props) {
@@ -1654,16 +1939,6 @@ return {
       const [flowMarkdownPortal, setFlowMarkdownPortal] = React.useState(null)
       const [busyTool, setBusyTool] = React.useState(null)
       const [showJumpLatest, setShowJumpLatest] = React.useState(false)
-      const flowRulesStorageKey = RT.storageKey('flow.presentation-rules')
-      const readFlowRules = () => {
-        try {
-          const raw = localStorage.getItem(flowRulesStorageKey)
-          return typeof raw === 'string' && raw.trim() ? raw : '[]'
-        } catch (e) { return '[]' }
-      }
-      const writeFlowRules = (raw) => {
-        try { localStorage.setItem(flowRulesStorageKey, raw) } catch (e) {}
-      }
       const [flowZoom, setFlowZoom] = React.useState(() => {
         try { const n = Number(localStorage.getItem(RT.storageKey('flow.zoom'))); return n >= 60 && n <= 150 ? n : 100 } catch (e) { return 100 }
       })
@@ -2448,6 +2723,16 @@ return {
         window.addEventListener(SESSION_EVENT, onChanged)
         return () => { try { window.removeEventListener(SESSION_EVENT, onChanged) } catch (e) {} }
       }, [])
+      // 插件详情页保存 Flowglass 设置后，同一浏览器窗口立即重拉已打开的流镜。
+      React.useEffect(() => {
+        if (typeof window === 'undefined') return undefined
+        const onFlowSettingsChanged = () => {
+          if (activeRef.current !== 'flow' || !openRef.current || typeof loadPanelRef.current !== 'function') return
+          loadPanelRef.current('flow', '__refresh', null, { silent: true })
+        }
+        window.addEventListener(FLOW_SETTINGS_EVENT, onFlowSettingsChanged)
+        return () => { try { window.removeEventListener(FLOW_SETTINGS_EVENT, onFlowSettingsChanged) } catch (e) {} }
+      }, [])
       const hookSession = props.useSessions((s) => (s && s.current ? String(s.current) : undefined))
       const hookFlowSessionIds = props.useSessions((s) => (s ? s.ids : undefined))
       const hookFlowSessionsById = props.useSessions((s) => (s ? s.byId : undefined))
@@ -2890,7 +3175,7 @@ return {
         setFlowUiBusy(true); setFlowUiNotice('正在创建分支会话…')
         try {
           const childId = await sessionsClient.fork({ sessionId: source, atSeq: Number(seq), increaseTitle: true })
-          sessionsClient.open(childId)
+          await navigateHarnessSession({ sessionId: childId })
           const reopen = () => { try { if (nativeOpenTab) nativeOpenTab() } catch (e) {} }
           try { ctx.timeout(reopen, 0); ctx.timeout(reopen, 180) } catch (e) {}
           setFlowUiNotice('已创建分支会话')
@@ -2914,42 +3199,46 @@ return {
         return res.flowContext
       }
 
-      // 跨会话草稿写入（DSH 0.1.5 基线）：会话标准 props 收进 Session Controller 绑定，
-      // 经 ctx.uiSession 的 adapter.resolve(sessionId) 解析 { props.inputActions, hooks.input }。
-      // 旧 Harness 的 sessions.provideInfo 回退已删除（0.1.5 无该接口；不可解析时明确报错）。
-      // sessions.create() 的解析保证：promise 落定时 binding 可同步寻址——仍保留短重试，
-      // 容错列表投影尚未刷到的瞬间。
-      const resolveSessionProvideInfo = (sessionId) => {
+      // 跨会话草稿写入：alpha.2 的 Session 必须先 retain，并通过 bindingSource
+      // 投影标准 props/hooks；0.1.5 继续使用 adapter.resolve 兼容路径。
+      const withSessionProvideInfo = async (sessionId, operation) => {
         const uiSession = ctx.get('uiSession')
-        if (!uiSession || !uiSession.adapter || typeof uiSession.adapter.resolve !== 'function') {
+        if (!uiSession || !uiSession.adapter) {
           throw new Error('当前 Harness 不支持跨会话草稿写入（缺少 uiSession 绑定服务）')
         }
-        const binding = uiSession.adapter.resolve(sessionId)
-        return binding ? { props: binding.props, hooks: binding.hooks } : undefined
-      }
-
-      const resolveSessionProvideInfoWithRetry = async (sessionId) => {
-        let last = undefined
-        for (let i = 0; i < 3; i++) {
-          last = resolveSessionProvideInfo(sessionId)
-          if (last) return last
-          await new Promise((r) => setTimeout(r, 120))
+        if (sessionsClient && typeof sessionsClient.using === 'function'
+          && typeof uiSession.adapter.bindingSource === 'function') {
+          return sessionsClient.using(sessionId, { source: 'controllerOperation' }, (reference) => {
+            const source = uiSession.adapter.bindingSource(reference)
+            const binding = source && typeof source.getSnapshot === 'function' ? source.getSnapshot() : undefined
+            if (!binding || binding.key == null) throw new Error('目标会话的 UI 绑定不可用')
+            return operation({ props: binding.props, hooks: binding.hooks })
+          })
         }
-        return last
+        if (typeof uiSession.adapter.resolve !== 'function') {
+          throw new Error('当前 Harness 不支持跨会话草稿写入（缺少 uiSession 解析器）')
+        }
+        for (let i = 0; i < 3; i++) {
+          const binding = uiSession.adapter.resolve(sessionId)
+          if (binding) return operation({ props: binding.props, hooks: binding.hooks })
+          await new Promise((resolve) => setTimeout(resolve, 120))
+        }
+        throw new Error('目标会话的 UI 绑定不可用')
       }
 
       const putFlowContextIntoDraft = async (sessionId, text, append) => {
-        const info = await resolveSessionProvideInfoWithRetry(sessionId)
-        const actions = info && info.props && info.props.inputActions
-        const input = info && info.hooks && info.hooks.input
-        if (!actions || typeof actions.setDraft !== 'function') throw new Error('目标会话的输入区不可用')
-        let next = text
-        if (append && input && typeof input.getSnapshot === 'function') {
-          const snap = input.getSnapshot()
-          const previous = snap && typeof snap.draft === 'string' ? snap.draft : ''
-          if (previous.trim()) next = previous.replace(/\s+$/, '') + '\n\n' + text
-        }
-        actions.setDraft(next)
+        await withSessionProvideInfo(sessionId, (info) => {
+          const actions = info && info.props && info.props.inputActions
+          const input = info && info.hooks && info.hooks.input
+          if (!actions || typeof actions.setDraft !== 'function') throw new Error('目标会话的输入区不可用')
+          let next = text
+          if (append && input && typeof input.getSnapshot === 'function') {
+            const snap = input.getSnapshot()
+            const previous = snap && typeof snap.draft === 'string' ? snap.draft : ''
+            if (previous.trim()) next = previous.replace(/\s+$/, '') + '\n\n' + text
+          }
+          actions.setDraft(next)
+        })
       }
 
       const createSelectedFlowSession = async () => {
@@ -2960,7 +3249,7 @@ return {
           const context = await fetchSelectedFlowContext()
           const sessionId = await sessionsClient.create(currentCwd ? { cwd: currentCwd } : {})
           await putFlowContextIntoDraft(sessionId, context.text, false)
-          sessionsClient.open(sessionId)
+          await navigateHarnessSession({ sessionId })
           setFlowSelectedSeqs([])
           setFlowBringPopup(false)
           setFlowTreeOpen({})
@@ -2977,7 +3266,7 @@ return {
         try {
           const context = await fetchSelectedFlowContext()
           await putFlowContextIntoDraft(target, context.text, true)
-          sessionsClient.open(target)
+          await navigateHarnessSession({ sessionId: target })
           setFlowSelectedSeqs([])
           setFlowBringPopup(false)
           setFlowTreeOpen({})
@@ -2998,12 +3287,20 @@ return {
         }
         return undefined
       }
+      const withZoomBinding = async (sid, operation) => {
+        if (sessionsClient && typeof sessionsClient.using === 'function') {
+          return sessionsClient.using(sid, { source: 'controllerOperation' }, (reference) => operation(reference.binding))
+        }
+        const binding = await resolveZoomBinding(sid)
+        if (!binding) throw new Error('会话不可用或未上线')
+        return operation(binding)
+      }
       // 直接发送 = 目标会话排队执行一条用户消息（ISession.prompt mode 'queue'：运行中排队、空闲立即开工）
       const sendTextToSession = async (sid, text) => {
-        const b = await resolveZoomBinding(sid)
-        if (!b) throw new Error('会话不可用或未上线')
-        const res = await b.session.prompt([{ type: 'text', text }], 'queue')
-        if (!res || res.ok !== true) throw new Error((res && res.error && res.error.message) || '发送被拒绝')
+        await withZoomBinding(sid, async (binding) => {
+          const res = await binding.session.prompt([{ type: 'text', text }], 'queue')
+          if (!res || res.ok !== true) throw new Error((res && res.error && res.error.message) || '发送被拒绝')
+        })
       }
       // 模型分支：开工台每条分支一个路由 select（值 'provider/model'，'' = 默认跟随当前）
       const zoomLaneValues = () => {
@@ -3031,10 +3328,11 @@ return {
         if (!res || res.ok !== true) throw new Error((res && res.error && res.error.message) || 'selectModel 被拒绝')
       }
       const renameSession = async (sid, title) => {
-        const b = await resolveZoomBinding(sid)
-        if (!b || !b.session || typeof b.session.rename !== 'function') return
-        const res = await b.session.rename(String(title).slice(0, 120))
-        if (res && res.ok === false) throw new Error((res.error && res.error.message) || '会话重命名失败')
+        await withZoomBinding(sid, async (binding) => {
+          if (!binding.session || typeof binding.session.rename !== 'function') return
+          const res = await binding.session.rename(String(title).slice(0, 120))
+          if (res && res.ok === false) throw new Error((res.error && res.error.message) || '会话重命名失败')
+        })
       }
       const zoomBranchTitle = (prompt, index, count, route) => {
         const task = String(prompt || '并发任务').replace(/\s+/g, ' ').trim().slice(0, 42)
@@ -3615,6 +3913,7 @@ return {
           const persistFlowRules = toolId === 'flow' && ['fsave-rule', 'fcreate-rule', 'fapply-rule-json', 'ftoggle-rule', 'fdelete-rule', 'freset-rules'].includes(action)
           if (toolId === 'flow') {
             fields.__flowPresentationRules = readFlowRules()
+            fields.__flowPreferences = JSON.stringify(readFlowPreferences())
             fields.__flowZoomLog = JSON.stringify(readFlowZoomLog())
             fields.__flowArchivedSessionIds = JSON.stringify(archivedSessionIds)
             // Harness 普通 fork/create Session 没有 subagent 血缘；完整标题只在 Client
@@ -4074,8 +4373,15 @@ return {
           if (followState) stateRef.current.flow = followState
           if (sidChanged) {
             flowHarnessNavTargetRef.current = null
-            if (isFlowFollow && nativeOpenTab) {
-              try { ctx.timeout(() => { try { nativeOpenTab() } catch (e) {} }, 0) } catch (e) {}
+            const keepNativeFlowOpen = readFlowPreferences().keepOpenOnSessionSwitch && nativeFlowVisible
+              && (!nativeFlowReopenSession || nativeFlowReopenSession === sid)
+            if ((isFlowFollow || keepNativeFlowOpen) && nativeOpenTab) {
+              try {
+                ctx.timeout(() => {
+                  try { nativeOpenTab() } catch (e) {}
+                  if (nativeFlowReopenSession === sid) nativeFlowReopenSession = ''
+                }, 0)
+              } catch (e) {}
             }
             if (!isFlowFollow) {
               // 用户手动切换 Session：不沿用之前 Flowglass 的临时返回链。
@@ -5162,19 +5468,47 @@ return {
       // 内调用 hook 导致渲染间 hook 顺序漂移。
       const info = props.useTabInfo()
       const visible = !(info && info.tab && info.tab.visible === false)
+      const useSessions = typeof props.useSessions === 'function' ? props.useSessions : () => undefined
+      const selectedSessionId = useSessions((state) => state && state.current ? String(state.current) : '')
+      const boundSessionId = String(props.sessionId || '')
+      if (visible) {
+        nativeFlowVisible = true
+        nativeFlowReopenSession = ''
+      } else if (nativeFlowVisible && selectedSessionId && boundSessionId && selectedSessionId !== boundSessionId) {
+        // Session 导航会把旧页面标成不可见；这是重挂信号，不是用户关闭。
+        nativeFlowReopenSession = selectedSessionId
+      } else if (nativeFlowReopenSession !== boundSessionId) {
+        // 同一 Session 内切走/关闭流镜时立即撤销保持展开意图。
+        nativeFlowVisible = false
+      }
       return React.createElement(Drawer, {
         embedded: true,
         visible,
         sessionId: props.sessionId,
-        useSessions: typeof props.useSessions === 'function' ? props.useSessions : () => undefined,
+        useSessions,
         useWorkspaces: typeof props.useWorkspaces === 'function' ? props.useWorkspaces : () => undefined,
       })
     }
 
-    if (typeof document !== 'undefined' && typeof MutationObserver !== 'undefined') {
+    // 原生静态工具箱与 Flowglass 共用官方右侧栏协议，但不需要 Flowglass 的跨 Session
+    // 保持展开状态机；官方 Tab 的 sessionId/useTabInfo 仍是面板上下文的权威来源。
+    function ToolboxNativeTabBody(props) {
+      const info = props.useTabInfo()
+      const visible = !(info && info.tab && info.tab.visible === false)
+      const useSessions = typeof props.useSessions === 'function' ? props.useSessions : () => undefined
+      return React.createElement(Drawer, {
+        embedded: true,
+        visible,
+        sessionId: props.sessionId,
+        useSessions,
+        useWorkspaces: typeof props.useWorkspaces === 'function' ? props.useWorkspaces : () => undefined,
+      })
+    }
+
+    if (!OFFICIAL_TOOLBOX_ONLY && typeof document !== 'undefined' && typeof MutationObserver !== 'undefined') {
       // 侧边栏导航区无官方 Slot：DOM 注入导航条目（新会话下方、SSH 之后），disposer 随插件停止清理
       ctx.effect(() => mountSidebarEntry())
-    } else {
+    } else if (!OFFICIAL_TOOLBOX_ONLY) {
       // 无 DOM 环境兜底：官方 footer Slot（rc.7 root-scoped list Slot，owner 只传 { wide }）
       slots.inject('sidebar.footer.action', () => slots.register(
         { name: 'sidebar.footer.action', id: RT.slot('entry'), order: -1000, label: RT.displayName },
@@ -5182,21 +5516,31 @@ return {
       ))
     }
 
-    slots.inject('shell.overlay', () => slots.register(
-      {
-        name: 'shell.overlay',
-        id: RT.slot('drawer'),
-        order: 120,
-        label: RT.displayName + '抽屉',
-      },
-      (props) => React.createElement(Drawer, props),
-    ))
+    if (!OFFICIAL_TOOLBOX_ONLY) {
+      slots.inject('shell.overlay', () => slots.register(
+        {
+          name: 'shell.overlay',
+          id: RT.slot('drawer'),
+          order: 120,
+          label: RT.displayName + '抽屉',
+        },
+        (props) => React.createElement(Drawer, props),
+      ))
+    }
 
-    // ===== Harness 原生右侧栏注册（0.1.5+，最高层；仅原生 flow bundle）=====
+    // Harness 官方插件管理页扩展点：点击 dsh-flowglass bundle 后，在详情页渲染配置表单。
+    if (RT.bundleId === 'flow') {
+      slots.inject('plugins.bundle.config', () => slots.register(
+        { name: 'plugins.bundle.config', key: 'dsh-flowglass' },
+        () => React.createElement(FlowglassPluginSettings, null),
+      ))
+    }
+
+    // ===== Harness 原生右侧栏注册（0.1.5+）=====
     // 两段式公开契约：sidebarRightTabs.register 注册 page type（guide 入口随定义），
     // 同一个 definition id 在 sidebar.right.pane.tab 声明 body。服务不存在时 inject
     // fiber 保持等待（旧 Harness 无感降级到 better-sidebar / 固定右侧兜底面板）。
-    if (RT.bundleId === 'flow' && typeof ctx.inject === 'function') {
+    if ((RT.bundleId === 'flow' || OFFICIAL_TOOLBOX_ONLY) && typeof ctx.inject === 'function') {
       // 两个服务由宿主相邻 provide，但晚加载/HMR 时仍是两个独立可见性边；
       // 同时等待，避免 registry 先到时永久捕获 undefined controller。
       ctx.inject(['sidebarRightTabs', 'sidebarRight'], (nativeCtx) => {
@@ -5213,16 +5557,29 @@ return {
           React.createElement('circle', { cx: 12, cy: 12.5, r: 1.5 }),
           React.createElement('path', { d: 'M8 4.5v2.2M8 6.7L4 11M8 6.7l4 4.3' }),
         )
+        const toolboxGlyph = (p) => React.createElement('svg', {
+          width: (p && p.size) || 16, height: (p && p.size) || 16, viewBox: '0 0 16 16', fill: 'none',
+          stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round',
+          className: p && p.className, 'aria-hidden': true,
+        },
+          React.createElement('rect', { x: 2, y: 5, width: 12, height: 8.5, rx: 1.5 }),
+          React.createElement('path', { d: 'M5.5 5V3.8A1.3 1.3 0 0 1 6.8 2.5h2.4a1.3 1.3 0 0 1 1.3 1.3V5M2 8.2h12' }),
+        )
+        const nativeToolbox = OFFICIAL_TOOLBOX_ONLY
+        const nativeId = nativeToolbox ? TOOLBOX_NATIVE_ID : FLOW_NATIVE_ID
+        const nativeKind = nativeToolbox ? TOOLBOX_NATIVE_KIND : FLOW_NATIVE_KIND
+        const nativeTitle = nativeToolbox ? '工具箱' : '流镜'
+        const nativeDescription = nativeToolbox ? '打开工作区工具箱' : '查看当前会话、工具调用与子代理执行流程'
         // page type：无 resource patterns（按 kind 打开）；guide 项排在文件等常用入口之后
         const definition = {
-          id: FLOW_NATIVE_ID,
-          kind: FLOW_NATIVE_KIND,
-          title: () => '流镜',
+          id: nativeId,
+          kind: nativeKind,
+          title: () => nativeTitle,
           guide: [{
             order: 40,
-            title: () => '流镜',
-            description: () => '查看当前会话、工具调用与子代理执行流程',
-            icon: flowGlyph,
+            title: () => nativeTitle,
+            description: () => nativeDescription,
+            icon: nativeToolbox ? toolboxGlyph : flowGlyph,
           }],
         }
         let disposeType = null
@@ -5232,6 +5589,8 @@ return {
           if (disposeBody) { try { disposeBody() } catch (e) {} disposeBody = null }
           if (disposeType) { try { disposeType() } catch (e) {} disposeType = null }
           nativeOpenTab = null
+          nativeFlowVisible = false
+          nativeFlowReopenSession = ''
           integration.setNative(false)
         }
         const applyNative = () => {
@@ -5240,13 +5599,13 @@ return {
               try { disposeType = tabs.register(definition) } catch (e) { retract(); return }
               disposeBody = nativeSlots && typeof nativeSlots.inject === 'function'
                 ? nativeCtx.effect(() => nativeSlots.inject('sidebar.right.pane.tab', () => nativeSlots.register(
-                  { name: 'sidebar.right.pane.tab', key: FLOW_NATIVE_ID },
-                  (tabProps) => React.createElement(FlowglassNativeTabBody, tabProps),
+                  { name: 'sidebar.right.pane.tab', key: nativeId },
+                  (tabProps) => React.createElement(nativeToolbox ? ToolboxNativeTabBody : FlowglassNativeTabBody, tabProps),
                 )))
                 : null
               // 自有入口 → openTab：自动展开右侧栏；同 pane 重复打开聚焦既有 Tab（Harness 单例语义）
               nativeOpenTab = () => {
-                if (controller && typeof controller.openTab === 'function') controller.openTab(FLOW_NATIVE_KIND)
+                if (controller && typeof controller.openTab === 'function') controller.openTab(nativeKind)
               }
               integration.setNative(true)
             }
@@ -5779,6 +6138,7 @@ return {
 }
 
     async function apply(ctx) {
+      try {
       const disposeRemote = await ctx.remote.$mount(remoteContribution)
       ctx.effect(() => () => { void disposeRemote() })
       ctx.effect(() => () => { for (const dispose of [...styleDisposers]) dispose() })
@@ -5808,6 +6168,10 @@ return {
         if (typeof disposer === 'function') ctx.effect(() => disposer)
       }
       console.log(TOOLBOX_RUNTIME.logTag() + ' 原生静态 Client 已加载（无动态批准）')
+      } catch (error) {
+        console.error(TOOLBOX_RUNTIME.logTag() + ' 原生静态 Client 加载失败', error)
+        throw error
+      }
     }
 
     exports.name = name

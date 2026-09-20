@@ -2,3 +2,41 @@
 - insert:
     - id: toolbox-bundle-dynamic-toolbox
       name: 'dsh-dynamic-toolbox'
+    - id: toolbox-bundle-dynamic-toolbox-jira
+      name: 'dsh-dynamic-toolbox/feature/jira'
+    - id: toolbox-bundle-dynamic-toolbox-git
+      name: 'dsh-dynamic-toolbox/feature/git'
+    - id: toolbox-bundle-dynamic-toolbox-files
+      name: 'dsh-dynamic-toolbox/feature/files'
+    - id: toolbox-bundle-dynamic-toolbox-flow
+      name: 'dsh-dynamic-toolbox/feature/flow'
+    - id: toolbox-bundle-dynamic-toolbox-flowedit
+      name: 'dsh-dynamic-toolbox/feature/flowedit'
+    - id: toolbox-bundle-dynamic-toolbox-trace
+      name: 'dsh-dynamic-toolbox/feature/trace'
+    - id: toolbox-bundle-dynamic-toolbox-http
+      name: 'dsh-dynamic-toolbox/feature/http'
+    - id: toolbox-bundle-dynamic-toolbox-ports
+      name: 'dsh-dynamic-toolbox/feature/ports'
+    - id: toolbox-bundle-dynamic-toolbox-calc
+      name: 'dsh-dynamic-toolbox/feature/calc'
+    - id: toolbox-bundle-dynamic-toolbox-usage
+      name: 'dsh-dynamic-toolbox/feature/usage'
+    - id: toolbox-bundle-dynamic-toolbox-prompt
+      name: 'dsh-dynamic-toolbox/feature/prompt'
+    - id: toolbox-bundle-dynamic-toolbox-context
+      name: 'dsh-dynamic-toolbox/feature/context'
+    - id: toolbox-bundle-dynamic-toolbox-aiassist
+      name: 'dsh-dynamic-toolbox/feature/aiassist'
+    - id: toolbox-bundle-dynamic-toolbox-tools
+      name: 'dsh-dynamic-toolbox/feature/tools'
+    - id: toolbox-bundle-dynamic-toolbox-search
+      name: 'dsh-dynamic-toolbox/feature/search'
+    - id: toolbox-bundle-dynamic-toolbox-lineage
+      name: 'dsh-dynamic-toolbox/feature/lineage'
+    - id: toolbox-bundle-dynamic-toolbox-aiusage
+      name: 'dsh-dynamic-toolbox/feature/aiusage'
+    - id: toolbox-bundle-dynamic-toolbox-quota
+      name: 'dsh-dynamic-toolbox/feature/quota'
+    - id: toolbox-bundle-dynamic-toolbox-selfview
+      name: 'dsh-dynamic-toolbox/feature/selfview'

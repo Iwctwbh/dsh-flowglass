@@ -138,7 +138,7 @@ export const normalizeSelection = (plugins, requested) => {
 // ---- 命名空间派生（§9.2）：bundleId → 全部技术名称 ----
 export const camelOf = (bundleId) => bundleId.split('-').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join('')
 
-export const deriveRuntimeOverrides = (bundleId, displayName, { aiUsage = true } = {}) => ({
+export const deriveRuntimeOverrides = (bundleId, displayName, { aiUsage = true, componentBridge = false } = {}) => ({
   mode: 'static-bundle',
   bundleId,
   displayName,
@@ -146,6 +146,7 @@ export const deriveRuntimeOverrides = (bundleId, displayName, { aiUsage = true }
   artifactService: 'toolboxArtifacts' + camelOf(bundleId),
   remoteService: 'toolboxNative' + camelOf(bundleId),
   remoteNamespace: 'toolboxNative' + camelOf(bundleId),
+  ...(componentBridge ? { bridgeService: 'toolboxNativeBridge' + camelOf(bundleId) } : {}),
   rpcPrefix: 'toolbox.' + bundleId,
   storagePrefix: 'dsh.toolbox.' + bundleId,
   eventPrefix: 'tb-' + bundleId,

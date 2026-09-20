@@ -1,9 +1,8 @@
-// ===== 工具箱 · DSH 原生静态 Host（构建生成，勿手改） =====
-import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
+// ===== 工具箱 · lineage 原生静态 Host 组件（构建生成，勿手改） =====
 
 
-export const name = "dsh-dynamic-toolbox"
-export const inject = []
+export const name = "dsh-dynamic-toolbox/feature/lineage"
+export const inject = ["fs","sessionQuery","timer","toolboxRegistryDynamicToolbox"]
 
 const TOOLBOX_RUNTIME_OVERRIDES = {
   "mode": "static-bundle",
@@ -78,55 +77,6 @@ const TOOLBOX_RUNTIME = (() => {
     logTag: () => (bundleId === 'dynamic' ? '[toolbox]' : '[toolbox:' + bundleId + ']'),
   })
 })()
-
-
-// 静态注册表：feature 只挂载一次，handler 每次调用接收当前 root/session，适用于任意工作区。
-const makeStaticRegistry = () => {
-  const entries = new Map()
-  return {
-    register(desc, handler) {
-      if (!desc || typeof desc.id !== 'string' || !desc.id || typeof handler !== 'function') return () => {}
-      const entry = { id: desc.id, label: desc.label || desc.id, order: typeof desc.order === 'number' ? desc.order : 0, icon: desc.icon || null, handler }
-      entries.set(desc.id, entry)
-      return () => { if (entries.get(desc.id) === entry) entries.delete(desc.id) }
-    },
-    tools() {
-      return [...entries.values()].sort((a, b) => a.order - b.order).map((x) => ({ id: x.id, label: x.label, order: x.order, icon: x.icon || null }))
-    },
-    async panel(root, call) {
-      const toolId = call && typeof call.tool === 'string' ? call.tool : ''
-      const entry = entries.get(toolId)
-      if (!entry) return { ok: false, error: '工具未注册: ' + (toolId || '(空)') }
-      try {
-        const res = await entry.handler({
-          action: call && typeof call.action === 'string' ? call.action : '',
-          fields: call && call.fields && typeof call.fields === 'object' ? call.fields : {},
-          state: call && call.state || null,
-          root: typeof root === 'string' && root ? root : undefined,
-          session: call && typeof call.session === 'string' && call.session ? call.session : undefined,
-        })
-        if (!res || typeof res.html !== 'string') return { ok: false, error: '工具返回了无效面板内容' }
-        const out = { ok: true, html: res.html, state: res.state == null ? null : res.state }
-        if (typeof res.copy === 'string' && res.copy) out.copy = res.copy
-        if (res.navigateSession && typeof res.navigateSession === 'object' && typeof res.navigateSession.sessionId === 'string') {
-          out.navigateSession = {
-            sessionId: res.navigateSession.sessionId,
-            ...(typeof res.navigateSession.parentSessionId === 'string' ? { parentSessionId: res.navigateSession.parentSessionId } : {}),
-            ...(res.navigateSession.kind === 'subagent' || res.navigateSession.kind === 'session' ? { kind: res.navigateSession.kind } : {}),
-          }
-        }
-        if (res.flowContext && typeof res.flowContext === 'object' && typeof res.flowContext.text === 'string') {
-          out.flowContext = {
-            text: res.flowContext.text,
-            ...(typeof res.flowContext.sourceSessionId === 'string' ? { sourceSessionId: res.flowContext.sourceSessionId } : {}),
-            ...(Array.isArray(res.flowContext.seqs) ? { seqs: res.flowContext.seqs.filter((v) => typeof v === 'number') } : {}),
-          }
-        }
-        return out
-      } catch (error) { return { ok: false, error: String(error && error.message || error) } }
-    },
-  }
-}
 
 // ===== shared-host.js：注入到每个 Host-only 工具包开头的公共辅助（make-payloads.mjs 自动拼接）=====
 // HTML 转义（面板内容来自 Host 拼接，转义用户数据防止破坏结构）
@@ -637,107 +587,131 @@ const withDeadline = (ctx, handle, ms) => {
 }
 
 
-// Compatibility seam for features shared with dynamic mode. In a static
-// bundle harness.handle is backed by native Remote methods, while model tools
-// are registered directly against DSH's tools service.
-const nativeBridgeHandlers = new Map()
-const nativeBridge = {
-  register(name, handler) {
-    if (typeof name !== 'string' || !name || typeof handler !== 'function') return () => {}
-    nativeBridgeHandlers.set(name, handler)
-    return () => { if (nativeBridgeHandlers.get(name) === handler) nativeBridgeHandlers.delete(name) }
-  },
-  async call(name, request) {
-    const handler = nativeBridgeHandlers.get(name)
-    if (!handler) return { ok: false, error: '原生 RPC 未注册: ' + name }
-    return await handler(request)
-  },
-}
-const callNativeBridge = async (name, request) => {
-  return await nativeBridge.call(name, request)
-}
+let applyingContext = null
 const harness = {
   handle(name, handler) {
-    return nativeBridge.register(name, handler)
+    const bridge = applyingContext && applyingContext.get(TOOLBOX_RUNTIME.bridgeService)
+    if (!bridge || typeof bridge.register !== 'function') throw new Error('静态工具箱 Bridge 服务不可用')
+    return bridge.register(name, handler)
   },
   defineTool(tool) { return tool },
-  registerTool() { throw new Error('当前静态合集未启用模型工具服务') },
+  registerTool() { throw new Error('当前静态组件未启用模型工具服务') },
 }
 
+const create_lineage = () => {
+// ===== lineage-tool.js：会话血缘树（Host-only）=====
+// sessionQuery.traceSession(当前会话)：祖先链（直至根）+ 后代子代理树（递归）。
+// 纯只读视图，每动作重取（traceSession 是一次性观测，无大负载）。
+// 状态：{}
 
+return {
+  name: 'lineage-tool',
+  inject: ['fs', 'sessionQuery', 'timer'],
+  apply(ctx) {
+    const sq = ctx.get('sessionQuery')
 
-// Remote 使用标准装饰器的运行时标记；生成代码是普通 JS，因此显式执行 decorator initializer。
-const exposeRemote = (klass, method, exportName) => {
-  const initializers = []
-  Remote(exportName || method)(klass.prototype[method], {
-    private: false, static: false, name: method,
-    addInitializer(fn) { initializers.push(fn) },
-  })
-  const marker = Object.create(klass.prototype)
-  for (const init of initializers) init.call(marker)
-}
-
-class NativeToolboxRemote extends TypertRemoteService {
-  constructor(ctx, registry) {
-    super(ctx, "toolboxNativeDynamicToolbox", { namespace: "toolboxNativeDynamicToolbox" })
-    this.registry = registry
-  }
-  tools(request) {
-    const root = request && typeof request.root === 'string' ? request.root : undefined
-    return { ok: true, root: root || null, tools: this.registry.tools() }
-  }
-  panel(request) {
-    const root = request && typeof request.root === 'string' ? request.root : undefined
-    return this.registry.panel(root, request || {})
-  }
-  plugins(request) {
-    void request
-    return { ok: true, plugins: [], capabilities: TOOLBOX_RUNTIME.capabilities }
-  }
-  async sessionInfo(request) {
-    const sid = request && typeof request.session === 'string' ? request.session : ''
-    if (!sid) return { ok: false, error: '缺少会话 id' }
-    const sessions = this.ctx.get('sessions')
-    if (sessions && typeof sessions.get === 'function') {
-      try {
-        const session = sessions.get(sid)
-        const cwd = session && session.header && session.header.cwd
-        if (typeof cwd === 'string' && cwd) return { ok: true, cwd }
-      } catch (error) {}
+    const pad2 = (n) => (n < 10 ? '0' : '') + n
+    const fmtDate = (t) => {
+      if (!t) return '—'
+      const d = new Date(t)
+      return (d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes())
     }
-    const query = this.ctx.get('sessionQuery')
-    if (query && typeof query.listSessions === 'function') {
-      try {
-        const rows = await query.listSessions()
-        const hit = (rows || []).find((row) => row && row.id === sid)
-        const cwd = hit && hit.header && hit.header.cwd
-        if (typeof cwd === 'string' && cwd) return { ok: true, cwd }
-      } catch (error) {}
+    const shortId = (id) => String(id || '').replace(/^session-/, '').slice(0, 8)
+    const cwdName = (cwd) => String(cwd || '').split(/[\\/]/).filter(Boolean).pop() || '（无目录）'
+
+    const badge = (rec) => {
+      const b = []
+      if (rec.live) b.push('<span class="tb-pill tb-pill-done">在线</span>')
+      else if (rec.persisted) b.push('<span class="tb-pill tb-pill-plain">已落盘</span>')
+      if (rec.header && rec.header.origin === 'subagent') b.push('<span class="tb-pill tb-pill-other">子代理</span>')
+      return b.join('')
     }
-    return { ok: false, error: '会话不存在或不可读: ' + sid }
-  }
-  selfviewPull(request) {
-    return callNativeBridge("selfview/pull", request || {})
-  }
-  selfviewResult(request) {
-    return callNativeBridge("selfview/result", request || {})
-  }
-  selfviewPush(request) {
-    return callNativeBridge("selfview/push", request || {})
-  }
+
+    const rowHtml = (rec, depth, isTarget) => {
+      const pad = (depth * 18 + 4) + 'px'
+      return '<div class="tb-tree-row' + (isTarget ? ' tb-rec-active' : '') + '" style="padding-left:' + pad + ';cursor:default" title="' + esc(String((rec.header || {}).id || '')) + '">' +
+        '<span class="tb-tree-ic">' + (isTarget ? '◉' : depth === 0 ? '●' : '○') + '</span>' +
+        '<span class="tb-rec-key">' + esc(shortId((rec.header || {}).id)) + '</span>' +
+        '<span class="tb-tree-name">' + esc(cwdName((rec.header || {}).cwd)) + '</span>' +
+        badge(rec) +
+        '<span class="tb-tree-size">' + fmtDate((rec.header || {}).createdAt) + '</span>' +
+      '</div>'
+    }
+
+    const renderTree = (nodes, depth, out, targetId) => {
+      for (const n of nodes || []) {
+        const rec = n.session || {}
+        out.push(rowHtml(rec, depth, String((rec.header || {}).id) === targetId))
+        renderTree(n.descendants, depth + 1, out, targetId)
+      }
+    }
+
+    const handler = async ({ session }) => {
+      if (!sq) return { ok: false, error: 'sessionQuery 服务不可用', html: '' }
+      try {
+        const sid = session || null
+        if (!sid) return { ok: true, html: '<div class="jr-tabpanel tb-root"><div class="tb-notice">未找到当前会话</div></div>', state: {} }
+        const tr = await sq.traceSession(sid)
+        const targetId = String(((tr.target || {}).header || {}).id || sid)
+
+        const head = []
+        head.push('<div class="tb-card"><div class="tb-card-head">' +
+          '<span class="tb-key">' + esc(shortId(targetId)) + '</span>' +
+          '<div class="tb-title">当前会话</div>' + badge(tr.target || {}) + '</div>' +
+          '<div class="tb-meta">' + [
+            ['工作区', cwdName(((tr.target || {}).header || {}).cwd)],
+            ['创建于', fmtDate(((tr.target || {}).header || {}).createdAt)],
+            ['祖先链', tr.complete ? '完整（根可达）' : '不完整（有父级不可见）'],
+            ['直接子代理', String(((tr.descendants) || []).length)],
+          ].map((r) => '<div class="tb-meta-item"><span class="tb-meta-label">' + r[0] + '</span><span class="tb-meta-value">' + esc(r[1]) + '</span></div>').join('') +
+          '</div></div>')
+
+        const body = []
+        // 祖先链：root → … → parent（traceSession.ancestors 是近父在前，反转为根在前）
+        const ancestors = ((tr.ancestors) || []).slice().reverse()
+        if (ancestors.length) {
+          body.push('<div class="tb-list-head"><span class="tb-list-title">祖先链<span class="tb-count">' + ancestors.length + '</span></span></div>')
+          ancestors.forEach((rec, i) => body.push(rowHtml(rec, i, false)))
+          body.push(rowHtml(tr.target, ancestors.length, true))
+        }
+        // 后代树
+        const countDesc = (nodes) => (nodes || []).reduce((n, x) => n + 1 + countDesc(x.descendants), 0)
+        const descTotal = countDesc(tr.descendants)
+        body.push('<div class="tb-list-head"><span class="tb-list-title">后代（子代理）<span class="tb-count">' + descTotal + '</span></span></div>')
+        if (descTotal === 0) {
+          body.push('<div class="tb-notice">当前会话没有子代理后代</div>')
+        } else {
+          const rows = []
+          renderTree(tr.descendants, 0, rows, targetId)
+          body.push('<div class="tb-tree">' + rows.join('') + '</div>')
+        }
+        if (!tr.complete) {
+          body.push('<div class="tb-banner tb-banner-info">祖先链在 ' + esc(shortId(tr.unresolvedParentId)) + ' 处断出可见语料（该父级不在当前逻辑库中）</div>')
+        }
+
+        const html = '<div class="jr-tabpanel tb-root tb-pane"><div class="tb-pane-head">' + head.join('') + '</div>' +
+          '<div class="tb-pane-body tb-pane-col">' + body.join('') + '</div></div>'
+        return { ok: true, html, state: {} }
+      } catch (e) {
+        return { ok: false, error: String((e && e.message) || e), html: '', state: {} }
+      }
+    }
+
+    tryRegisterTool(ctx, { id: 'lineage', label: '谱系', order: 14, icon: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="3.5" r="1.6"/><circle cx="3.5" cy="12.5" r="1.6"/><circle cx="12.5" cy="12.5" r="1.6"/><path d="M8 5.1v.9a2 2 0 0 1-2 2H5.4"/><path d="M9.5 6.4h.6a2 2 0 0 1 2 2v1.6"/></svg>' }, handler)
+  },
 }
-for (const method of ["tools","panel","plugins","sessionInfo","selfviewPull","selfviewResult","selfviewPush"]) exposeRemote(NativeToolboxRemote, method)
+
+}
 
 export async function apply(ctx) {
-  const registry = makeStaticRegistry()
-  ctx.provide(TOOLBOX_RUNTIME.registryService, registry)
-  ctx.provide(TOOLBOX_RUNTIME.bridgeService, nativeBridge)
-  const features = []
-  for (const feature of features) {
+  applyingContext = ctx
+  try {
+    const feature = create_lineage()
     if (!feature || typeof feature.apply !== 'function') throw new Error('静态 feature 未返回有效插件对象')
     const disposer = await feature.apply(ctx)
     if (typeof disposer === 'function') ctx.effect(() => disposer)
+    console.log(TOOLBOX_RUNTIME.logTag() + ' 原生静态组件已加载: lineage')
+  } finally {
+    applyingContext = null
   }
-  new NativeToolboxRemote(ctx, registry)
-  console.log(TOOLBOX_RUNTIME.logTag() + ' 原生静态 Host 已加载（功能: ' + registry.tools().map((x) => x.id).join(', ') + '）')
 }

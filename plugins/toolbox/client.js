@@ -1133,14 +1133,18 @@ return {
       return { preferences: nextPreferences, rules: nextRules }
     }
 
-    // ===== 右侧栏兼容承载（仅原生 flow bundle；一次只激活一条注册路径）=====
+    // ===== 官方右侧栏承载（Flowglass + 原生静态工具箱）=====
     // 接入层级（0.1.5 计划）：Harness 原生 sidebarRightTabs + slots
     //   > Better Sidebar >= 0.19 原生桥 > 固定右侧兜底面板。
     // 服务可晚于流镜出现/被 HMR 替换，所以两条桥都用 ctx.inject 驱动，并用这个
-    // 小 store 让已挂载的独立入口/Drawer 同步让位/恢复。完整 dynamic-toolbox 不接管为“流镜” Tab。
+    // 小 store 让已挂载的独立入口/Drawer 同步让位/恢复。原生静态工具箱只走 Harness
+    // 官方下拉框/Tab，不再注册独立导航入口或 shell.overlay 抽屉。
     const FLOW_TAB_ID = 'dsh-flowglass:flow'
     const FLOW_NATIVE_ID = 'dsh-flowglass/native' // 原生 page type 的 definition id（body/title 同 id 注册）
     const FLOW_NATIVE_KIND = 'dsh-flowglass:flow' // openTab 寻址的 kind
+    const TOOLBOX_NATIVE_ID = 'dsh-dynamic-toolbox/native'
+    const TOOLBOX_NATIVE_KIND = 'dsh-dynamic-toolbox:toolbox'
+    const OFFICIAL_TOOLBOX_ONLY = RT.bundleId === 'dynamic-toolbox'
     const integrationListeners = new Set()
     const integration = {
       service: null, // betterSidebar 服务
@@ -5353,10 +5357,25 @@ return {
       })
     }
 
-    if (typeof document !== 'undefined' && typeof MutationObserver !== 'undefined') {
+    // 原生静态工具箱与 Flowglass 共用官方右侧栏协议，但不需要 Flowglass 的跨 Session
+    // 保持展开状态机；官方 Tab 的 sessionId/useTabInfo 仍是面板上下文的权威来源。
+    function ToolboxNativeTabBody(props) {
+      const info = props.useTabInfo()
+      const visible = !(info && info.tab && info.tab.visible === false)
+      const useSessions = typeof props.useSessions === 'function' ? props.useSessions : () => undefined
+      return React.createElement(Drawer, {
+        embedded: true,
+        visible,
+        sessionId: props.sessionId,
+        useSessions,
+        useWorkspaces: typeof props.useWorkspaces === 'function' ? props.useWorkspaces : () => undefined,
+      })
+    }
+
+    if (!OFFICIAL_TOOLBOX_ONLY && typeof document !== 'undefined' && typeof MutationObserver !== 'undefined') {
       // 侧边栏导航区无官方 Slot：DOM 注入导航条目（新会话下方、SSH 之后），disposer 随插件停止清理
       ctx.effect(() => mountSidebarEntry())
-    } else {
+    } else if (!OFFICIAL_TOOLBOX_ONLY) {
       // 无 DOM 环境兜底：官方 footer Slot（rc.7 root-scoped list Slot，owner 只传 { wide }）
       slots.inject('sidebar.footer.action', () => slots.register(
         { name: 'sidebar.footer.action', id: RT.slot('entry'), order: -1000, label: RT.displayName },
@@ -5364,15 +5383,17 @@ return {
       ))
     }
 
-    slots.inject('shell.overlay', () => slots.register(
-      {
-        name: 'shell.overlay',
-        id: RT.slot('drawer'),
-        order: 120,
-        label: RT.displayName + '抽屉',
-      },
-      (props) => React.createElement(Drawer, props),
-    ))
+    if (!OFFICIAL_TOOLBOX_ONLY) {
+      slots.inject('shell.overlay', () => slots.register(
+        {
+          name: 'shell.overlay',
+          id: RT.slot('drawer'),
+          order: 120,
+          label: RT.displayName + '抽屉',
+        },
+        (props) => React.createElement(Drawer, props),
+      ))
+    }
 
     // Harness 官方插件管理页扩展点：点击 dsh-flowglass bundle 后，在详情页渲染配置表单。
     if (RT.bundleId === 'flow') {
@@ -5382,11 +5403,11 @@ return {
       ))
     }
 
-    // ===== Harness 原生右侧栏注册（0.1.5+，最高层；仅原生 flow bundle）=====
+    // ===== Harness 原生右侧栏注册（0.1.5+）=====
     // 两段式公开契约：sidebarRightTabs.register 注册 page type（guide 入口随定义），
     // 同一个 definition id 在 sidebar.right.pane.tab 声明 body。服务不存在时 inject
     // fiber 保持等待（旧 Harness 无感降级到 better-sidebar / 固定右侧兜底面板）。
-    if (RT.bundleId === 'flow' && typeof ctx.inject === 'function') {
+    if ((RT.bundleId === 'flow' || OFFICIAL_TOOLBOX_ONLY) && typeof ctx.inject === 'function') {
       // 两个服务由宿主相邻 provide，但晚加载/HMR 时仍是两个独立可见性边；
       // 同时等待，避免 registry 先到时永久捕获 undefined controller。
       ctx.inject(['sidebarRightTabs', 'sidebarRight'], (nativeCtx) => {
@@ -5403,16 +5424,29 @@ return {
           React.createElement('circle', { cx: 12, cy: 12.5, r: 1.5 }),
           React.createElement('path', { d: 'M8 4.5v2.2M8 6.7L4 11M8 6.7l4 4.3' }),
         )
+        const toolboxGlyph = (p) => React.createElement('svg', {
+          width: (p && p.size) || 16, height: (p && p.size) || 16, viewBox: '0 0 16 16', fill: 'none',
+          stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round',
+          className: p && p.className, 'aria-hidden': true,
+        },
+          React.createElement('rect', { x: 2, y: 5, width: 12, height: 8.5, rx: 1.5 }),
+          React.createElement('path', { d: 'M5.5 5V3.8A1.3 1.3 0 0 1 6.8 2.5h2.4a1.3 1.3 0 0 1 1.3 1.3V5M2 8.2h12' }),
+        )
+        const nativeToolbox = OFFICIAL_TOOLBOX_ONLY
+        const nativeId = nativeToolbox ? TOOLBOX_NATIVE_ID : FLOW_NATIVE_ID
+        const nativeKind = nativeToolbox ? TOOLBOX_NATIVE_KIND : FLOW_NATIVE_KIND
+        const nativeTitle = nativeToolbox ? '工具箱' : '流镜'
+        const nativeDescription = nativeToolbox ? '打开工作区工具箱' : '查看当前会话、工具调用与子代理执行流程'
         // page type：无 resource patterns（按 kind 打开）；guide 项排在文件等常用入口之后
         const definition = {
-          id: FLOW_NATIVE_ID,
-          kind: FLOW_NATIVE_KIND,
-          title: () => '流镜',
+          id: nativeId,
+          kind: nativeKind,
+          title: () => nativeTitle,
           guide: [{
             order: 40,
-            title: () => '流镜',
-            description: () => '查看当前会话、工具调用与子代理执行流程',
-            icon: flowGlyph,
+            title: () => nativeTitle,
+            description: () => nativeDescription,
+            icon: nativeToolbox ? toolboxGlyph : flowGlyph,
           }],
         }
         let disposeType = null
@@ -5432,13 +5466,13 @@ return {
               try { disposeType = tabs.register(definition) } catch (e) { retract(); return }
               disposeBody = nativeSlots && typeof nativeSlots.inject === 'function'
                 ? nativeCtx.effect(() => nativeSlots.inject('sidebar.right.pane.tab', () => nativeSlots.register(
-                  { name: 'sidebar.right.pane.tab', key: FLOW_NATIVE_ID },
-                  (tabProps) => React.createElement(FlowglassNativeTabBody, tabProps),
+                  { name: 'sidebar.right.pane.tab', key: nativeId },
+                  (tabProps) => React.createElement(nativeToolbox ? ToolboxNativeTabBody : FlowglassNativeTabBody, tabProps),
                 )))
                 : null
               // 自有入口 → openTab：自动展开右侧栏；同 pane 重复打开聚焦既有 Tab（Harness 单例语义）
               nativeOpenTab = () => {
-                if (controller && typeof controller.openTab === 'function') controller.openTab(FLOW_NATIVE_KIND)
+                if (controller && typeof controller.openTab === 'function') controller.openTab(nativeKind)
               }
               integration.setNative(true)
             }

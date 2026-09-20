@@ -4,6 +4,7 @@ import { PLUGINS } from './plugin-catalog.mjs'
 import { sha256 } from './source-loader.mjs'
 import { validateCatalog, normalizeSelection, deriveRuntimeOverrides, BUNDLE_ID_RE, SEMVER_RE, PACKAGE_NAME_RE } from './profile.mjs'
 import { renderNativeHost } from './templates/native-host.mjs'
+import { renderNativeFeatureHost } from './templates/native-feature-host.mjs'
 import { renderNativeClient } from './templates/native-client.mjs'
 import { renderNativeRemote } from './templates/native-remote.mjs'
 import { renderPackageJson } from './templates/package.json.mjs'
@@ -62,12 +63,18 @@ export const buildBundle = (loader, opts) => {
   }
   if (errors.length) return { ok: false, errors }
 
-  const profile = deriveRuntimeOverrides(bundleId, label)
+  // The published all-in-one toolbox exposes each Host feature as a genuine
+  // Loader row. Flowglass and arbitrary custom bundles retain the established
+  // single-row shape so their lifecycle and client attachment do not change.
+  const splitComponents = bundleId === 'dynamic-toolbox' && packageName === 'dsh-dynamic-toolbox'
+  const profile = deriveRuntimeOverrides(bundleId, label, { componentBridge: splitComponents })
   const runtimeSource = loader.read('shared/runtime.js')
   const sharedHostSource = loader.read('shared/host.js')
   const toolboxClientSource = loader.read('plugins/toolbox/client.js')
   const hostFeatures = featureEntries.filter((entry) => entry.hostFiles && entry.hostFiles.length).map((entry) => ({
     key: entry.key,
+    inject: entry.inject || [],
+    modelTools: entry.modelTools || [],
     source: entry.hostFiles.map(loader.read).join('\n'),
   }))
   const clientFeatures = featureEntries.filter((entry) => entry.clientFile).map((entry) => ({
@@ -80,10 +87,33 @@ export const buildBundle = (loader, opts) => {
   for (const entry of featureEntries) for (const service of entry.inject || []) if (!inject.includes(service)) inject.push(service)
   if (hasModelTools && !inject.includes('tools')) inject.push('tools')
 
-  const indexJs = renderNativeHost({ packageName, profile, runtimeSource, sharedHostSource, hostFeatures, inject, bridgeMethods, hasModelTools })
+  const indexJs = renderNativeHost({
+    packageName, profile, runtimeSource, sharedHostSource,
+    hostFeatures: splitComponents ? [] : hostFeatures,
+    inject: splitComponents ? [] : inject,
+    bridgeMethods,
+    hasModelTools: splitComponents ? false : hasModelTools,
+    exposeBridge: splitComponents,
+  })
   const clientJs = renderNativeClient({ packageName, profile, runtimeSource, toolboxClientSource, clientFeatures, bridgeMethods })
   const remoteJs = renderNativeRemote({ packageName, profile, bridgeMethods })
-  const fingerprint = sha256(JSON.stringify(profile) + '\n' + indexJs + '\n' + clientJs + '\n' + remoteJs).slice(0, 16)
+  const featureHostFiles = new Map()
+  if (splitComponents) {
+    for (const feature of hostFeatures) {
+      const featureBridgeMethods = nativeClientRpc[feature.key] || []
+      featureHostFiles.set('lib/features/' + feature.key + '.js', renderNativeFeatureHost({
+        packageName,
+        profile,
+        feature,
+        runtimeSource,
+        sharedHostSource,
+        bridgeMethods: featureBridgeMethods,
+        hasModelTools: feature.modelTools.length > 0,
+      }))
+    }
+  }
+  const fingerprint = sha256(JSON.stringify(profile) + '\n' + indexJs + '\n' + clientJs + '\n' + remoteJs
+    + '\n' + [...featureHostFiles.values()].join('\n')).slice(0, 16)
 
   const sourceHashes = {}
   for (const entry of selected) {
@@ -102,6 +132,7 @@ export const buildBundle = (loader, opts) => {
   const buildInfo = {
     bundleId, packageName, version, displayName: label,
     mode: 'native-static', dynamicApprovalRequired: false,
+    componentRows: splitComponents ? hostFeatures.map((entry) => entry.key) : [],
     features: { explicit: sel.explicit, dependencyAdded: sel.dependencyAdded, all: sel.selected },
     fingerprint, builderVersion: '2',
     sourceHashes: Object.fromEntries(Object.entries(sourceHashes).sort(([a], [b]) => a < b ? -1 : 1)),
@@ -116,14 +147,20 @@ export const buildBundle = (loader, opts) => {
       bundleId,
       repositoryDirectory: opts.repositoryDirectory,
       hasModelTools,
+      featureExports: splitComponents ? hostFeatures.map((entry) => entry.key) : [],
     })],
-    ['cordis.patch.yml', renderCordisPatch({ bundleId, packageName })],
+    ['cordis.patch.yml', renderCordisPatch({
+      bundleId,
+      packageName,
+      componentRows: splitComponents ? hostFeatures : [],
+    })],
     ['README.md', renderReadme({ packageName, version, bundleId, displayName: label, featureLines, isFlowglass })],
     ['manifest.json', JSON.stringify(manifest, null, 2) + '\n'],
     ['BUILDINFO.json', JSON.stringify(buildInfo, null, 2) + '\n'],
     ['lib/index.js', indexJs],
     ['lib/client.js', clientJs],
     ['lib/remote.js', remoteJs],
+    ...featureHostFiles,
     ['LICENSE', loader.read('LICENSE')],
   ])
   const summary = {

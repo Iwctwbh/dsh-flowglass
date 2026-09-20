@@ -23,6 +23,9 @@ const check = (label, cond, detail) => {
   const combined = ['lib/index.js', 'lib/client.js', 'lib/remote.js'].map((file) => files.get(file)).join('\n')
   check('零 dynamicCordisRunner/runner.define/dyn 路径', !/dynamicCordisRunner|runner\.define|runner\.run|dyn\//.test(combined))
   const pkg = JSON.parse(files.get('package.json'))
+  const flowPatch = files.get('cordis.patch.yml')
+  check('Flowglass patch 保持单一 Loader 行，不受工具箱组件拆分影响',
+    (flowPatch.match(/^\s+- id:/gm) || []).length === 1 && !flowPatch.includes('/feature/'))
   check('默认 Flow 构建产出 dsh-flowglass', pkg.name === 'dsh-flowglass', pkg.name)
   check('package 声明原生 dsh.client', pkg.dsh.client.platform === 'web' && pkg.exports['./client'] === './lib/client.js')
   check('inject 指向 ui-session/session-controller/sidebar-right 且不含已删除的 client-runtime',
@@ -42,6 +45,9 @@ const check = (label, cond, detail) => {
       && pkg.peerDependencies['react-dom'] === '^18.3.1')
   const client = files.get('lib/client.js')
   const host = files.get('lib/index.js')
+  check('Flowglass profile/Host 不生成拆分组件 Bridge',
+    !JSON.parse(files.get('BUILDINFO.json')).profile.bridgeService
+      && !host.includes('ctx.provide(TOOLBOX_RUNTIME.bridgeService'))
   check('Flow Client 显式注入 sessions，并仅通过注入属性读取',
     client.includes("const inject = ['slots', 'remote', 'timer', 'sessions']")
       && client.includes('const sessionsClient = ctx.sessions')
@@ -63,7 +69,7 @@ const check = (label, cond, detail) => {
       && client.includes("FLOW_NATIVE_ID = 'dsh-flowglass/native'")
       && client.includes("sidebar.right.pane.tab")
       && client.includes('FlowglassNativeTabBody')
-      && client.includes('openTab(FLOW_NATIVE_KIND)')
+      && client.includes('openTab(nativeKind)')
       && client.includes('syncBsRegistration'))
   check('Flow Client 订阅原生事件窗（实时叠加层 + settle 连续性）',
     client.includes('sessionsClient.binding')
@@ -158,14 +164,76 @@ const check = (label, cond, detail) => {
   check('selfview 模型工具改走原生 tools service',
     selfviewHost.includes("from '@deepseek-ai/dsh-tools'")
       && selfviewHost.includes("ctx.get('tools')")
-      && selfviewPkg.peerDependencies['@deepseek-ai/dsh-tools'] === '^0.1.5-rc.1')
+      && selfviewPkg.peerDependencies['@deepseek-ai/dsh-tools'] === '^0.1.5-rc.1 || ^0.1.6-alpha.2')
 
+  const allToolboxFeatures = ['jira', 'git', 'files', 'flow', 'flowedit', 'trace', 'http', 'ports', 'calc', 'usage', 'prompt', 'context', 'aiassist', 'tools', 'search', 'lineage', 'aiusage', 'quota', 'selfview']
   const largeBuilt = buildBundle(loader, {
-    features: ['jira', 'git', 'files', 'flow', 'flowedit', 'trace', 'http', 'ports', 'calc', 'usage', 'prompt', 'context', 'aiassist', 'tools', 'search', 'lineage', 'aiusage', 'quota', 'selfview'],
+    features: allToolboxFeatures,
     version: '0.1.0',
   })
   const largeId = largeBuilt.ok ? JSON.parse(largeBuilt.files.get('BUILDINFO.json')).bundleId : ''
   check('大功能组合自动生成合法短 bundleId', largeBuilt.ok && /^bundle-\d+-[a-f0-9]{12}$/.test(largeId) && largeId.length <= 40, largeId || (largeBuilt.errors || []).join('；'))
+
+  const toolboxBuilt = buildBundle(loader, {
+    features: allToolboxFeatures,
+    id: 'dynamic-toolbox',
+    name: 'dsh-dynamic-toolbox',
+    label: '工具箱',
+    version: '0.5.0',
+  })
+  check('官方静态工具箱构建成功', toolboxBuilt.ok, toolboxBuilt.errors && toolboxBuilt.errors.join('；'))
+  if (toolboxBuilt.ok) {
+    const toolboxPatch = toolboxBuilt.files.get('cordis.patch.yml')
+    const toolboxPkg = JSON.parse(toolboxBuilt.files.get('package.json'))
+    const toolboxInfo = JSON.parse(toolboxBuilt.files.get('BUILDINFO.json'))
+    check('静态工具箱为核心加每个 Host 功能生成真实组件行',
+      (toolboxPatch.match(/^\s+- id:/gm) || []).length === 1 + allToolboxFeatures.length
+        && toolboxInfo.componentRows.length === allToolboxFeatures.length)
+    check('静态工具箱组件行使用独立导出，不重复实例化主入口',
+      allToolboxFeatures.every((key) => toolboxPatch.includes("name: 'dsh-dynamic-toolbox/feature/" + key + "'")
+        && toolboxPkg.exports['./feature/' + key] === './lib/features/' + key + '.js'
+        && toolboxBuilt.files.has('lib/features/' + key + '.js')))
+    check('工具箱核心不再内嵌 Host 功能，Flowglass 仍内嵌 flow',
+      !toolboxBuilt.files.get('lib/index.js').includes('const create_jira') && host.includes('const create_flow'))
+    const selfviewComponent = toolboxBuilt.files.get('lib/features/selfview.js')
+    const toolboxClient = toolboxBuilt.files.get('lib/client.js')
+    check('selfview 组件通过核心 Bridge 注册 RPC，并独立注册模型工具',
+      selfviewComponent.includes('TOOLBOX_RUNTIME.bridgeService')
+        && selfviewComponent.includes("from '@deepseek-ai/dsh-tools'")
+        && selfviewComponent.includes("harness.handle('selfview/pull'"))
+    check('静态工具箱只注册 Harness 官方右侧栏入口，不注册独立抽屉',
+      toolboxClient.includes("TOOLBOX_NATIVE_ID = 'dsh-dynamic-toolbox/native'")
+        && toolboxClient.includes("TOOLBOX_NATIVE_KIND = 'dsh-dynamic-toolbox:toolbox'")
+        && toolboxClient.includes('function ToolboxNativeTabBody')
+        && toolboxClient.includes('if (!OFFICIAL_TOOLBOX_ONLY) {\n      slots.inject(\'shell.overlay\''))
+    check('静态工具箱同步 Flowglass 的 Harness workspace/右侧栏依赖与 alpha.2 peer 范围',
+      toolboxPkg.dsh.client.inject.includes('@deepseek-ai/dsh-api-workspace-controller')
+        && toolboxPkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-workspace')
+        && toolboxPkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-sidebar-right')
+        && toolboxPkg.peerDependencies['@deepseek-ai/dsh-typert-protocol'].includes('^0.1.6-alpha.2')
+        && toolboxPkg.peerDependencies['@deepseek-ai/dsh-tools'].includes('^0.1.6-alpha.2'))
+
+    let toolboxCoreSource = toolboxBuilt.files.get('lib/index.js')
+      .replace(/^import .*$/gm, '')
+      .replace('export const name =', 'const name =')
+      .replace('export const inject =', 'const inject =')
+      .replace('export async function apply(ctx)', 'async function apply(ctx)')
+    toolboxCoreSource += '\nreturn { name, inject, apply }'
+    const toolboxCore = await new Function('TypertRemoteService', 'Remote', 'console', 'return (async () => {\n' + toolboxCoreSource + '\n})()')(MockRemoteService, Remote, console)
+    await toolboxCore.apply(ctx)
+    let calcSource = toolboxBuilt.files.get('lib/features/calc.js')
+      .replace('export const name =', 'const name =')
+      .replace('export const inject =', 'const inject =')
+      .replace('export async function apply(ctx)', 'async function apply(ctx)')
+    calcSource += '\nreturn { name, inject, apply }'
+    const calcComponent = await new Function('console', 'return (async () => {\n' + calcSource + '\n})()')(console)
+    await calcComponent.apply(ctx)
+    for (const fn of intervals.splice(0)) fn()
+    const toolboxRemoteService = services[toolboxInfo.profile.remoteService]
+    const toolboxTools = toolboxRemoteService.tools({ root: 'D:/work/native' })
+    check('拆分后的功能 Fiber 可向核心注册表真实挂载',
+      toolboxTools.ok && toolboxTools.tools.some((tool) => tool.id === 'calc'), JSON.stringify(toolboxTools))
+  }
 
   console.log(failures ? ('\n共 ' + failures + ' 项失败') : '\n全部通过')
   process.exit(failures ? 1 : 0)

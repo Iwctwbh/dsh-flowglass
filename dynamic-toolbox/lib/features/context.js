@@ -1,9 +1,8 @@
-// ===== 工具箱 · DSH 原生静态 Host（构建生成，勿手改） =====
-import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
+// ===== 工具箱 · context 原生静态 Host 组件（构建生成，勿手改） =====
 
 
-export const name = "dsh-dynamic-toolbox"
-export const inject = []
+export const name = "dsh-dynamic-toolbox/feature/context"
+export const inject = ["fs","sessionQuery","tokenMeter","timer","toolboxRegistryDynamicToolbox"]
 
 const TOOLBOX_RUNTIME_OVERRIDES = {
   "mode": "static-bundle",
@@ -78,55 +77,6 @@ const TOOLBOX_RUNTIME = (() => {
     logTag: () => (bundleId === 'dynamic' ? '[toolbox]' : '[toolbox:' + bundleId + ']'),
   })
 })()
-
-
-// 静态注册表：feature 只挂载一次，handler 每次调用接收当前 root/session，适用于任意工作区。
-const makeStaticRegistry = () => {
-  const entries = new Map()
-  return {
-    register(desc, handler) {
-      if (!desc || typeof desc.id !== 'string' || !desc.id || typeof handler !== 'function') return () => {}
-      const entry = { id: desc.id, label: desc.label || desc.id, order: typeof desc.order === 'number' ? desc.order : 0, icon: desc.icon || null, handler }
-      entries.set(desc.id, entry)
-      return () => { if (entries.get(desc.id) === entry) entries.delete(desc.id) }
-    },
-    tools() {
-      return [...entries.values()].sort((a, b) => a.order - b.order).map((x) => ({ id: x.id, label: x.label, order: x.order, icon: x.icon || null }))
-    },
-    async panel(root, call) {
-      const toolId = call && typeof call.tool === 'string' ? call.tool : ''
-      const entry = entries.get(toolId)
-      if (!entry) return { ok: false, error: '工具未注册: ' + (toolId || '(空)') }
-      try {
-        const res = await entry.handler({
-          action: call && typeof call.action === 'string' ? call.action : '',
-          fields: call && call.fields && typeof call.fields === 'object' ? call.fields : {},
-          state: call && call.state || null,
-          root: typeof root === 'string' && root ? root : undefined,
-          session: call && typeof call.session === 'string' && call.session ? call.session : undefined,
-        })
-        if (!res || typeof res.html !== 'string') return { ok: false, error: '工具返回了无效面板内容' }
-        const out = { ok: true, html: res.html, state: res.state == null ? null : res.state }
-        if (typeof res.copy === 'string' && res.copy) out.copy = res.copy
-        if (res.navigateSession && typeof res.navigateSession === 'object' && typeof res.navigateSession.sessionId === 'string') {
-          out.navigateSession = {
-            sessionId: res.navigateSession.sessionId,
-            ...(typeof res.navigateSession.parentSessionId === 'string' ? { parentSessionId: res.navigateSession.parentSessionId } : {}),
-            ...(res.navigateSession.kind === 'subagent' || res.navigateSession.kind === 'session' ? { kind: res.navigateSession.kind } : {}),
-          }
-        }
-        if (res.flowContext && typeof res.flowContext === 'object' && typeof res.flowContext.text === 'string') {
-          out.flowContext = {
-            text: res.flowContext.text,
-            ...(typeof res.flowContext.sourceSessionId === 'string' ? { sourceSessionId: res.flowContext.sourceSessionId } : {}),
-            ...(Array.isArray(res.flowContext.seqs) ? { seqs: res.flowContext.seqs.filter((v) => typeof v === 'number') } : {}),
-          }
-        }
-        return out
-      } catch (error) { return { ok: false, error: String(error && error.message || error) } }
-    },
-  }
-}
 
 // ===== shared-host.js：注入到每个 Host-only 工具包开头的公共辅助（make-payloads.mjs 自动拼接）=====
 // HTML 转义（面板内容来自 Host 拼接，转义用户数据防止破坏结构）
@@ -637,107 +587,157 @@ const withDeadline = (ctx, handle, ms) => {
 }
 
 
-// Compatibility seam for features shared with dynamic mode. In a static
-// bundle harness.handle is backed by native Remote methods, while model tools
-// are registered directly against DSH's tools service.
-const nativeBridgeHandlers = new Map()
-const nativeBridge = {
-  register(name, handler) {
-    if (typeof name !== 'string' || !name || typeof handler !== 'function') return () => {}
-    nativeBridgeHandlers.set(name, handler)
-    return () => { if (nativeBridgeHandlers.get(name) === handler) nativeBridgeHandlers.delete(name) }
-  },
-  async call(name, request) {
-    const handler = nativeBridgeHandlers.get(name)
-    if (!handler) return { ok: false, error: '原生 RPC 未注册: ' + name }
-    return await handler(request)
-  },
-}
-const callNativeBridge = async (name, request) => {
-  return await nativeBridge.call(name, request)
-}
+let applyingContext = null
 const harness = {
   handle(name, handler) {
-    return nativeBridge.register(name, handler)
+    const bridge = applyingContext && applyingContext.get(TOOLBOX_RUNTIME.bridgeService)
+    if (!bridge || typeof bridge.register !== 'function') throw new Error('静态工具箱 Bridge 服务不可用')
+    return bridge.register(name, handler)
   },
   defineTool(tool) { return tool },
-  registerTool() { throw new Error('当前静态合集未启用模型工具服务') },
+  registerTool() { throw new Error('当前静态组件未启用模型工具服务') },
 }
 
+const create_context = () => {
+// ===== context-tool.js：当前上下文窗口查看（Host-only）=====
+// sessionQuery.readSurface(当前会话) → 模型当前可见的 surface 消息（压缩后的真实上下文），
+// tokenMeter.estimateMessage 逐条估算 token。点击条目展开完整内容。
+// 状态：{ open }（open = seq；文本每次重取，不进 state）
 
+return {
+  name: 'context-tool',
+  inject: ['fs', 'sessionQuery', 'tokenMeter', 'timer'],
+  apply(ctx) {
+    const sq = ctx.get('sessionQuery')
+    const meter = ctx.get('tokenMeter')
 
-// Remote 使用标准装饰器的运行时标记；生成代码是普通 JS，因此显式执行 decorator initializer。
-const exposeRemote = (klass, method, exportName) => {
-  const initializers = []
-  Remote(exportName || method)(klass.prototype[method], {
-    private: false, static: false, name: method,
-    addInitializer(fn) { initializers.push(fn) },
-  })
-  const marker = Object.create(klass.prototype)
-  for (const init of initializers) init.call(marker)
-}
-
-class NativeToolboxRemote extends TypertRemoteService {
-  constructor(ctx, registry) {
-    super(ctx, "toolboxNativeDynamicToolbox", { namespace: "toolboxNativeDynamicToolbox" })
-    this.registry = registry
-  }
-  tools(request) {
-    const root = request && typeof request.root === 'string' ? request.root : undefined
-    return { ok: true, root: root || null, tools: this.registry.tools() }
-  }
-  panel(request) {
-    const root = request && typeof request.root === 'string' ? request.root : undefined
-    return this.registry.panel(root, request || {})
-  }
-  plugins(request) {
-    void request
-    return { ok: true, plugins: [], capabilities: TOOLBOX_RUNTIME.capabilities }
-  }
-  async sessionInfo(request) {
-    const sid = request && typeof request.session === 'string' ? request.session : ''
-    if (!sid) return { ok: false, error: '缺少会话 id' }
-    const sessions = this.ctx.get('sessions')
-    if (sessions && typeof sessions.get === 'function') {
-      try {
-        const session = sessions.get(sid)
-        const cwd = session && session.header && session.header.cwd
-        if (typeof cwd === 'string' && cwd) return { ok: true, cwd }
-      } catch (error) {}
+    const pad2 = (n) => (n < 10 ? '0' : '') + n
+    const fmtTime = (t) => { const d = new Date(t); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds()) }
+    const oneLine = (s, max) => {
+      const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim()
+      return t.length > max ? t.slice(0, max - 1) + '…' : t
     }
-    const query = this.ctx.get('sessionQuery')
-    if (query && typeof query.listSessions === 'function') {
-      try {
-        const rows = await query.listSessions()
-        const hit = (rows || []).find((row) => row && row.id === sid)
-        const cwd = hit && hit.header && hit.header.cwd
-        if (typeof cwd === 'string' && cwd) return { ok: true, cwd }
-      } catch (error) {}
+    // 文本提取：text/reasoning 直接取 text；tool-result 块下钻内层 content 取文本
+    // （工具结果条目否则恒显「非文本」但 token 照算——列表与详情共用本函数，口径一致）
+    const textOf = (blocks) => {
+      if (!Array.isArray(blocks)) return ''
+      return blocks.map((b) => {
+        if (!b) return ''
+        if (b.type === 'text' || b.type === 'reasoning') return b.text || ''
+        if (b.type === 'tool-result' || b.type === 'tool_result' || b.toolCallId != null) return textOf(b.content)
+        return ''
+      }).filter(Boolean).join('\n')
     }
-    return { ok: false, error: '会话不存在或不可读: ' + sid }
-  }
-  selfviewPull(request) {
-    return callNativeBridge("selfview/pull", request || {})
-  }
-  selfviewResult(request) {
-    return callNativeBridge("selfview/result", request || {})
-  }
-  selfviewPush(request) {
-    return callNativeBridge("selfview/push", request || {})
-  }
+    const fmtTok = (n) => n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(n)
+    const CAP = 12000
+
+    // 面板级缓存：surface 不变（capturedThroughSeq + 条数相同）时不重估 token、不重建行模型
+    // （此前每点一次「展开」都会全量 readSurface + 逐条 estimateMessage）
+    let modelCache = null // { sid, through, count, rows, totalTok }
+    const getModel = async (sid) => {
+      const snap = await sq.readSurface(sid)
+      const events = snap.events || []
+      const through = snap.capturedThroughSeq == null ? 0 : snap.capturedThroughSeq
+      if (modelCache && modelCache.sid === sid && modelCache.through === through && modelCache.count === events.length) {
+        return modelCache
+      }
+      const rows = []
+      let totalTok = 0
+      for (const ev of events) {
+        const d = ev.data || {}
+        const msg = ev.type === 'user/message' ? d : d.message
+        const text = textOf(msg && msg.content)
+        let tok = null
+        if (meter && msg) { try { tok = meter.estimateMessage(msg) } catch (e) {} }
+        if (tok) totalTok += tok
+        const role = ev.type === 'user/message' ? (msg.source && msg.source.kind === 'user' ? 'user' : 'inject')
+          : ev.type === 'assistant/message' ? 'ai' : 'tool'
+        rows.push({ seq: ev.seq, time: ev.time, role, text, tok, name: ev.type === 'tool/result' ? '工具结果' : '' })
+      }
+      modelCache = { sid, through, count: events.length, rows, totalTok }
+      return modelCache
+    }
+
+    const handler = async ({ action, fields, state, session }) => {
+      if (!sq) return { ok: false, error: 'sessionQuery 服务不可用', html: '' }
+      const st = (state && typeof state === 'object' && state) ? state : { open: null }
+      const el = fields && fields.__el ? fields.__el : {}
+      if (action === 'open' && el.seq) { const n = Number(el.seq); st.open = st.open === n ? null : n }
+      else if (action === 'close') st.open = null
+
+      try {
+        let sid = session || null
+        if (!sid) {
+          const recent = await sq.listSessions()
+          if (recent.length) sid = String((recent[0].header || {}).id || '')
+        }
+        if (!sid) return { ok: true, html: '<div class="jr-tabpanel tb-root"><div class="tb-notice">未找到会话</div></div>', state: st }
+
+        const model = await getModel(sid)
+        const rows = model.rows
+        const totalTok = model.totalTok
+        const through = model.through
+        const maxTok = rows.reduce((m, r) => Math.max(m, r.tok || 0), 1)
+        const ROLE_PILL = { user: ['用户', 'tb-pill-done'], inject: ['注入', 'tb-pill-other'], ai: ['助手', 'tb-pill-active'], tool: ['工具结果', 'tb-pill-plain'] }
+
+        const parts = []
+        parts.push('<div class="jr-tabpanel tb-root tb-pane"><div class="tb-pane-head">')
+        parts.push('<div class="tb-stats">' +
+          '<div class="tb-stat"><span class="tb-stat-num">' + rows.length + '</span><span class="tb-stat-label">上下文条目</span></div>' +
+          '<div class="tb-stat"><span class="tb-stat-num">' + fmtTok(totalTok) + '</span><span class="tb-stat-label">估算总 token</span></div>' +
+          '<div class="tb-stat"><span class="tb-stat-num">' + through + '</span><span class="tb-stat-label">日志序号</span></div>' +
+        '</div>')
+        parts.push('<div class="tb-banner tb-banner-info">当前模型实际可见的上下文（压缩/修剪后的 surface）；token 为本地估算</div>')
+
+        // 详情
+        if (st.open != null) {
+          const row = rows.find((r) => r.seq === st.open)
+          if (row) {
+            parts.push('<div class="tb-preview"><div class="tb-preview-head">' +
+              '<span class="tb-preview-name">#' + row.seq + ' ' + ROLE_PILL[row.role][0] + '</span>' +
+              '<button type="button" class="tb-btn tb-btn-sm tb-btn-ghost" data-action="close">关闭</button></div>' +
+              '<pre class="tb-code">' + esc(row.text.length > CAP ? row.text.slice(0, CAP) + '\n…（截断，共 ' + row.text.length + ' 字符）' : (row.text || '（无文本内容）')) + '</pre></div>')
+          }
+        }
+
+        parts.push('</div>') // .tb-pane-head 结束
+        parts.push('<div class="tb-pane-body tb-pane-col" data-scroll-default="bottom"><div class="tb-list">' + rows.map((r) => {
+          const rp = ROLE_PILL[r.role]
+          const pct = r.tok ? Math.max(2, Math.round((r.tok / maxTok) * 100)) : 0
+          return '<div class="tb-rec' + (st.open === r.seq ? ' tb-rec-active' : '') + '" data-action="open" data-seq="' + r.seq + '">' +
+            '<div class="tb-rec-main">' +
+              '<div class="tb-rec-top"><span class="tb-pill ' + rp[1] + '">' + rp[0] + '</span>' +
+              '<span class="tb-rec-summary">' + esc(oneLine(r.text, 80) || '（非文本）') + '</span></div>' +
+              '<div class="tb-rec-sub" style="flex-wrap:nowrap">' +
+                '<span>' + fmtTime(r.time) + '</span>' +
+                (r.tok ? '<div style="flex:1;max-width:120px;height:5px;border-radius:3px;background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#2b2c33));overflow:hidden"><div style="height:100%;width:' + pct + '%;background:var(--tb-accent,#3f6fd9)"></div></div><span>' + fmtTok(r.tok) + ' tok</span>' : '') +
+                '<span>#' + r.seq + '</span>' +
+              '</div>' +
+            '</div>' +
+          '</div>'
+        }).join('') + '</div></div>')
+        parts.push('</div>') // .tb-pane 结束
+        return { ok: true, html: parts.join(''), state: st }
+      } catch (e) {
+        return { ok: false, error: String((e && e.message) || e), html: '', state: st }
+      }
+    }
+
+    tryRegisterTool(ctx, { id: 'context', label: '上下文', order: 10, icon: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5l6 2.5-6 2.5-6-2.5z"/><path d="M2 8l6 2.5 6-2.5"/><path d="M2 11.5L8 14l6-2.5"/></svg>' }, handler)
+  },
 }
-for (const method of ["tools","panel","plugins","sessionInfo","selfviewPull","selfviewResult","selfviewPush"]) exposeRemote(NativeToolboxRemote, method)
+
+}
 
 export async function apply(ctx) {
-  const registry = makeStaticRegistry()
-  ctx.provide(TOOLBOX_RUNTIME.registryService, registry)
-  ctx.provide(TOOLBOX_RUNTIME.bridgeService, nativeBridge)
-  const features = []
-  for (const feature of features) {
+  applyingContext = ctx
+  try {
+    const feature = create_context()
     if (!feature || typeof feature.apply !== 'function') throw new Error('静态 feature 未返回有效插件对象')
     const disposer = await feature.apply(ctx)
     if (typeof disposer === 'function') ctx.effect(() => disposer)
+    console.log(TOOLBOX_RUNTIME.logTag() + ' 原生静态组件已加载: context')
+  } finally {
+    applyingContext = null
   }
-  new NativeToolboxRemote(ctx, registry)
-  console.log(TOOLBOX_RUNTIME.logTag() + ' 原生静态 Host 已加载（功能: ' + registry.tools().map((x) => x.id).join(', ') + '）')
 }

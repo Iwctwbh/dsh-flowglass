@@ -3,7 +3,7 @@
 // 构建管线在 build/build-bundle.mjs（纯计算，可重复构建）；本文件只负责参数解析与写盘。
 import { writeFileSync, existsSync, mkdirSync, rmSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { resolve, relative, isAbsolute, join, sep } from 'node:path'
+import { resolve, relative, isAbsolute, join, dirname, sep } from 'node:path'
 import { PLUGINS } from '../build/plugin-catalog.mjs'
 import { makeSourceLoader } from '../build/source-loader.mjs'
 import { BUNDLE_ID_RE } from '../build/profile.mjs'
@@ -91,6 +91,10 @@ if (opts.dryRun) { if (!opts.json) console.log('（dry-run：未写文件）'); 
 // ---- 写盘（--clean 只清理解析后的精确输出目录）----
 if (opts.clean && existsSync(outPath)) rmSync(outPath, { recursive: true, force: true })
 mkdirSync(join(outPath, 'lib'), { recursive: true })
-for (const [rel, content] of files) writeFileSync(join(outPath, ...rel.split('/')), content)
+for (const [rel, content] of files) {
+  const target = join(outPath, ...rel.split('/'))
+  mkdirSync(dirname(target), { recursive: true })
+  writeFileSync(target, content)
+}
 console.log('>>> 构建完成: ' + outRel + '（' + files.size + ' 个文件）')
 console.log('下一步: cd ' + outRel + ' && npm pack，然后 dsh plugin --profile web add <tgz>')

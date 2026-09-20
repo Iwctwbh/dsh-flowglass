@@ -1,6 +1,6 @@
 {
   "name": "dsh-dynamic-toolbox",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "工具箱（DSH 原生静态工具箱）",
   "type": "module",
   "main": "./lib/index.js",
@@ -8,6 +8,25 @@
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
     "./remote": "./lib/remote.js",
+    "./feature/jira": "./lib/features/jira.js",
+    "./feature/git": "./lib/features/git.js",
+    "./feature/files": "./lib/features/files.js",
+    "./feature/flow": "./lib/features/flow.js",
+    "./feature/flowedit": "./lib/features/flowedit.js",
+    "./feature/trace": "./lib/features/trace.js",
+    "./feature/http": "./lib/features/http.js",
+    "./feature/ports": "./lib/features/ports.js",
+    "./feature/calc": "./lib/features/calc.js",
+    "./feature/usage": "./lib/features/usage.js",
+    "./feature/prompt": "./lib/features/prompt.js",
+    "./feature/context": "./lib/features/context.js",
+    "./feature/aiassist": "./lib/features/aiassist.js",
+    "./feature/tools": "./lib/features/tools.js",
+    "./feature/search": "./lib/features/search.js",
+    "./feature/lineage": "./lib/features/lineage.js",
+    "./feature/aiusage": "./lib/features/aiusage.js",
+    "./feature/quota": "./lib/features/quota.js",
+    "./feature/selfview": "./lib/features/selfview.js",
     "./package.json": "./package.json"
   },
   "repository": {
@@ -32,9 +51,12 @@
       "inject": [
         "@deepseek-ai/dsh-client-ui-session",
         "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-api-workspace-controller",
         "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-ui-workspace",
         "@deepseek-ai/dsh-client-ui-layout",
-        "@deepseek-ai/dsh-client-ui-sidebar"
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
       ]
     }
   },
@@ -50,8 +72,8 @@
     "node": ">=22.19"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-typert-protocol": "^0.1.5-rc.1",
-    "@deepseek-ai/dsh-tools": "^0.1.5-rc.1",
+    "@deepseek-ai/dsh-typert-protocol": "^0.1.5-rc.1 || ^0.1.6-alpha.2",
+    "@deepseek-ai/dsh-tools": "^0.1.5-rc.1 || ^0.1.6-alpha.2",
     "react": "^18.3.1"
   }
 }

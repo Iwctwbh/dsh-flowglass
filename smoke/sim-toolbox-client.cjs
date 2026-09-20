@@ -7,7 +7,7 @@
 // ⑤「隐藏无界面」联动：Host-only 行打 data-tb-hide 隐藏（待审批行不隐藏）、计数 span 用
 //   面板 DOM「可见且 running」行覆盖（不信任单仓库 toolbox/plugins 清单）；开关关闭后恢复；
 // ⑥工具箱长名称在可见 chrome 统一使用「工具箱」，完整名称保留在 tooltip/aria-label；
-// ⑦DSH 0.1.5 原生右侧栏（bundleId=flow）：sidebarRightTabs 两段式注册（page type + body Slot）、
+// ⑦DSH 0.1.5 原生右侧栏（bundleId=flow / dynamic-toolbox）：sidebarRightTabs 两段式注册（page type + body Slot）、
 //   自有入口 openTab、原生接管时撤销 better-sidebar 桥、注册失败恢复固定右侧兜底、旧 drawer 偏好忽略、
 //   原生 Tab body 透传 Slot 标准属性（sessionId/useSessions/useTabInfo→visible），切 Session 保持已展开流镜。
 const fs = require('fs')
@@ -199,7 +199,7 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
   // —— 长 Bundle 名称：可见标题收敛，完整名称保留为 tooltip/aria-label ——
   {
     const longName = 'Jira + Git + 文件 + 流镜 + 工作流编辑 + 轨迹 + HTTP + 端口 + 计算 + 用量 + 提示词 + 上下文 + AI 助手 + 工具清单 + 搜索 + 血缘 + AI 台账 + 配额 + 界面自查 工具箱'
-    const staticSrc = 'const TOOLBOX_RUNTIME_OVERRIDES = { bundleId: \'dynamic-toolbox\', displayName: ' + JSON.stringify(longName) + ' }\n' + src
+    const staticSrc = 'const TOOLBOX_RUNTIME_OVERRIDES = { bundleId: \'custom-toolbox\', displayName: ' + JSON.stringify(longName) + ' }\n' + src
     const slots = makeSlots()
     const ctx = makeCtx(); ctx.slotsFor = slots
     const impl = await evalClient(staticSrc, { ctx, styles: { insert() { return () => {} } } })
@@ -211,6 +211,35 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     check('长 Bundle 名称：可见入口收敛为「工具箱」', rendered.children.indexOf('工具箱') >= 0)
     check('长 Bundle 名称：完整名称保留在 title', rendered.props.title === longName + '（工具集）')
     for (const dis of ctx.teardowns) dis()
+  }
+
+  // —— 路径 G（原生静态工具箱）：只进入 Harness 官方下拉框，不保留独立入口/抽屉 ——
+  {
+    const toolboxSrc = 'const TOOLBOX_RUNTIME_OVERRIDES = { bundleId: \'dynamic-toolbox\', displayName: \'工具箱\' }\n' + src
+    const slots = makeSlots()
+    const ctx = makeCtx(); ctx.slotsFor = slots
+    const definitions = []
+    ctx.services.sidebarRightTabs = { register(def) { definitions.push(def); return () => { const i = definitions.indexOf(def); if (i >= 0) definitions.splice(i, 1) } } }
+    ctx.services.sidebarRight = { openTab() {} }
+    const impl = await evalClient(toolboxSrc, { ctx, styles: { insert() { return () => {} } }, localStorage: makeLocalStorage({}) })
+    impl.apply(ctx)
+    ctx.runInject()
+    slots.activateAll()
+    const def = definitions[0]
+    check('G: 静态工具箱注册进官方下拉框', definitions.length === 1
+      && def.id === 'dsh-dynamic-toolbox/native' && def.kind === 'dsh-dynamic-toolbox:toolbox'
+      && def.title() === '工具箱' && def.guide[0].title() === '工具箱'
+      && def.guide[0].description().indexOf('工作区工具箱') >= 0)
+    check('G: 静态工具箱不注册独立 footer 入口或 shell.overlay 抽屉',
+      slots.injected['sidebar.footer.action'] === undefined && slots.injected['shell.overlay'] === undefined,
+      Object.keys(slots.injected).join(','))
+    const bodyReg = slots.registrations.find((r) => r.entry && r.entry.name === 'sidebar.right.pane.tab' && r.entry.key === 'dsh-dynamic-toolbox/native')
+    const bodyWrap = bodyReg && bodyReg.component({ useTabInfo: () => ({ tab: { visible: true } }), sessionId: 's-toolbox', useSessions: () => undefined })
+    const bodyNode = bodyWrap && bodyWrap.type(bodyWrap.props)
+    check('G: 官方工具箱 Tab 嵌入原 Drawer 内容并绑定当前 Session', bodyNode && bodyNode.props
+      && bodyNode.props.embedded === true && bodyNode.props.visible === true && bodyNode.props.sessionId === 's-toolbox')
+    for (const dis of ctx.teardowns) dis()
+    check('G: teardown 撤销工具箱官方 page type', definitions.length === 0)
   }
 
   // —— 路径 B：有 DOM → 导航区注入，不注册 sidebar.footer.action ——

@@ -1,9 +1,8 @@
-// ===== 工具箱 · DSH 原生静态 Host（构建生成，勿手改） =====
-import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
+// ===== 工具箱 · usage 原生静态 Host 组件（构建生成，勿手改） =====
 
 
-export const name = "dsh-dynamic-toolbox"
-export const inject = []
+export const name = "dsh-dynamic-toolbox/feature/usage"
+export const inject = ["fs","sessionQuery","timer","toolboxRegistryDynamicToolbox"]
 
 const TOOLBOX_RUNTIME_OVERRIDES = {
   "mode": "static-bundle",
@@ -78,55 +77,6 @@ const TOOLBOX_RUNTIME = (() => {
     logTag: () => (bundleId === 'dynamic' ? '[toolbox]' : '[toolbox:' + bundleId + ']'),
   })
 })()
-
-
-// 静态注册表：feature 只挂载一次，handler 每次调用接收当前 root/session，适用于任意工作区。
-const makeStaticRegistry = () => {
-  const entries = new Map()
-  return {
-    register(desc, handler) {
-      if (!desc || typeof desc.id !== 'string' || !desc.id || typeof handler !== 'function') return () => {}
-      const entry = { id: desc.id, label: desc.label || desc.id, order: typeof desc.order === 'number' ? desc.order : 0, icon: desc.icon || null, handler }
-      entries.set(desc.id, entry)
-      return () => { if (entries.get(desc.id) === entry) entries.delete(desc.id) }
-    },
-    tools() {
-      return [...entries.values()].sort((a, b) => a.order - b.order).map((x) => ({ id: x.id, label: x.label, order: x.order, icon: x.icon || null }))
-    },
-    async panel(root, call) {
-      const toolId = call && typeof call.tool === 'string' ? call.tool : ''
-      const entry = entries.get(toolId)
-      if (!entry) return { ok: false, error: '工具未注册: ' + (toolId || '(空)') }
-      try {
-        const res = await entry.handler({
-          action: call && typeof call.action === 'string' ? call.action : '',
-          fields: call && call.fields && typeof call.fields === 'object' ? call.fields : {},
-          state: call && call.state || null,
-          root: typeof root === 'string' && root ? root : undefined,
-          session: call && typeof call.session === 'string' && call.session ? call.session : undefined,
-        })
-        if (!res || typeof res.html !== 'string') return { ok: false, error: '工具返回了无效面板内容' }
-        const out = { ok: true, html: res.html, state: res.state == null ? null : res.state }
-        if (typeof res.copy === 'string' && res.copy) out.copy = res.copy
-        if (res.navigateSession && typeof res.navigateSession === 'object' && typeof res.navigateSession.sessionId === 'string') {
-          out.navigateSession = {
-            sessionId: res.navigateSession.sessionId,
-            ...(typeof res.navigateSession.parentSessionId === 'string' ? { parentSessionId: res.navigateSession.parentSessionId } : {}),
-            ...(res.navigateSession.kind === 'subagent' || res.navigateSession.kind === 'session' ? { kind: res.navigateSession.kind } : {}),
-          }
-        }
-        if (res.flowContext && typeof res.flowContext === 'object' && typeof res.flowContext.text === 'string') {
-          out.flowContext = {
-            text: res.flowContext.text,
-            ...(typeof res.flowContext.sourceSessionId === 'string' ? { sourceSessionId: res.flowContext.sourceSessionId } : {}),
-            ...(Array.isArray(res.flowContext.seqs) ? { seqs: res.flowContext.seqs.filter((v) => typeof v === 'number') } : {}),
-          }
-        }
-        return out
-      } catch (error) { return { ok: false, error: String(error && error.message || error) } }
-    },
-  }
-}
 
 // ===== shared-host.js：注入到每个 Host-only 工具包开头的公共辅助（make-payloads.mjs 自动拼接）=====
 // HTML 转义（面板内容来自 Host 拼接，转义用户数据防止破坏结构）
@@ -637,107 +587,154 @@ const withDeadline = (ctx, handle, ms) => {
 }
 
 
-// Compatibility seam for features shared with dynamic mode. In a static
-// bundle harness.handle is backed by native Remote methods, while model tools
-// are registered directly against DSH's tools service.
-const nativeBridgeHandlers = new Map()
-const nativeBridge = {
-  register(name, handler) {
-    if (typeof name !== 'string' || !name || typeof handler !== 'function') return () => {}
-    nativeBridgeHandlers.set(name, handler)
-    return () => { if (nativeBridgeHandlers.get(name) === handler) nativeBridgeHandlers.delete(name) }
-  },
-  async call(name, request) {
-    const handler = nativeBridgeHandlers.get(name)
-    if (!handler) return { ok: false, error: '原生 RPC 未注册: ' + name }
-    return await handler(request)
-  },
-}
-const callNativeBridge = async (name, request) => {
-  return await nativeBridge.call(name, request)
-}
+let applyingContext = null
 const harness = {
   handle(name, handler) {
-    return nativeBridge.register(name, handler)
+    const bridge = applyingContext && applyingContext.get(TOOLBOX_RUNTIME.bridgeService)
+    if (!bridge || typeof bridge.register !== 'function') throw new Error('静态工具箱 Bridge 服务不可用')
+    return bridge.register(name, handler)
   },
   defineTool(tool) { return tool },
-  registerTool() { throw new Error('当前静态合集未启用模型工具服务') },
+  registerTool() { throw new Error('当前静态组件未启用模型工具服务') },
 }
 
+const create_usage = () => {
+// ===== usage-tool.js：会话 Token 用量分析（Host-only）=====
+// 数据源：sessionQuery.readSession(当前会话) 的 assistant/message usage 事件。
+// 汇总：总输入/输出/缓存读取/命中率/步数；Top10 步骤横向条形图；最近 20 步明细。
+// 状态：{}（数据每次动作重算，不进 state）
 
+return {
+  name: 'usage-tool',
+  inject: ['fs', 'sessionQuery', 'timer'],
+  apply(ctx) {
+    const sq = ctx.get('sessionQuery')
+    const readLog = sq ? makeSessionLogReader(ctx, sq) : null
+    let modelCache = null // { sid, count, data }（build 结果缓存；日志不增长不重建）
 
-// Remote 使用标准装饰器的运行时标记；生成代码是普通 JS，因此显式执行 decorator initializer。
-const exposeRemote = (klass, method, exportName) => {
-  const initializers = []
-  Remote(exportName || method)(klass.prototype[method], {
-    private: false, static: false, name: method,
-    addInitializer(fn) { initializers.push(fn) },
-  })
-  const marker = Object.create(klass.prototype)
-  for (const init of initializers) init.call(marker)
-}
+    const pad2 = (n) => (n < 10 ? '0' : '') + n
+    const fmtTime = (t) => { const d = new Date(t); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds()) }
+    const fmtTok = (n) => n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(n)
 
-class NativeToolboxRemote extends TypertRemoteService {
-  constructor(ctx, registry) {
-    super(ctx, "toolboxNativeDynamicToolbox", { namespace: "toolboxNativeDynamicToolbox" })
-    this.registry = registry
-  }
-  tools(request) {
-    const root = request && typeof request.root === 'string' ? request.root : undefined
-    return { ok: true, root: root || null, tools: this.registry.tools() }
-  }
-  panel(request) {
-    const root = request && typeof request.root === 'string' ? request.root : undefined
-    return this.registry.panel(root, request || {})
-  }
-  plugins(request) {
-    void request
-    return { ok: true, plugins: [], capabilities: TOOLBOX_RUNTIME.capabilities }
-  }
-  async sessionInfo(request) {
-    const sid = request && typeof request.session === 'string' ? request.session : ''
-    if (!sid) return { ok: false, error: '缺少会话 id' }
-    const sessions = this.ctx.get('sessions')
-    if (sessions && typeof sessions.get === 'function') {
-      try {
-        const session = sessions.get(sid)
-        const cwd = session && session.header && session.header.cwd
-        if (typeof cwd === 'string' && cwd) return { ok: true, cwd }
-      } catch (error) {}
+    const build = (events) => {
+      const steps = []
+      let inTok = 0, outTok = 0, cacheRead = 0, reasoning = 0
+      for (const ev of events) {
+        if (!ev || ev.type !== 'assistant/message') continue
+        const d = ev.data || {}
+        const u = d.usage
+        if (!u) continue
+        const input = (u.inputTokens || 0) + (u.cacheReadTokens || 0) + (u.cacheWriteTokens || 0)
+        const output = u.outputTokens || 0
+        steps.push({
+          seq: ev.seq, turn: d.turn, step: d.step, time: ev.time,
+          input, output, cacheRead: u.cacheReadTokens || 0, reasoning: u.reasoningTokens || 0,
+          total: input + output,
+        })
+        inTok += input; outTok += output; cacheRead += u.cacheReadTokens || 0; reasoning += u.reasoningTokens || 0
+      }
+      return { steps, inTok, outTok, cacheRead, reasoning }
     }
-    const query = this.ctx.get('sessionQuery')
-    if (query && typeof query.listSessions === 'function') {
-      try {
-        const rows = await query.listSessions()
-        const hit = (rows || []).find((row) => row && row.id === sid)
-        const cwd = hit && hit.header && hit.header.cwd
-        if (typeof cwd === 'string' && cwd) return { ok: true, cwd }
-      } catch (error) {}
+
+    const render = (m) => {
+      const parts = []
+      parts.push('<div class="jr-tabpanel tb-root">')
+      if (m.steps.length === 0) {
+        parts.push('<div class="tb-notice">本会话暂无用量的助手消息（usage 由适配器上报）</div></div>')
+        return parts.join('')
+      }
+      const hitRate = m.inTok > 0 ? Math.round((m.cacheRead / m.inTok) * 100) : 0
+      const avg = Math.round((m.inTok + m.outTok) / m.steps.length)
+      parts.push('<div class="tb-stats">' +
+        '<div class="tb-stat"><span class="tb-stat-num">' + fmtTok(m.inTok) + '</span><span class="tb-stat-label">总输入</span></div>' +
+        '<div class="tb-stat"><span class="tb-stat-num">' + fmtTok(m.outTok) + '</span><span class="tb-stat-label">总输出</span></div>' +
+        '<div class="tb-stat"><span class="tb-stat-num">' + hitRate + '%</span><span class="tb-stat-label">缓存命中率</span></div>' +
+        '<div class="tb-stat"><span class="tb-stat-num">' + fmtTok(avg) + '</span><span class="tb-stat-label">平均/步</span></div>' +
+        '<div class="tb-stat"><span class="tb-stat-num">' + m.steps.length + '</span><span class="tb-stat-label">计费步数</span></div>' +
+      '</div>')
+
+      const top = m.steps.slice().sort((a, b) => b.total - a.total).slice(0, 10)
+      const max = top.length ? top[0].total : 1
+      parts.push('<div class="tb-card"><div class="tb-sec"><span class="tb-sec-label">消耗最高的步骤 Top ' + top.length + '</span>' +
+        top.map((s) =>
+          '<div class="tb-row" style="flex-wrap:nowrap" title="T' + s.turn + '·S' + s.step + ' 输入 ' + s.input + ' / 输出 ' + s.output + '">' +
+            '<span class="tb-num tb-mono" style="min-width:52px">T' + s.turn + '·S' + s.step + '</span>' +
+            '<div style="flex:1;height:8px;border-radius:4px;background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#2b2c33));overflow:hidden">' +
+              '<div style="height:100%;width:' + Math.max(2, Math.round((s.total / max) * 100)) + '%;background:var(--tb-accent,#3f6fd9);border-radius:4px"></div>' +
+            '</div>' +
+            '<span class="tb-num" style="min-width:56px;text-align:right">' + fmtTok(s.total) + '</span>' +
+          '</div>'
+        ).join('') + '</div></div>')
+
+      // 按轮次聚合趋势（最近 15 轮）：一眼看出哪几轮在烧 token
+      const byTurn = {}
+      for (const s of m.steps) byTurn[s.turn] = (byTurn[s.turn] || 0) + s.total
+      const turnRows = Object.keys(byTurn).map((t) => ({ turn: Number(t), total: byTurn[t] })).sort((a, b) => a.turn - b.turn).slice(-15)
+      const maxTurn = turnRows.reduce((mx, r) => Math.max(mx, r.total), 1)
+      if (turnRows.length > 1) {
+        parts.push('<div class="tb-card"><div class="tb-sec"><span class="tb-sec-label">按轮次趋势（最近 ' + turnRows.length + ' 轮）</span>' +
+          turnRows.map((r) =>
+            '<div class="tb-row" style="flex-wrap:nowrap" title="轮次 T' + r.turn + ' 合计 ' + r.total + ' tok">' +
+              '<span class="tb-num tb-mono" style="min-width:52px">T' + r.turn + '</span>' +
+              '<div style="flex:1;height:8px;border-radius:4px;background:var(--tb-hover-bg,var(--dsw-alias-bg-layer-2,#2b2c33));overflow:hidden">' +
+                '<div style="height:100%;width:' + Math.max(2, Math.round((r.total / maxTurn) * 100)) + '%;background:var(--tb-accent,#3f6fd9);border-radius:4px"></div>' +
+              '</div>' +
+              '<span class="tb-num" style="min-width:56px;text-align:right">' + fmtTok(r.total) + '</span>' +
+            '</div>'
+          ).join('') + '</div></div>')
+      }
+
+      const recent = m.steps.slice(-20).reverse()
+      parts.push('<div class="tb-list-head"><span class="tb-list-title">最近 ' + recent.length + ' 步明细<span class="tb-count">' + m.steps.length + '</span></span></div>')
+      parts.push('<div class="tb-list">' + recent.map((s) =>
+        '<div class="tb-rec"><div class="tb-rec-main">' +
+          '<div class="tb-rec-top"><span class="tb-rec-key">T' + s.turn + '·S' + s.step + '</span>' +
+          '<span class="tb-rec-summary">输入 ' + fmtTok(s.input) + ' · 输出 ' + fmtTok(s.output) + '</span></div>' +
+          '<div class="tb-rec-sub"><span>' + fmtTime(s.time) + '</span>' +
+          (s.cacheRead ? '<span class="tb-tx-done">缓存 ' + fmtTok(s.cacheRead) + '</span>' : '') +
+          (s.reasoning ? '<span>推理 ' + fmtTok(s.reasoning) + '</span>' : '') +
+          '<span>#' + s.seq + '</span></div>' +
+        '</div></div>'
+      ).join('') + '</div>')
+      parts.push('</div>')
+      return parts.join('')
     }
-    return { ok: false, error: '会话不存在或不可读: ' + sid }
-  }
-  selfviewPull(request) {
-    return callNativeBridge("selfview/pull", request || {})
-  }
-  selfviewResult(request) {
-    return callNativeBridge("selfview/result", request || {})
-  }
-  selfviewPush(request) {
-    return callNativeBridge("selfview/push", request || {})
-  }
+
+    const handler = async ({ state, session }) => {
+      if (!sq) return { ok: false, error: 'sessionQuery 服务不可用', html: '' }
+      const st = (state && typeof state === 'object' && state) ? state : {}
+      try {
+        let sid = session || null
+        if (!sid) {
+          const recent = await sq.listSessions()
+          if (recent.length) sid = String((recent[0].header || {}).id || '')
+        }
+        if (!sid) return { ok: true, html: '<div class="jr-tabpanel tb-root"><div class="tb-notice">未找到会话</div></div>', state: st }
+        const r = await readLog(sid)
+        if (!modelCache || modelCache.sid !== sid || modelCache.count !== r.count) {
+          modelCache = { sid, count: r.count, data: build(r.events) }
+        }
+        return { ok: true, html: render(modelCache.data), state: st }
+      } catch (e) {
+        return { ok: false, error: String((e && e.message) || e), html: '', state: st }
+      }
+    }
+
+    tryRegisterTool(ctx, { id: 'usage', label: '用量', order: 8, icon: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 13.5h11"/><path d="M4.5 10v3.5M8 7v6.5M11.5 9v4.5"/></svg>' }, handler)
+  },
 }
-for (const method of ["tools","panel","plugins","sessionInfo","selfviewPull","selfviewResult","selfviewPush"]) exposeRemote(NativeToolboxRemote, method)
+
+}
 
 export async function apply(ctx) {
-  const registry = makeStaticRegistry()
-  ctx.provide(TOOLBOX_RUNTIME.registryService, registry)
-  ctx.provide(TOOLBOX_RUNTIME.bridgeService, nativeBridge)
-  const features = []
-  for (const feature of features) {
+  applyingContext = ctx
+  try {
+    const feature = create_usage()
     if (!feature || typeof feature.apply !== 'function') throw new Error('静态 feature 未返回有效插件对象')
     const disposer = await feature.apply(ctx)
     if (typeof disposer === 'function') ctx.effect(() => disposer)
+    console.log(TOOLBOX_RUNTIME.logTag() + ' 原生静态组件已加载: usage')
+  } finally {
+    applyingContext = null
   }
-  new NativeToolboxRemote(ctx, registry)
-  console.log(TOOLBOX_RUNTIME.logTag() + ' 原生静态 Host 已加载（功能: ' + registry.tools().map((x) => x.id).join(', ') + '）')
 }

@@ -36,6 +36,14 @@ check('manifest 标记 native-static', manifest.mode === 'native-static')
 check('fingerprint 存在', typeof info.fingerprint === 'string' && info.fingerprint.length >= 12)
 const patch = read('cordis.patch.yml') || ''
 check('patch 行 id/name 正确', patch.includes('toolbox-bundle-' + info.bundleId) && patch.includes("name: '" + pkg.name + "'"))
+const componentRows = Array.isArray(info.componentRows) ? info.componentRows : []
+for (const key of componentRows) {
+  const exportName = './feature/' + key
+  const target = pkg.exports && pkg.exports[exportName]
+  check('组件导出 ' + key, target === './lib/features/' + key + '.js' && existsSync(dir + '/lib/features/' + key + '.js'))
+  check('组件 patch 行 ' + key, patch.includes('toolbox-bundle-' + info.bundleId + '-' + key)
+    && patch.includes("name: '" + pkg.name + '/feature/' + key + "'"))
+}
 
 const host = read('lib/index.js') || ''
 const client = read('lib/client.js') || ''
@@ -50,6 +58,11 @@ check('零动态 payload/loader 桩', !/payloads\.js|TOOL_FILES|无法加载 loa
 check('Remote 描述含 tools/panel/sessionInfo', remote.includes("descriptor('tools')") && remote.includes("descriptor('panel')") && remote.includes("descriptor('sessionInfo')"))
 
 for (const file of ['lib/index.js', 'lib/client.js', 'lib/remote.js']) {
+  const result = spawnSync(process.execPath, ['--check', dir + '/' + file], { encoding: 'utf8' })
+  check(file + ' 语法检查', result.status === 0, result.status === 0 ? '' : (result.stderr || result.stdout || '').slice(0, 240))
+}
+for (const key of componentRows) {
+  const file = 'lib/features/' + key + '.js'
   const result = spawnSync(process.execPath, ['--check', dir + '/' + file], { encoding: 'utf8' })
   check(file + ' 语法检查', result.status === 0, result.status === 0 ? '' : (result.stderr || result.stdout || '').slice(0, 240))
 }

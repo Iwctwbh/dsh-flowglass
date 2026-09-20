@@ -2,7 +2,7 @@
 // 不使用 dynamicCordisRunner；所选 feature 源码在构建期包进普通函数，由静态 Loader 直接挂载。
 
 export const renderNativeHost = ({
-  packageName, profile, runtimeSource, sharedHostSource, hostFeatures, inject, bridgeMethods, hasModelTools,
+  packageName, profile, runtimeSource, sharedHostSource, hostFeatures, inject, bridgeMethods, hasModelTools, exposeBridge = false,
 }) => {
   const factories = hostFeatures.map(({ key, source }) => {
     const id = key.replace(/[^A-Za-z0-9_$]/g, '_')
@@ -15,6 +15,33 @@ export const renderNativeHost = ({
     return callNativeBridge(${JSON.stringify(rpc)}, request || {})
   }`).join('')
   const exposedMethods = ['tools', 'panel', 'plugins', 'sessionInfo'].concat(bridgeMethods.map(({ method }) => method))
+  const bridgeRuntime = exposeBridge ? `const nativeBridgeHandlers = new Map()
+const nativeBridge = {
+  register(name, handler) {
+    if (typeof name !== 'string' || !name || typeof handler !== 'function') return () => {}
+    nativeBridgeHandlers.set(name, handler)
+    return () => { if (nativeBridgeHandlers.get(name) === handler) nativeBridgeHandlers.delete(name) }
+  },
+  async call(name, request) {
+    const handler = nativeBridgeHandlers.get(name)
+    if (!handler) return { ok: false, error: '原生 RPC 未注册: ' + name }
+    return await handler(request)
+  },
+}
+const callNativeBridge = async (name, request) => {
+  return await nativeBridge.call(name, request)
+}` : `const nativeBridgeHandlers = new Map()
+const callNativeBridge = async (name, request) => {
+  const handler = nativeBridgeHandlers.get(name)
+  if (!handler) return { ok: false, error: '原生 RPC 未注册: ' + name }
+  return await handler(request)
+}`
+  const bridgeHandle = exposeBridge
+    ? 'return nativeBridge.register(name, handler)'
+    : `if (typeof name !== 'string' || !name || typeof handler !== 'function') return () => {}
+    nativeBridgeHandlers.set(name, handler)
+    return () => { if (nativeBridgeHandlers.get(name) === handler) nativeBridgeHandlers.delete(name) }`
+  const bridgeProvide = exposeBridge ? '\n  ctx.provide(TOOLBOX_RUNTIME.bridgeService, nativeBridge)' : ''
 
   return `// ===== ${profile.displayName} · DSH 原生静态 Host（构建生成，勿手改） =====
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
@@ -79,17 +106,10 @@ ${sharedHostSource}
 // Compatibility seam for features shared with dynamic mode. In a static
 // bundle harness.handle is backed by native Remote methods, while model tools
 // are registered directly against DSH's tools service.
-const nativeBridgeHandlers = new Map()
-const callNativeBridge = async (name, request) => {
-  const handler = nativeBridgeHandlers.get(name)
-  if (!handler) return { ok: false, error: '原生 RPC 未注册: ' + name }
-  return await handler(request)
-}
+${bridgeRuntime}
 const harness = {
   handle(name, handler) {
-    if (typeof name !== 'string' || !name || typeof handler !== 'function') return () => {}
-    nativeBridgeHandlers.set(name, handler)
-    return () => { if (nativeBridgeHandlers.get(name) === handler) nativeBridgeHandlers.delete(name) }
+    ${bridgeHandle}
   },
   ${hasModelTools ? `defineTool,
   registerTool(ctx, tool) {
@@ -159,7 +179,7 @@ for (const method of ${JSON.stringify(exposedMethods)}) exposeRemote(NativeToolb
 
 export async function apply(ctx) {
   const registry = makeStaticRegistry()
-  ctx.provide(TOOLBOX_RUNTIME.registryService, registry)
+  ctx.provide(TOOLBOX_RUNTIME.registryService, registry)${bridgeProvide}
   const features = [${factoryCalls}]
   for (const feature of features) {
     if (!feature || typeof feature.apply !== 'function') throw new Error('静态 feature 未返回有效插件对象')
