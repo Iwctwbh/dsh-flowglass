@@ -345,14 +345,10 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
   check('内置默认规则可单独删除', defaults.state.presentationRules.length === 5
     && defaults.state.presentationRules.every((rule) => rule.displayName !== 'GitHub'))
 
-  // 未命中内置规则的命令仍保留原始工具名；设置面板可导入并编辑自定义规则。
+  // 未命中内置规则的命令仍保留原始工具名；编辑界面已迁到官方插件详情页。
   let pr = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-presentation-rules' })
-  check('显示规则按钮默认可见', pr.html.indexOf('data-action="fsettings"') >= 0)
+  check('流镜头部不再重复显示设置入口', pr.html.indexOf('data-action="fsettings"') < 0)
   check('内置规则未命中时保留原始 pwsh 标题', pr.html.indexOf('<span class="fl-name">pwsh</span>') >= 0)
-  pr = await h({ action: 'fsettings', fields: {}, state: pr.state, root: ROOT, session: 's-presentation-rules' })
-  check('显示规则设置以友好列表打开且暂停自动刷新', pr.html.indexOf('工具显示规则') >= 0 && pr.html.indexOf('class="fl-rule-list"') >= 0
-    && pr.html.indexOf('添加规则') >= 0 && pr.html.indexOf('JSON 源码') >= 0 && pr.html.indexOf('data-autorefresh="2000"') < 0
-    && pr.html.indexOf('class="fl-rail fl-rail-anim"') >= 0)
   const engramRules = JSON.stringify([{
     enabled: true,
     tools: ['pwsh'],
@@ -363,13 +359,8 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
     color: '#81c784',
   }])
   pr = await h({ action: 'fapply-rule-json', fields: { flowPresentationRules: engramRules }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
-  check('设置内数据操作不重播侧栏进入动画', pr.html.indexOf('class="fl-rail fl-rail-anim"') < 0)
   check('规则命中后投影名称与徽章', pr.html.indexOf('<span class="fl-name">engram-lattice search</span>') >= 0 && pr.html.indexOf('>记忆</span>') >= 0)
-  check('JSON 源码应用后生成折叠摘要行和预渲染编辑区', pr.html.indexOf('已从 JSON 应用 1 条规则') >= 0
-    && pr.html.indexOf('class="fl-rule-summary"') >= 0 && pr.html.indexOf('data-flow-rule-edit="1"') >= 0
-    && pr.html.indexOf('data-field="flowRule.0.displayName"') >= 0 && pr.html.indexOf('fl-rule-card fl-rule-open') < 0)
-  check('启用使用 switch，删除使用带无障碍名称的图标按钮', pr.html.indexOf('class="fl-rule-switch is-on"') >= 0
-    && pr.html.indexOf('aria-label="停用规则"') >= 0 && pr.html.indexOf('class="fl-rule-icon fl-rule-delete"') >= 0 && pr.html.indexOf('aria-label="删除规则"') >= 0)
+  check('规则 JSON 仍由 Host 严格收窄', pr.state.presentationRules.length === 1 && pr.state.presentationRules[0].displayName === 'engram-lattice')
   pr = await h({ action: 'fsave-rule', fields: {
     'flowRule.0.enabled': '1',
     'flowRule.0.tools': 'pwsh',
@@ -380,11 +371,10 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
     'flowRule.0.color': '#81c784',
     __el: { index: '0' },
   }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
-  check('单条保存响应保持折叠', pr.html.indexOf('已保存规则 1') >= 0 && pr.html.indexOf('fl-rule-card fl-rule-open') < 0)
+  check('单条规则保存仍保留 Host 兼容动作', pr.state.presentationRules[0].actions.length === 3)
   pr = await h({ action: 'ftoggle-rule', fields: { __el: { index: '0' } }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
-  check('switch 可单独停用规则', pr.state.presentationRules[0].enabled === false && pr.html.indexOf('fl-rule-off') >= 0 && pr.html.indexOf('aria-label="启用规则"') >= 0)
+  check('规则可单独停用', pr.state.presentationRules[0].enabled === false && pr.html.indexOf('engram-lattice search') < 0)
   pr = await h({ action: 'ftoggle-rule', fields: { __el: { index: '0' } }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
-  check('添加按钮和空白编辑行由 Client 原地切换', pr.html.indexOf('data-flow-rule-new="1"') >= 0 && pr.html.indexOf('data-field="flowRule.new.displayName"') >= 0)
   const addFields = {
     'flowRule.new.enabled': '1',
     'flowRule.new.tools': 'bash',
@@ -395,10 +385,9 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
     'flowRule.new.color': '#7fa7f0',
   }
   pr = await h({ action: 'fcreate-rule', fields: addFields, state: pr.state, root: ROOT, session: 's-presentation-rules' })
-  check('列表可单独创建一条规则', pr.state.presentationRules.length === 2 && pr.html.indexOf('Git') >= 0 && pr.html.indexOf('已添加规则 2') >= 0)
+  check('规则可单独创建', pr.state.presentationRules.length === 2 && pr.state.presentationRules[1].displayName === 'Git')
   pr = await h({ action: 'fdelete-rule', fields: { __el: { index: '1' } }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
-  check('垃圾桶图标可单独删除规则', pr.state.presentationRules.length === 1 && pr.html.indexOf('已删除规则 2') >= 0 && pr.html.indexOf('Git') < 0)
-  pr = await h({ action: 'fsettings', fields: {}, state: pr.state, root: ROOT, session: 's-presentation-rules' })
+  check('规则可单独删除', pr.state.presentationRules.length === 1 && pr.state.presentationRules.every((rule) => rule.displayName !== 'Git'))
   pr = await h({ action: 'fdetail', fields: { __el: { seq: '2' } }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
   check('详情标题使用投影名称但保留完整原始命令', pr.html.indexOf('engram-lattice search · 详情') >= 0 && pr.html.indexOf('engram-memory.ps1') >= 0)
   let invalidRuleRejected = false
@@ -419,6 +408,20 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
     pr.html.indexOf('<span class="fl-name">search</span>') >= 0
       && pr.html.indexOf('engram-memory search') < 0
       && pr.html.indexOf('>命令</span>') < 0 && pr.html.indexOf('>记忆</span>') < 0)
+
+  const configuredPreferences = JSON.stringify({
+    keepOpenOnSessionSwitch: false,
+    zoomEnabled: false,
+    defaultBranchCount: 4,
+    defaultZoomView: 'map',
+    refreshMs: 5000,
+  })
+  let configured = await h({ action: '', fields: { __flowPreferences: configuredPreferences }, state: null, root: ROOT, session: 's-main' })
+  check('插件详情偏好控制轮询、默认视图、分支数和大流镜入口', configured.html.indexOf('data-autorefresh="5000"') >= 0
+    && configured.html.indexOf('data-action="fzoom"') < 0
+    && configured.state.zoomView === 'map' && configured.state.zoomLanes.length === 4)
+  configured = await h({ action: 'fzoom', fields: { __flowPreferences: configuredPreferences }, state: configured.state, root: ROOT, session: 's-main' })
+  check('关闭大流镜后旧入口动作也不会重新打开', configured.state.zoom === false && configured.html.indexOf('data-flow-board="1"') < 0)
 
   // Skill 详情：语义化名称/资源/Markdown 说明，原始 XML 收进折叠区。
   let sk = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-skill-detail' })
@@ -642,15 +645,11 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
   z = await h({ action: 'fzoom', fields: {}, state: z.state, root: ROOT, session: 's-main' })
   check('大流镜：退出总览回单会话（头部带入口）', z.state.zoom === false && z.html.indexOf('data-action="fzoom"') >= 0)
 
-  // 大流镜头部与普通流镜一致：⚙ 显示规则 + ⓘ 使用说明（此前大流镜没有这两个入口）
+  // 设置入口已迁到官方插件详情页；大流镜保留使用说明。
   z = await h({ action: 'fzoom', fields: {}, state: z.state, root: ROOT, session: 's-main' })
-  check('大流镜：头部带显示规则与使用说明入口', z.state.zoom === true
-    && z.html.indexOf('data-action="fsettings"') >= 0
+  check('大流镜：头部保留使用说明且不再重复显示设置入口', z.state.zoom === true
+    && z.html.indexOf('data-action="fsettings"') < 0
     && z.html.indexOf('aria-label="大流镜使用说明"') >= 0)
-  z = await h({ action: 'fsettings', fields: {}, state: z.state, root: ROOT, session: 's-main' })
-  check('大流镜：显示规则侧栏在大流镜内打开，且设置打开时暂停自动刷新', z.html.indexOf('工具显示规则') >= 0
-    && z.html.indexOf('fl-rail') >= 0 && z.html.indexOf('data-autorefresh="2000"') < 0)
-  z = await h({ action: 'fsettings', fields: {}, state: z.state, root: ROOT, session: 's-main' })
   z = await h({ action: 'fzoom', fields: {}, state: z.state, root: ROOT, session: 's-main' }) // 退出，恢复后续用例形态
 
   // 默认观察尺度：多卡（并发组/血缘树）默认全景；单卡会话（普通/新会话）默认近观铺满完整流镜

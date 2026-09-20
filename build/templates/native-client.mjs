@@ -16,9 +16,11 @@ export const renderNativeClient = ({
   // Harness-native renderer. Other toolbox bundles retain their dependency-free
   // HTML panel fallback and never load these modules.
   const markdownRuntime = profile.bundleId === 'flow'
-    ? `    const { MarkdownText: TOOLBOX_MARKDOWN_TEXT } = require('@deepseek-ai/dsh-client-ui-primitives')
+    ? `    const { MarkdownText: TOOLBOX_MARKDOWN_TEXT, Button: TOOLBOX_BUTTON, Switch: TOOLBOX_SWITCH, Input: TOOLBOX_INPUT } = require('@deepseek-ai/dsh-client-ui-primitives')
+    const TOOLBOX_UI_PRIMITIVES = Object.freeze({ Button: TOOLBOX_BUTTON, Switch: TOOLBOX_SWITCH, Input: TOOLBOX_INPUT })
     const { createPortal: TOOLBOX_CREATE_PORTAL } = require('react-dom')`
     : `    const TOOLBOX_MARKDOWN_TEXT = null
+    const TOOLBOX_UI_PRIMITIVES = null
     const TOOLBOX_CREATE_PORTAL = null`
   return `window.__ModuleLoader__.load({
   id: ${JSON.stringify(packageName)},

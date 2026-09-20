@@ -4,7 +4,7 @@ export const renderReadme = ({ packageName, version, bundleId, displayName, feat
     ? '这是 dsh-flowglass 仓库的默认产品与默认构建目标，是 **DSH 原生静态 Host/Client 插件**。'
     : '这是 dsh-flowglass 仓库提供的**可选工具箱产品**，与默认的流镜包独立。只需要会话流程图时，请安装 `dsh-flowglass`；只有需要下列整套工具时才安装本包。\n\n本包是 DSH 原生静态 Host/Client 插件。'
   const flowglassPresentation = isFlowglass
-    ? '\n- 流镜顶部“显示规则”首次提供 Git、GitHub CLI、pnpm、npm、DSH、Python 六条默认规则；默认和自定义规则都支持启停、删除和单条编辑，并保留可折叠 JSON 源码。规则仅保存在浏览器并且不修改 Session 日志。\n'
+    ? '\n- Harness 侧栏「插件」→ `flowglass` 详情页通过官方 `plugins.bundle.config` 集中配置 Session 切换保持展开、大流镜、默认分支/视图、轮询与显示规则；控件复用官方 UI primitives。Git、GitHub CLI、pnpm、npm、DSH、Python 六条默认规则随包发布，用户设置仅保存在浏览器。\n'
     : ''
   return `# ${displayName}（${packageName}）
 

@@ -49,6 +49,9 @@ const check = (label, cond, detail) => {
   check('Remote strict codec 同时支持旧 schema 与 alpha.2 create() 工厂',
     client.includes('schema: json, create: () => json')
       && files.get('lib/remote.js').includes('schema: json, create: () => json'))
+  check('Flow 配置页使用官方插件详情 Slot 与 UI primitives', client.includes("plugins.bundle.config")
+    && client.includes("key: 'dsh-flowglass'") && client.includes('TOOLBOX_UI_PRIMITIVES')
+    && client.includes('Button: TOOLBOX_BUTTON') && client.includes('Switch: TOOLBOX_SWITCH') && client.includes('Input: TOOLBOX_INPUT'))
   check('Flow Client 含 Sidebar Tab 与嵌入布局适配',
     client.includes("FLOW_TAB_ID = 'dsh-flowglass:flow'")
       && client.includes("ctx.inject(['betterSidebar']")

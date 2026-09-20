@@ -358,16 +358,20 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
       && src.indexOf('sessionsClient.provideInfo(sessionId)') < 0)
     check('Better Sidebar 会话回退严格限定 Flowglass，完整 Toolbox 不启用', src.indexOf("if (RT.bundleId !== 'flow') return undefined") >= 0
       && src.indexOf("RT.bundleId === 'flow' && serviceSessionsSnapshot") >= 0)
-    check('Flowglass 显示规则以 localStorage 持久化、随 panel 请求携带且设置打开时暂停 live 刷新',
+    check('Flowglass 官方插件详情配置以 localStorage 持久化并随 panel 请求携带',
       src.indexOf("RT.storageKey('flow.presentation-rules')") >= 0
+        && src.indexOf("RT.storageKey('flow.preferences')") >= 0
         && src.indexOf('flowDefaultPresentationRules') >= 0
         && src.indexOf("displayName: 'GitHub'") >= 0
         && src.indexOf("displayName: 'Python'") >= 0
         && src.indexOf("return typeof raw === 'string' ? raw : flowDefaultPresentationRules") >= 0
         && src.indexOf('fields.__flowPresentationRules') >= 0
+        && src.indexOf('fields.__flowPreferences = JSON.stringify(readFlowPreferences())') >= 0
+        && src.indexOf("slots.inject('plugins.bundle.config'") >= 0
+        && src.indexOf("key: 'dsh-flowglass'") >= 0
         && src.indexOf("['fsave-rule', 'fcreate-rule', 'fapply-rule-json', 'ftoggle-rule', 'fdelete-rule', 'freset-rules']") >= 0
         && src.indexOf('writeFlowRules(JSON.stringify((res.state && res.state.presentationRules) || []))') >= 0
-        && src.indexOf('st.settings === true') >= 0)
+        && src.indexOf('function FlowglassPluginSettings()') >= 0)
     check('规则展开/收起由 Client 原地切换，不触发 panel 刷新',
       src.indexOf("closest('[data-flow-rule-edit]')") >= 0
         && src.indexOf("closest('[data-flow-rule-new]')") >= 0
@@ -594,6 +598,16 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
         && def.guide[0].order === 40 && def.guide[0].title() === '流镜'
         && def.guide[0].description().indexOf('子代理') >= 0 && typeof def.guide[0].icon === 'function')
     slots.activateAll()
+    const configReg = slots.registrations.find((r) => r.entry && r.entry.name === 'plugins.bundle.config' && r.entry.key === 'dsh-flowglass')
+    check('D: Flowglass 通过官方 plugins.bundle.config 注册详情设置页', Boolean(configReg))
+    hookCells = []
+    const configWrap = configReg && configReg.component({ view: 'page' })
+    const configNode = configWrap && renderHooked(configWrap.type, configWrap.props)
+    const configText = configNode ? JSON.stringify(configNode) : ''
+    check('D: 官方详情设置页包含行为、大流镜、轮询与显示规则', configText.indexOf('Flowglass 设置') >= 0
+      && configText.indexOf('切换 Session 时保持展开') >= 0 && configText.indexOf('启用大流镜') >= 0
+      && configText.indexOf('默认分支数量') >= 0 && configText.indexOf('轮询刷新') >= 0
+      && configText.indexOf('工具显示规则') >= 0)
     const bodyReg = slots.registrations.find((r) => r.entry && r.entry.name === 'sidebar.right.pane.tab' && r.entry.key === 'dsh-flowglass/native')
     check('D: body 以同一 definition id 注册 sidebar.right.pane.tab', Boolean(bodyReg))
     // body 组件只透传 Slot 标准属性：sessionId 权威 + useSessions + useTabInfo 的 visible
@@ -609,7 +623,7 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
       src.indexOf('let nativeFlowVisible = false') >= 0
         && src.indexOf("let nativeFlowReopenSession = ''") >= 0
         && src.indexOf('selectedSessionId !== boundSessionId') >= 0
-        && src.indexOf('const keepNativeFlowOpen = nativeFlowVisible') >= 0
+        && src.indexOf('const keepNativeFlowOpen = readFlowPreferences().keepOpenOnSessionSwitch && nativeFlowVisible') >= 0
         && src.indexOf('(isFlowFollow || keepNativeFlowOpen) && nativeOpenTab') >= 0
         && src.indexOf('nativeFlowVisible = false', src.indexOf('function FlowglassNativeTabBody')) >= 0)
     // 无 DOM → footer Entry 兜底：原生激活时点击走 openTab（自动展开），不开独立抽屉
@@ -731,6 +745,9 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
       && src.indexOf('props.useTabInfo') >= 0 && src.indexOf('visible = !(info && info.tab && info.tab.visible === false)') >= 0
       && src.indexOf('nativeFlowReopenSession = selectedSessionId') >= 0
       && src.indexOf('useWorkspaces: typeof props.useWorkspaces') >= 0)
+    check('Flowglass 配置页复用 Harness UI primitives', src.indexOf('TOOLBOX_UI_PRIMITIVES') >= 0
+      && src.indexOf('flowUiPrimitives.Switch') >= 0 && src.indexOf('flowUiPrimitives.Button') >= 0
+      && src.indexOf('flowUiPrimitives.Input') >= 0)
     check('Flowglass 不再暴露显示方式选择或独立悬浮入口',
       src.indexOf('FlowDisplayModeSelect') < 0 && src.indexOf("RT.storageKey('flow.display')") < 0
         && src.indexOf("const dockButton = RT.bundleId === 'flow' ? null") >= 0

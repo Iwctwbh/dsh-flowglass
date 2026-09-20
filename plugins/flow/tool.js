@@ -6,7 +6,7 @@
 //   · 插件/技能/MCP/命令/文件 等普通工具调用：同一步骤内的多个调用 → 平行卡片并排（调用并返回成组）
 //   · 大流镜 Zoom（st.zoom）：血缘树或“单次并发批次”两档；每会话一卡（状态点 + 标题 + 统计 + 触发链），
 //     并发日志可切回历史批次；点卡切换 Harness 会话但保持大流镜与当前批次不消失。
-// 实时：面板根带 data-autorefresh="2000"，框架抽屉每 2s 静默重拉（live 开关可暂停）。
+// 实时：面板根按插件详情设置声明 data-autorefresh，框架抽屉静默重拉（live 开关可暂停）。
 // 钻取：点子代理分支「进入 →」切换到该子会话的流程图（当前会话压 crumbs 栈，「← 返回」逐级退回）。
 // 数据源（DSH 0.1.5 统一折叠器，同一 parseItems 供两条来源）：
 //   · 当前会话实时：Client 订阅 Session Controller 事件窗（ctx.sessions.binding(sid).eventSource），
@@ -85,6 +85,34 @@ return {
       { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['dsh', 'dsh.cmd', 'dsh.exe'], displayName: 'DSH', actions: [], badge: 'DSH', color: '#7fa7f0' },
       { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['python', 'python.exe', 'python3', 'python3.exe', 'py', 'py.exe'], displayName: 'Python', actions: [], badge: 'Python', color: '#3776ab' },
     ]
+    const DEFAULT_FLOW_PREFERENCES = Object.freeze({
+      keepOpenOnSessionSwitch: true,
+      zoomEnabled: true,
+      defaultBranchCount: 2,
+      defaultZoomView: 'compact',
+      refreshMs: 2000,
+    })
+    const normalizeFlowPreferences = (raw) => {
+      let value = raw
+      if (typeof value === 'string') {
+        try { value = JSON.parse(value || '{}') } catch (e) { value = {} }
+      }
+      const p = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+      const branchCount = Number(p.defaultBranchCount)
+      const refreshMs = Number(p.refreshMs)
+      return {
+        keepOpenOnSessionSwitch: p.keepOpenOnSessionSwitch !== false,
+        zoomEnabled: p.zoomEnabled !== false,
+        defaultBranchCount: branchCount === 3 || branchCount === 4 ? branchCount : 2,
+        defaultZoomView: p.defaultZoomView === 'detail' || p.defaultZoomView === 'map' ? p.defaultZoomView : 'compact',
+        refreshMs: [0, 1000, 2000, 5000, 10000].includes(refreshMs) ? refreshMs : 2000,
+      }
+    }
+    const flowPreferencesOf = (st) => st && st.__flowPreferences ? st.__flowPreferences : DEFAULT_FLOW_PREFERENCES
+    const flowAutorefreshOf = (st) => {
+      const ms = Number(flowPreferencesOf(st).refreshMs)
+      return st.live && ms > 0 ? String(ms) : ''
+    }
     const textField = (value, name, max) => {
       if (typeof value !== 'string' || !value.trim()) throw new Error('显示规则缺少 ' + name)
       const out = value.trim()
@@ -1475,7 +1503,7 @@ return {
         '• 「显示规则」与普通流镜共用同一份配置，按工具名/命令/子命令改写卡片标题与徽章。',
       ].join('\n')
       const parts = []
-      parts.push('<div class="jr-tabpanel tb-root tb-pane' + (zoomMotion ? ' fl-zoom-motion-' + zoomMotion : '') + '" data-flow' + (!nearMode ? ' data-flow-board="1"' : '') + ' data-flow-view="' + esc(zoomView) + '" data-flow-scope="' + esc(sid) + '" data-zoom-active-sids="' + esc(continueBranches.map((c) => c.rec.sid).join(',')) + '" data-zoom-run-id="' + esc(activeRun ? activeRun.id : '') + '" data-zoom-round-id="' + esc(activeRound ? activeRound.id : '') + '" data-flow-has-older="' + (nearFlow && nearFlow.hasOlder ? '1' : '0') + '" data-flow-visible="' + (nearFlow ? nearFlow.shown.length : shownCards.length) + '" data-flow-total="' + (nearFlow ? nearFlow.nodes.length : total) + '" data-autorefresh="' + (st.live && !st.settings ? '2000' : '') + '" data-tab-badge="' + (st.live && runningCount ? String(runningCount) + '活' : '') + '">')
+      parts.push('<div class="jr-tabpanel tb-root tb-pane' + (zoomMotion ? ' fl-zoom-motion-' + zoomMotion : '') + '" data-flow' + (!nearMode ? ' data-flow-board="1"' : '') + ' data-flow-view="' + esc(zoomView) + '" data-flow-scope="' + esc(sid) + '" data-zoom-active-sids="' + esc(continueBranches.map((c) => c.rec.sid).join(',')) + '" data-zoom-run-id="' + esc(activeRun ? activeRun.id : '') + '" data-zoom-round-id="' + esc(activeRound ? activeRound.id : '') + '" data-flow-has-older="' + (nearFlow && nearFlow.hasOlder ? '1' : '0') + '" data-flow-visible="' + (nearFlow ? nearFlow.shown.length : shownCards.length) + '" data-flow-total="' + (nearFlow ? nearFlow.nodes.length : total) + '" data-autorefresh="' + flowAutorefreshOf(st) + '" data-tab-badge="' + (st.live && runningCount ? String(runningCount) + '活' : '') + '">')
       parts.push('<div class="tb-pane-head">')
       parts.push('<div class="tb-row">' +
         '<span class="tb-sec-label">大流镜</span>' +
@@ -1488,7 +1516,6 @@ return {
         '<button type="button" class="tb-chip' + (st.live ? ' tb-chip-on' : '') + '" data-action="toggle-live">' + (st.live ? '● 实时同步中' : '⏸ 已暂停') + '</button>' +
         '<button type="button" class="tb-chip' + (st.follow ? ' tb-chip-on' : '') + '" data-action="toggle-follow" title="开启后，从总览进入会话会同时切换 DeepSeek Harness 主会话">' + (st.follow ? '● 子代理跟随' : '○ 子代理跟随') + '</button>' +
         '<button type="button" class="tb-btn tb-btn-sm" data-action="refresh">刷新</button>' +
-        '<button type="button" class="tb-btn tb-btn-sm" data-action="fsettings" title="配置工具卡片的声明式显示规则">⚙ 显示规则</button>' +
         '<span class="fl-info" tabindex="0" aria-label="大流镜使用说明">' +
           '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7.2v4"/><circle cx="8" cy="4.7" r=".7" fill="currentColor" stroke="none"/></svg>' +
           '<span class="fl-info-pop">' + esc(zoomHelp) + '</span>' +
@@ -1829,8 +1856,6 @@ return {
         const target = nearFlow.items.find((it) => it.seq === st.expanded && (it.kind === 'call' || it.kind === 'msg'))
         if (target) parts.push(target.kind === 'call' ? detailRail(target, st.freshSeq === target.seq, st.presentationRules) : msgRail(target, st.freshSeq === target.seq))
       }
-      // 大流镜内同样支持显示规则侧栏（与普通流镜共用配置；打开时自动刷新已由根 div 暂停）
-      if (st.settings) parts.push(presentationRulesRail(st, st.freshSettings === true))
       delete st.freshSeq
       delete st.freshSettings
       parts.push('</div>')
@@ -1883,7 +1908,7 @@ return {
       const shown = nodes.slice(-limit)
       const hasOlder = nodes.length > shown.length
       const parts = []
-      parts.push('<div class="jr-tabpanel tb-root tb-pane" data-flow data-flow-scope="' + esc(sid) + '" data-flow-has-older="' + (hasOlder ? '1' : '0') + '" data-flow-visible="' + shown.length + '" data-flow-total="' + nodes.length + '" data-autorefresh="' + (st.live && !st.settings ? '2000' : '') + '" data-tab-badge="' + (st.live ? String(nodes.length) : '') + '">')
+      parts.push('<div class="jr-tabpanel tb-root tb-pane" data-flow data-flow-scope="' + esc(sid) + '" data-flow-has-older="' + (hasOlder ? '1' : '0') + '" data-flow-visible="' + shown.length + '" data-flow-total="' + nodes.length + '" data-autorefresh="' + flowAutorefreshOf(st) + '" data-tab-badge="' + (st.live ? String(nodes.length) : '') + '">')
       // 固定头
       parts.push('<div class="tb-pane-head">')
       // 钻取态：查看的不是面板所属会话 → 头部给「← 返回」+ 层级标注（crumbs 栈深度）
@@ -1905,8 +1930,7 @@ return {
         '<button type="button" class="tb-chip' + (st.live ? ' tb-chip-on' : '') + '" data-action="toggle-live">' + (st.live ? '● 实时同步中' : '⏸ 已暂停') + '</button>' +
         '<button type="button" class="tb-chip' + (st.follow ? ' tb-chip-on' : '') + '" data-action="toggle-follow" title="开启后，点击子代理会同时切换 DeepSeek Harness 主会话">' + (st.follow ? '● 子代理跟随' : '○ 子代理跟随') + '</button>' +
         '<button type="button" class="tb-btn tb-btn-sm" data-action="refresh">刷新</button>' +
-        '<button type="button" class="tb-btn tb-btn-sm" data-action="fzoom" title="大流镜 Zoom：多会话并发总览，并排对比各会话的流程触发差异，点卡直接进入对应会话">⛶ 大流镜</button>' +
-        '<button type="button" class="tb-btn tb-btn-sm" data-action="fsettings" title="配置工具卡片的声明式显示规则">⚙ 显示规则</button>' +
+        (flowPreferencesOf(st).zoomEnabled ? '<button type="button" class="tb-btn tb-btn-sm" data-action="fzoom" title="大流镜 Zoom：多会话并发总览，并排对比各会话的流程触发差异，点卡直接进入对应会话">⛶ 大流镜</button>' : '') +
         '<span class="fl-info" tabindex="0" aria-label="流镜使用说明">' +
           '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7.2v4"/><circle cx="8" cy="4.7" r=".7" fill="currentColor" stroke="none"/></svg>' +
           '<span class="fl-info-pop">' + esc(help) + '</span>' +
@@ -1930,7 +1954,6 @@ return {
         const target = items.find((it) => it.seq === st.expanded && (it.kind === 'call' || it.kind === 'msg'))
         if (target) parts.push(target.kind === 'call' ? detailRail(target, st.freshSeq === target.seq, st.presentationRules) : msgRail(target, st.freshSeq === target.seq))
       }
-      if (st.settings) parts.push(presentationRulesRail(st, st.freshSettings === true))
       delete st.freshSeq // 一次性动画标记，不残留进 state
       delete st.freshSettings
       parts.push('</div>')
@@ -1940,13 +1963,17 @@ return {
     const handler = async ({ action, fields, state, session, live }) => {
       if (!sq) return { ok: false, error: 'sessionQuery 服务不可用', html: '' }
       const st = (state && typeof state === 'object' && state) ? state : { live: true, follow: true, limit: 60, sid: null, home: null, expanded: null, crumbs: [] }
+      const flowPreferences = normalizeFlowPreferences(fields && fields.__flowPreferences)
+      try { Object.defineProperty(st, '__flowPreferences', { value: flowPreferences, configurable: true }) } catch (e) {}
+      // 显示规则设置已迁到官方插件详情页；旧版本遗留的侧栏打开态在升级后直接收起。
+      st.settings = false
       if (typeof st.follow !== 'boolean') st.follow = true
       if (!Number.isFinite(Number(st.limit)) || Number(st.limit) < 60) st.limit = 60
       if (typeof st.expanded !== 'number' && st.expanded != null) st.expanded = null
       if (!Array.isArray(st.crumbs)) st.crumbs = []
       if (typeof st.zoom !== 'boolean') st.zoom = false
       if (st.zoomScope !== 'tree' && st.zoomScope !== 'run') st.zoomScope = 'tree'
-      if (st.zoomView !== 'compact' && st.zoomView !== 'detail' && st.zoomView !== 'map') st.zoomView = 'compact'
+      if (st.zoomView !== 'compact' && st.zoomView !== 'detail' && st.zoomView !== 'map') st.zoomView = flowPreferences.defaultZoomView
       if (typeof st.zoomFocusSid !== 'string') st.zoomFocusSid = ''
       if (typeof st.zoomLastFocusSid !== 'string') st.zoomLastFocusSid = ''
       if (st.zoomMode !== 'panorama' && st.zoomMode !== 'near') st.zoomMode = st.zoomFocusSid ? 'near' : 'panorama'
@@ -2011,6 +2038,11 @@ return {
           if (saved && (saved.mode === 'panorama' || saved.mode === 'near')) st.zoomMode = saved.mode
         } catch (e) {}
       }
+      if (!flowPreferences.zoomEnabled) {
+        st.zoom = false
+        st.zoomComposerOpen = false
+        if (typeof action === 'string' && action.indexOf('fzoom') === 0) action = ''
+      }
       if (!st.zoomRuns.some((x) => x.id === st.zoomRunId)) st.zoomRunId = st.zoomRuns.length ? st.zoomRuns[st.zoomRuns.length - 1].id : ''
       if (st.zoomScope === 'run' && session && st.zoomBoundSessionId !== session) {
         const selected = st.zoomRuns.find((x) => x.id === st.zoomRunId)
@@ -2034,7 +2066,7 @@ return {
       if (selectedHistory && !selectedHistory.rounds.some((x) => x.id === st.zoomRoundId)) st.zoomRoundId = selectedHistory.rounds[selectedHistory.rounds.length - 1].id
       st.zoomExpandedHistories = st.zoomExpandedHistories.filter((id) => typeof id === 'string' && st.zoomRuns.some((run) => run.id === id))
       // 模型分支（路由 + 思考强度；空值跟随当前/模型默认；2–4 条，左→右对应看板分支列）
-      if (!Array.isArray(st.zoomLanes) || st.zoomLanes.length < 2) st.zoomLanes = ['', '']
+      if (!Array.isArray(st.zoomLanes) || st.zoomLanes.length < 2) st.zoomLanes = Array(flowPreferences.defaultBranchCount).fill('')
       st.zoomLanes = st.zoomLanes.slice(0, 4).map((v) => (typeof v === 'string' ? v : ''))
       if (!Array.isArray(st.zoomEfforts)) st.zoomEfforts = []
       st.zoomEfforts = st.zoomLanes.map((_, i) => (typeof st.zoomEfforts[i] === 'string' ? st.zoomEfforts[i] : ''))
@@ -2353,10 +2385,12 @@ return {
       const sid = st.sid
       try {
         const html = await render(st, sid, liveOverlay)
+        try { delete st.__flowPreferences } catch (e) {}
         try { delete st.__zoomSessionIndex } catch (e) {}
         try { delete st.__archivedSessionIds } catch (e) {}
         return { ok: true, html, state: st, navigateSession, flowContext, zoomRelay }
       } catch (e) {
+        try { delete st.__flowPreferences } catch (err) {}
         try { delete st.__zoomSessionIndex } catch (err) {}
         try { delete st.__archivedSessionIds } catch (err) {}
         return { ok: false, error: String((e && e.message) || e), html: '', state: st }
