@@ -3,12 +3,12 @@
 这是 dsh-flowglass 仓库的默认产品与默认构建目标，是 **DSH 原生静态 Host/Client 插件**。
 
 - bundleId: `flow`
-- 版本: 0.8.8
+- 版本: 0.6.0
 - 动态批准: **不需要**（不使用 dynamicCordisRunner，不产生 dyn/*）
 - 功能:
   - `flow` — 实时流镜 (Host-only)
 
-- 流镜顶部“显示规则”首次提供 Git、GitHub CLI、pnpm、npm、DSH、Python 六条默认规则；默认和自定义规则都支持启停、删除和单条编辑，并保留可折叠 JSON 源码。内置默认值随 Git/npm 包发布，用户自定义仅保存在浏览器且不修改 Session 日志。
+- 流镜顶部“显示规则”首次提供 Git、GitHub CLI、pnpm、npm、DSH、Python 六条默认规则；默认和自定义规则都支持启停、删除和单条编辑，并保留可折叠 JSON 源码。规则仅保存在浏览器并且不修改 Session 日志。
 
 
 ## 安装 / 升级 / 卸载
