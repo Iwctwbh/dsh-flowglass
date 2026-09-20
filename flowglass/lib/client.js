@@ -1185,12 +1185,119 @@ return {
     const FLOW_PREFERENCES_KEY = RT.storageKey('flow.preferences')
     const FLOW_RULES_KEY = RT.storageKey('flow.presentation-rules')
     const FLOW_PREFERENCES_DEFAULTS = Object.freeze({
+      language: 'zh-CN',
       keepOpenOnSessionSwitch: true,
       zoomEnabled: true,
       defaultBranchCount: 2,
       defaultZoomView: 'compact',
       refreshMs: 2000,
     })
+    const FLOW_I18N = {
+      'zh-CN': {
+        settingsTitle: 'Flowglass 设置',
+        settingsSub: '配置仅保存在当前浏览器；内置默认规则随插件包发布，自定义规则不会写入 Git 或 npm 包。',
+        generalSection: '常规与语言',
+        langLabel: '界面语言',
+        langDesc: '切换整个插件界面的显示语言（简体中文 / 英文）。',
+        langZh: '简体中文 (zh-CN)',
+        langEn: 'English (en)',
+        behaviorSection: '行为与大流镜',
+        keepOpenLabel: '切换 Session 时保持展开',
+        keepOpenDesc: '仅延续已展开的流镜；主动关闭后不会自动弹回。',
+        zoomEnabledLabel: '启用大流镜',
+        zoomEnabledDesc: '关闭后隐藏大流镜入口，并退出已经打开的大流镜。',
+        branchCountLabel: '默认分支数量',
+        branchCountDesc: '新会话第一次打开并发开工台时使用。',
+        branches: (n) => n + ' 个分支',
+        zoomViewLabel: '大流镜默认视图',
+        zoomViewDesc: '没有已保存历史视图时采用。',
+        viewCompact: '精简',
+        viewDetail: '详细',
+        viewMap: '导图',
+        refreshLabel: '轮询刷新',
+        refreshDesc: '事件推送仍然生效；关闭表示只使用事件驱动刷新。',
+        refreshOff: '关闭轮询',
+        refreshSec: (s) => s + ' 秒',
+        rulesSection: '工具显示规则',
+        rulesDesc: '按顺序匹配，首条命中生效；默认规则和自定义规则都可关闭、编辑或删除。',
+        addRule: '添加规则',
+        resetRules: '恢复内置规则',
+        noRules: '当前没有显示规则。保存空列表后，刷新也不会恢复默认规则。',
+        discardChanges: '放弃更改',
+        saveSettings: '保存设置',
+        savedSuccess: '设置已保存，并已应用到当前浏览器中的流镜。',
+        ruleEnable: (i) => '启用规则 ' + i,
+        unnamedRule: '未命名规则',
+        delete: '删除',
+        rawTools: '原始工具（逗号分隔）',
+        executables: '可执行文件（逗号分隔）',
+        displayName: '显示名称',
+        subcommands: '子命令（逗号分隔）',
+        subcommandsPlaceholder: '为空时匹配任意子命令',
+        badge: '徽章',
+        color: '颜色',
+        optional: '可留空',
+        toolTitle: '流镜',
+        toolDesc: '查看当前会话、工具调用与子代理执行流程',
+        toolboxTitle: '工具箱',
+        toolboxDesc: '打开工作区工具箱',
+      },
+      'en': {
+        settingsTitle: 'Flowglass Settings',
+        settingsSub: 'Preferences are saved only in the current browser. Built-in default rules are shipped with the package; custom rules are never saved to Git or npm.',
+        generalSection: 'General & Language',
+        langLabel: 'Interface Language',
+        langDesc: 'Switch the display language for the entire plugin interface (Simplified Chinese / English).',
+        langZh: '简体中文 (zh-CN)',
+        langEn: 'English (en)',
+        behaviorSection: 'Behavior & Flow Zoom',
+        keepOpenLabel: 'Keep open on session switch',
+        keepOpenDesc: 'Only keeps previously opened Flowglass expanded; stays closed if explicitly dismissed.',
+        zoomEnabledLabel: 'Enable Flow Zoom',
+        zoomEnabledDesc: 'Hides the Flow Zoom entry button and exits Flow Zoom if currently open.',
+        branchCountLabel: 'Default branch count',
+        branchCountDesc: 'Used when opening the concurrent workbench for the first time in a new session.',
+        branches: (n) => n + ' branches',
+        zoomViewLabel: 'Flow Zoom default view',
+        zoomViewDesc: 'Used when no saved view history exists.',
+        viewCompact: 'Compact',
+        viewDetail: 'Detail',
+        viewMap: 'Mind Map',
+        refreshLabel: 'Polling refresh interval',
+        refreshDesc: 'Real-time event streaming remains active; disabling polling relies purely on event-driven updates.',
+        refreshOff: 'Disable polling',
+        refreshSec: (s) => s + 's',
+        rulesSection: 'Tool Presentation Rules',
+        rulesDesc: 'Matched sequentially; first matching rule takes effect. Both built-in and custom rules can be toggled, edited, or deleted.',
+        addRule: 'Add Rule',
+        resetRules: 'Reset to Defaults',
+        noRules: 'No presentation rules configured. Saving an empty list will not restore default rules on reload.',
+        discardChanges: 'Discard Changes',
+        saveSettings: 'Save Settings',
+        savedSuccess: 'Settings saved and applied to Flowglass in this browser.',
+        ruleEnable: (i) => 'Enable rule ' + i,
+        unnamedRule: 'Unnamed Rule',
+        delete: 'Delete',
+        rawTools: 'Raw tools (comma-separated)',
+        executables: 'Executables (comma-separated)',
+        displayName: 'Display Name',
+        subcommands: 'Subcommands (comma-separated)',
+        subcommandsPlaceholder: 'Matches any subcommand when empty',
+        badge: 'Badge',
+        color: 'Color',
+        optional: 'Optional',
+        toolTitle: 'Flowglass',
+        toolDesc: 'View current session, tool calls, and subagent execution flow',
+        toolboxTitle: 'Toolbox',
+        toolboxDesc: 'Open workspace toolbox',
+      },
+    }
+    const getFlowText = (lang, key, ...args) => {
+      const dict = FLOW_I18N[lang] || FLOW_I18N['zh-CN']
+      const val = dict[key] || (FLOW_I18N['zh-CN'] && FLOW_I18N['zh-CN'][key])
+      if (typeof val === 'function') return val(...args)
+      return val != null ? val : key
+    }
     const FLOW_DEFAULT_PRESENTATION_RULES = Object.freeze([
       { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['git', 'git.exe'], displayName: 'Git', actions: [], badge: 'Git', color: '#f05032' },
       { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['gh', 'gh.exe', 'github', 'github.exe'], displayName: 'GitHub', actions: [], badge: 'GitHub', color: '#8b949e' },
@@ -1205,7 +1312,9 @@ return {
       const p = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
       const branchCount = Number(p.defaultBranchCount)
       const refreshMs = Number(p.refreshMs)
+      const lang = p.language === 'en' ? 'en' : 'zh-CN'
       return {
+        language: lang,
         keepOpenOnSessionSwitch: p.keepOpenOnSessionSwitch !== false,
         zoomEnabled: p.zoomEnabled !== false,
         defaultBranchCount: branchCount === 3 || branchCount === 4 ? branchCount : 2,
@@ -1265,14 +1374,18 @@ return {
       return { preferences: nextPreferences, rules: nextRules }
     }
 
-    // ===== 右侧栏兼容承载（仅原生 flow bundle；一次只激活一条注册路径）=====
+    // ===== 官方右侧栏承载（Flowglass + 原生静态工具箱）=====
     // 接入层级（0.1.5 计划）：Harness 原生 sidebarRightTabs + slots
     //   > Better Sidebar >= 0.19 原生桥 > 固定右侧兜底面板。
     // 服务可晚于流镜出现/被 HMR 替换，所以两条桥都用 ctx.inject 驱动，并用这个
-    // 小 store 让已挂载的独立入口/Drawer 同步让位/恢复。完整 dynamic-toolbox 不接管为“流镜” Tab。
+    // 小 store 让已挂载的独立入口/Drawer 同步让位/恢复。原生静态工具箱只走 Harness
+    // 官方下拉框/Tab，不再注册独立导航入口或 shell.overlay 抽屉。
     const FLOW_TAB_ID = 'dsh-flowglass:flow'
     const FLOW_NATIVE_ID = 'dsh-flowglass/native' // 原生 page type 的 definition id（body/title 同 id 注册）
     const FLOW_NATIVE_KIND = 'dsh-flowglass:flow' // openTab 寻址的 kind
+    const TOOLBOX_NATIVE_ID = 'dsh-dynamic-toolbox/native'
+    const TOOLBOX_NATIVE_KIND = 'dsh-dynamic-toolbox:toolbox'
+    const OFFICIAL_TOOLBOX_ONLY = RT.bundleId === 'dynamic-toolbox'
     const integrationListeners = new Set()
     const integration = {
       service: null, // betterSidebar 服务
@@ -1786,6 +1899,8 @@ return {
         setSavedKey(JSON.stringify({ preferences: nextPreferences, rules: nextRules }))
         setNotice(null)
       }
+      const currentLang = preferences.language || 'zh-CN'
+      const t = (k, ...a) => getFlowText(currentLang, k, ...a)
       const save = (event) => {
         if (event && typeof event.preventDefault === 'function') event.preventDefault()
         try {
@@ -1794,13 +1909,13 @@ return {
           setPreferences(saved.preferences)
           setRules(nextRules)
           setSavedKey(JSON.stringify({ preferences: saved.preferences, rules: nextRules }))
-          setNotice({ error: false, text: '设置已保存，并已应用到当前浏览器中的流镜。' })
+          setNotice({ error: false, text: t('savedSuccess') })
         } catch (error) {
           setNotice({ error: true, text: String((error && error.message) || error) })
         }
       }
       const ruleCards = rules.map((rule, index) => {
-        const title = rule.displayName || rule.executables[0] || '未命名规则'
+        const title = rule.displayName || rule.executables[0] || t('unnamedRule')
         const input = (label, key, value, placeholder, list) => h('label', { key },
           h('span', null, label),
           h(UiInput || 'input', {
@@ -1810,21 +1925,21 @@ return {
         )
         return h('article', { key: index, className: 'fg-settings-rule' + (rule.enabled ? '' : ' is-off') },
           h('div', { className: 'fg-settings-rule-head' },
-            toggle('启用规则 ' + (index + 1), rule.enabled, (enabled) => setRule(index, { enabled })),
+            toggle(t('ruleEnable', index + 1), rule.enabled, (enabled) => setRule(index, { enabled })),
             h('span', { className: 'fl-rule-dot', style: { background: rule.color } }),
             h('strong', null, title),
             button({
               type: 'button', className: 'fg-settings-button danger',
               onClick: () => { setRules((current) => current.filter((_item, at) => at !== index)); setNotice(null) },
-            }, '删除'),
+            }, t('delete')),
           ),
           h('div', { className: 'fg-settings-rule-grid' },
-            input('原始工具（逗号分隔）', 'tools', (rule.tools || []).join(', '), 'pwsh, bash', true),
-            input('可执行文件（逗号分隔）', 'executables', (rule.executables || []).join(', '), 'git, git.exe', true),
-            input('显示名称', 'displayName', rule.displayName || '', '可留空', false),
-            input('子命令（逗号分隔）', 'actions', (rule.actions || []).join(', '), '为空时匹配任意子命令', true),
-            input('徽章', 'badge', rule.badge || '', '可留空', false),
-            h('label', { key: 'color' }, h('span', null, '颜色'), h('input', {
+            input(t('rawTools'), 'tools', (rule.tools || []).join(', '), 'pwsh, bash', true),
+            input(t('executables'), 'executables', (rule.executables || []).join(', '), 'git, git.exe', true),
+            input(t('displayName'), 'displayName', rule.displayName || '', t('optional'), false),
+            input(t('subcommands'), 'actions', (rule.actions || []).join(', '), t('subcommandsPlaceholder'), true),
+            input(t('badge'), 'badge', rule.badge || '', t('optional'), false),
+            h('label', { key: 'color' }, h('span', null, t('color')), h('input', {
               type: 'color', className: 'fg-settings-color', value: rule.color || '#81c784',
               onChange: (event) => setRule(index, { color: event.currentTarget.value }),
             })),
@@ -1835,45 +1950,53 @@ return {
         h('form', { className: 'fg-settings', onSubmit: save },
           h('div', { className: 'fg-settings-head' },
             h('div', null,
-              h('h2', { className: 'fg-settings-title' }, 'Flowglass 设置'),
-              h('p', { className: 'fg-settings-sub' }, '配置仅保存在当前浏览器；内置默认规则随插件包发布，自定义规则不会写入 Git 或 npm 包。'),
+              h('h2', { className: 'fg-settings-title' }, t('settingsTitle')),
+              h('p', { className: 'fg-settings-sub' }, t('settingsSub')),
             ),
           ),
           h('section', { className: 'fg-settings-section' },
-            h('div', { className: 'fg-settings-section-head' }, h('h3', null, '行为与大流镜')),
+            h('div', { className: 'fg-settings-section-head' }, h('h3', null, t('generalSection'))),
             h('div', { className: 'fg-settings-grid' },
-              preferenceRow('切换 Session 时保持展开', '仅延续已展开的流镜；主动关闭后不会自动弹回。',
-                toggle('切换 Session 时保持展开', preferences.keepOpenOnSessionSwitch, (value) => setPreference('keepOpenOnSessionSwitch', value))),
-              preferenceRow('启用大流镜', '关闭后隐藏大流镜入口，并退出已经打开的大流镜。',
-                toggle('启用大流镜', preferences.zoomEnabled, (value) => setPreference('zoomEnabled', value))),
-              preferenceRow('默认分支数量', '新会话第一次打开并发开工台时使用。',
+              preferenceRow(t('langLabel'), t('langDesc'),
+                h('select', { className: 'fg-settings-select', value: currentLang, onChange: (event) => setPreference('language', event.currentTarget.value) },
+                  option('zh-CN', t('langZh')), option('en', t('langEn')))),
+            ),
+          ),
+          h('section', { className: 'fg-settings-section' },
+            h('div', { className: 'fg-settings-section-head' }, h('h3', null, t('behaviorSection'))),
+            h('div', { className: 'fg-settings-grid' },
+              preferenceRow(t('keepOpenLabel'), t('keepOpenDesc'),
+                toggle(t('keepOpenLabel'), preferences.keepOpenOnSessionSwitch, (value) => setPreference('keepOpenOnSessionSwitch', value))),
+              preferenceRow(t('zoomEnabledLabel'), t('zoomEnabledDesc'),
+                toggle(t('zoomEnabledLabel'), preferences.zoomEnabled, (value) => setPreference('zoomEnabled', value))),
+              preferenceRow(t('branchCountLabel'), t('branchCountDesc'),
                 h('select', { className: 'fg-settings-select', value: String(preferences.defaultBranchCount), onChange: (event) => setPreference('defaultBranchCount', Number(event.currentTarget.value)) },
-                  option(2, '2 个分支'), option(3, '3 个分支'), option(4, '4 个分支'))),
-              preferenceRow('大流镜默认视图', '没有已保存历史视图时采用。',
+                  option(2, t('branches', 2)), option(3, t('branches', 3)), option(4, t('branches', 4)))),
+              preferenceRow(t('zoomViewLabel'), t('zoomViewDesc'),
                 h('select', { className: 'fg-settings-select', value: preferences.defaultZoomView, onChange: (event) => setPreference('defaultZoomView', event.currentTarget.value) },
-                  option('compact', '精简'), option('detail', '详细'), option('map', '导图'))),
-              preferenceRow('轮询刷新', '事件推送仍然生效；关闭表示只使用事件驱动刷新。',
+                  option('compact', t('viewCompact')), option('detail', t('viewDetail')), option('map', t('viewMap')))),
+              preferenceRow(t('refreshLabel'), t('refreshDesc'),
                 h('select', { className: 'fg-settings-select', value: String(preferences.refreshMs), onChange: (event) => setPreference('refreshMs', Number(event.currentTarget.value)) },
-                  option(0, '关闭轮询'), option(1000, '1 秒'), option(2000, '2 秒'), option(5000, '5 秒'), option(10000, '10 秒'))),
+                  option(0, t('refreshOff')), option(1000, t('refreshSec', 1)), option(2000, t('refreshSec', 2)), option(5000, t('refreshSec', 5)), option(10000, t('refreshSec', 10)))),
             ),
           ),
           h('section', { className: 'fg-settings-section' },
             h('div', { className: 'fg-settings-section-head' },
-              h('div', null, h('h3', null, '工具显示规则'), h('p', { className: 'fg-settings-note' }, '按顺序匹配，首条命中生效；默认规则和自定义规则都可关闭、编辑或删除。')),
+              h('div', null, h('h3', null, t('rulesSection')), h('p', { className: 'fg-settings-note' }, t('rulesDesc'))),
               h('div', { className: 'fg-settings-actions' },
                 button({
                   type: 'button', className: 'fg-settings-button', disabled: rules.length >= 24,
                   onClick: () => { setRules((current) => [...current, { enabled: true, tools: ['pwsh'], executables: [], displayName: '', actions: [], badge: '', color: '#81c784' }]); setNotice(null) },
-                }, '添加规则'),
-                button({ type: 'button', className: 'fg-settings-button', onClick: () => { setRules(cloneFlowRules(FLOW_DEFAULT_PRESENTATION_RULES)); setNotice(null) } }, '恢复内置规则'),
+                }, t('addRule')),
+                button({ type: 'button', className: 'fg-settings-button', onClick: () => { setRules(cloneFlowRules(FLOW_DEFAULT_PRESENTATION_RULES)); setNotice(null) } }, t('resetRules')),
               ),
             ),
-            h('div', { className: 'fg-settings-rules' }, ruleCards.length ? ruleCards : h('p', { className: 'fg-settings-note' }, '当前没有显示规则。保存空列表后，刷新也不会恢复默认规则。')),
+            h('div', { className: 'fg-settings-rules' }, ruleCards.length ? ruleCards : h('p', { className: 'fg-settings-note' }, t('noRules'))),
           ),
           h('div', { className: 'fg-settings-actions' },
             notice ? h('span', { className: 'fg-settings-status' + (notice.error ? ' is-error' : ''), role: notice.error ? 'alert' : 'status' }, notice.text) : null,
-            button({ type: 'button', className: 'fg-settings-button', disabled: !dirty, onClick: reloadStaged }, '放弃更改'),
-            button({ type: 'submit', primary: true, className: 'fg-settings-button primary', disabled: !dirty }, '保存设置'),
+            button({ type: 'button', className: 'fg-settings-button', disabled: !dirty, onClick: reloadStaged }, t('discardChanges')),
+            button({ type: 'submit', primary: true, className: 'fg-settings-button primary', disabled: !dirty }, t('saveSettings')),
           ),
         ),
       )
@@ -3955,6 +4078,11 @@ return {
           const res = await Promise.race([callP, timeoutP])
           if (seqRef.current[toolId] !== seq) return // 已有更新的请求发出：过期响应直接丢弃（联动切换竞态修复）；DOM 由新请求的响应接管
           if (res && res.ok) {
+            if (toolId === 'flow' && action === 'fset-lang' && el && el.dataset && el.dataset.lang) {
+              const lang = el.dataset.lang === 'en' ? 'en' : 'zh-CN'
+              const currentPrefs = readFlowPreferences()
+              writeFlowSettings({ ...currentPrefs, language: lang }, readFlowRuleObjects())
+            }
             if (persistFlowRules) writeFlowRules(JSON.stringify((res.state && res.state.presentationRules) || []))
             retryCountRef.current[toolId] = 0 // 成功：清零一次性重试计数
             stateRef.current[toolId] = res.state
@@ -5485,10 +5613,25 @@ return {
       })
     }
 
-    if (typeof document !== 'undefined' && typeof MutationObserver !== 'undefined') {
+    // 原生静态工具箱与 Flowglass 共用官方右侧栏协议，但不需要 Flowglass 的跨 Session
+    // 保持展开状态机；官方 Tab 的 sessionId/useTabInfo 仍是面板上下文的权威来源。
+    function ToolboxNativeTabBody(props) {
+      const info = props.useTabInfo()
+      const visible = !(info && info.tab && info.tab.visible === false)
+      const useSessions = typeof props.useSessions === 'function' ? props.useSessions : () => undefined
+      return React.createElement(Drawer, {
+        embedded: true,
+        visible,
+        sessionId: props.sessionId,
+        useSessions,
+        useWorkspaces: typeof props.useWorkspaces === 'function' ? props.useWorkspaces : () => undefined,
+      })
+    }
+
+    if (!OFFICIAL_TOOLBOX_ONLY && typeof document !== 'undefined' && typeof MutationObserver !== 'undefined') {
       // 侧边栏导航区无官方 Slot：DOM 注入导航条目（新会话下方、SSH 之后），disposer 随插件停止清理
       ctx.effect(() => mountSidebarEntry())
-    } else {
+    } else if (!OFFICIAL_TOOLBOX_ONLY) {
       // 无 DOM 环境兜底：官方 footer Slot（rc.7 root-scoped list Slot，owner 只传 { wide }）
       slots.inject('sidebar.footer.action', () => slots.register(
         { name: 'sidebar.footer.action', id: RT.slot('entry'), order: -1000, label: RT.displayName },
@@ -5496,29 +5639,54 @@ return {
       ))
     }
 
-    slots.inject('shell.overlay', () => slots.register(
-      {
-        name: 'shell.overlay',
-        id: RT.slot('drawer'),
-        order: 120,
-        label: RT.displayName + '抽屉',
-      },
-      (props) => React.createElement(Drawer, props),
-    ))
+    if (!OFFICIAL_TOOLBOX_ONLY) {
+      slots.inject('shell.overlay', () => slots.register(
+        {
+          name: 'shell.overlay',
+          id: RT.slot('drawer'),
+          order: 120,
+          label: RT.displayName + '抽屉',
+        },
+        (props) => React.createElement(Drawer, props),
+      ))
+    }
 
     // Harness 官方插件管理页扩展点：点击 dsh-flowglass bundle 后，在详情页渲染配置表单。
+    // 同时注册进 settings.plugins.tab 与 settings.section，确保在不同版本的 DSH 设置界面中均能找到。
     if (RT.bundleId === 'flow') {
       slots.inject('plugins.bundle.config', () => slots.register(
         { name: 'plugins.bundle.config', key: 'dsh-flowglass' },
         () => React.createElement(FlowglassPluginSettings, null),
       ))
+      slots.inject('settings.plugins.tab', () => slots.register(
+        {
+          name: 'settings.plugins.tab',
+          id: 'flowglass',
+          order: 20,
+          label: () => (readFlowPreferences().language === 'en' ? 'Flowglass' : '流镜 (Flowglass)'),
+        },
+        () => React.createElement('div', { style: { padding: '16px 20px', overflowY: 'auto' } },
+          React.createElement(FlowglassPluginSettings, null)
+        ),
+      ))
+      slots.inject('settings.section', () => slots.register(
+        {
+          name: 'settings.section',
+          id: 'flowglass',
+          order: 35,
+          label: () => (readFlowPreferences().language === 'en' ? 'Flowglass' : '流镜 (Flowglass)'),
+        },
+        () => React.createElement('div', { style: { padding: '16px 20px', overflowY: 'auto' } },
+          React.createElement(FlowglassPluginSettings, null)
+        ),
+      ))
     }
 
-    // ===== Harness 原生右侧栏注册（0.1.5+，最高层；仅原生 flow bundle）=====
+    // ===== Harness 原生右侧栏注册（0.1.5+）=====
     // 两段式公开契约：sidebarRightTabs.register 注册 page type（guide 入口随定义），
     // 同一个 definition id 在 sidebar.right.pane.tab 声明 body。服务不存在时 inject
     // fiber 保持等待（旧 Harness 无感降级到 better-sidebar / 固定右侧兜底面板）。
-    if (RT.bundleId === 'flow' && typeof ctx.inject === 'function') {
+    if ((RT.bundleId === 'flow' || OFFICIAL_TOOLBOX_ONLY) && typeof ctx.inject === 'function') {
       // 两个服务由宿主相邻 provide，但晚加载/HMR 时仍是两个独立可见性边；
       // 同时等待，避免 registry 先到时永久捕获 undefined controller。
       ctx.inject(['sidebarRightTabs', 'sidebarRight'], (nativeCtx) => {
@@ -5535,16 +5703,34 @@ return {
           React.createElement('circle', { cx: 12, cy: 12.5, r: 1.5 }),
           React.createElement('path', { d: 'M8 4.5v2.2M8 6.7L4 11M8 6.7l4 4.3' }),
         )
+        const toolboxGlyph = (p) => React.createElement('svg', {
+          width: (p && p.size) || 16, height: (p && p.size) || 16, viewBox: '0 0 16 16', fill: 'none',
+          stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round',
+          className: p && p.className, 'aria-hidden': true,
+        },
+          React.createElement('rect', { x: 2, y: 5, width: 12, height: 8.5, rx: 1.5 }),
+          React.createElement('path', { d: 'M5.5 5V3.8A1.3 1.3 0 0 1 6.8 2.5h2.4a1.3 1.3 0 0 1 1.3 1.3V5M2 8.2h12' }),
+        )
+        const nativeToolbox = OFFICIAL_TOOLBOX_ONLY
+        const nativeId = nativeToolbox ? TOOLBOX_NATIVE_ID : FLOW_NATIVE_ID
+        const nativeKind = nativeToolbox ? TOOLBOX_NATIVE_KIND : FLOW_NATIVE_KIND
+        const currentPrefLang = () => readFlowPreferences().language || 'zh-CN'
+        const nativeTitle = () => nativeToolbox
+          ? getFlowText(currentPrefLang(), 'toolboxTitle')
+          : getFlowText(currentPrefLang(), 'toolTitle')
+        const nativeDescription = () => nativeToolbox
+          ? getFlowText(currentPrefLang(), 'toolboxDesc')
+          : getFlowText(currentPrefLang(), 'toolDesc')
         // page type：无 resource patterns（按 kind 打开）；guide 项排在文件等常用入口之后
         const definition = {
-          id: FLOW_NATIVE_ID,
-          kind: FLOW_NATIVE_KIND,
-          title: () => '流镜',
+          id: nativeId,
+          kind: nativeKind,
+          title: nativeTitle,
           guide: [{
             order: 40,
-            title: () => '流镜',
-            description: () => '查看当前会话、工具调用与子代理执行流程',
-            icon: flowGlyph,
+            title: nativeTitle,
+            description: nativeDescription,
+            icon: nativeToolbox ? toolboxGlyph : flowGlyph,
           }],
         }
         let disposeType = null
@@ -5564,13 +5750,13 @@ return {
               try { disposeType = tabs.register(definition) } catch (e) { retract(); return }
               disposeBody = nativeSlots && typeof nativeSlots.inject === 'function'
                 ? nativeCtx.effect(() => nativeSlots.inject('sidebar.right.pane.tab', () => nativeSlots.register(
-                  { name: 'sidebar.right.pane.tab', key: FLOW_NATIVE_ID },
-                  (tabProps) => React.createElement(FlowglassNativeTabBody, tabProps),
+                  { name: 'sidebar.right.pane.tab', key: nativeId },
+                  (tabProps) => React.createElement(nativeToolbox ? ToolboxNativeTabBody : FlowglassNativeTabBody, tabProps),
                 )))
                 : null
               // 自有入口 → openTab：自动展开右侧栏；同 pane 重复打开聚焦既有 Tab（Harness 单例语义）
               nativeOpenTab = () => {
-                if (controller && typeof controller.openTab === 'function') controller.openTab(FLOW_NATIVE_KIND)
+                if (controller && typeof controller.openTab === 'function') controller.openTab(nativeKind)
               }
               integration.setNative(true)
             }
@@ -5616,9 +5802,11 @@ return {
         if (!service || typeof service.registerTab !== 'function') return
         const features = Array.isArray(service.features) ? service.features : []
         bsService = service
+        const currentPrefLang = () => readFlowPreferences().language || 'zh-CN'
+        const isEn = currentPrefLang() === 'en'
         bsDescriptor = {
           id: FLOW_TAB_ID,
-          title: '流镜',
+          title: isEn ? 'Flowglass' : '流镜',
           order: 35,
           // 原生多 pane 语义下 single 只保证目标 pane 内去重（0.19 契约）
           single: true,

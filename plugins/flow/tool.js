@@ -64,13 +64,26 @@ return {
       if (RE_FILE.test(name)) return 'file'
       return 'builtin'
     }
-    const KIND_META = {
+    const KIND_META_ZH = {
       skill: { label: '技能', color: '#7fa7f0', bg: 'rgba(91,141,239,.12)' },
       cordis: { label: '插件', color: '#d4b95c', bg: 'rgba(212,167,44,.10)' },
       mcp: { label: 'MCP', color: '#81c784', bg: 'rgba(102,187,106,.10)' },
       shell: { label: '命令', color: '#d4b95c', bg: 'rgba(212,167,44,.08)' },
       file: { label: '文件', color: '#7fa7f0', bg: 'rgba(91,141,239,.10)' },
       builtin: { label: '内置', color: '#9a9ba6', bg: 'rgba(138,139,150,.10)' },
+    }
+    const KIND_META_EN = {
+      skill: { label: 'Skill', color: '#7fa7f0', bg: 'rgba(91,141,239,.12)' },
+      cordis: { label: 'Plugin', color: '#d4b95c', bg: 'rgba(212,167,44,.10)' },
+      mcp: { label: 'MCP', color: '#81c784', bg: 'rgba(102,187,106,.10)' },
+      shell: { label: 'Command', color: '#d4b95c', bg: 'rgba(212,167,44,.08)' },
+      file: { label: 'File', color: '#7fa7f0', bg: 'rgba(91,141,239,.10)' },
+      builtin: { label: 'Built-in', color: '#9a9ba6', bg: 'rgba(138,139,150,.10)' },
+    }
+    const KIND_META = KIND_META_ZH
+    const getKindMeta = (cat, lang) => {
+      const map = lang === 'en' ? KIND_META_EN : KIND_META_ZH
+      return map[cat] || map.builtin
     }
 
     // ---- 声明式工具显示规则 ----
@@ -86,6 +99,7 @@ return {
       { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['python', 'python.exe', 'python3', 'python3.exe', 'py', 'py.exe'], displayName: 'Python', actions: [], badge: 'Python', color: '#3776ab' },
     ]
     const DEFAULT_FLOW_PREFERENCES = Object.freeze({
+      language: 'zh-CN',
       keepOpenOnSessionSwitch: true,
       zoomEnabled: true,
       defaultBranchCount: 2,
@@ -100,7 +114,9 @@ return {
       const p = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
       const branchCount = Number(p.defaultBranchCount)
       const refreshMs = Number(p.refreshMs)
+      const lang = p.language === 'en' ? 'en' : 'zh-CN'
       return {
+        language: lang,
         keepOpenOnSessionSwitch: p.keepOpenOnSessionSwitch !== false,
         zoomEnabled: p.zoomEnabled !== false,
         defaultBranchCount: branchCount === 3 || branchCount === 4 ? branchCount : 2,
@@ -112,6 +128,198 @@ return {
     const flowAutorefreshOf = (st) => {
       const ms = Number(flowPreferencesOf(st).refreshMs)
       return st.live && ms > 0 ? String(ms) : ''
+    }
+    const flowLangOf = (st) => flowPreferencesOf(st).language || 'zh-CN'
+    const FLOW_HOST_I18N = {
+      'zh-CN': {
+        noParams: '（无参数）',
+        callFail: '（调用失败）',
+        emptyReturn: '（空返回）',
+        input: '输入 ',
+        output: '输出 ',
+        inProgress: '进行中…',
+        clickDetail: '点击在右侧查看完整传入/返回',
+        parallel: (n) => '并行 ×' + n,
+        retryWait: (retry, max, remain) => '⟳ 等待重试 ' + retry + max + (remain ? ' · ' + remain + 's' : ''),
+        retryProgress: (retry, max) => '⟳ 重试 ' + retry + max + ' · 进行中',
+        retryCancel: (retry, max) => '⟳ 重试 ' + retry + max + ' 未成行',
+        retryFail: (retry, max) => '⟳ 重试 ' + retry + max + ' · 失败',
+        retryOk: (retry, max) => '⟳ 重试 ' + retry + max + ' · 成功',
+        maxTokens: '⤒ 已达上限',
+        user: '用户',
+        ai: '助手',
+        inject: '注入',
+        userMsg: '用户消息',
+        aiMsg: '助手消息',
+        injectMsg: '注入消息',
+        detail: ' · 详情',
+        branchHarness: '从这条助手消息在 Harness 中创建新分支',
+        branchAria: '在新对话中分支',
+        clickMsgDetail: '点击查看完整消息',
+        emptyMsg: '（空）',
+        copyToClipboard: '复制内容到剪贴板',
+        markdownPreview: 'Markdown 预览',
+        skillDetailTitle: (name) => '技能 · ' + name,
+        closeDetail: '关闭详情',
+        baseDir: '基础目录',
+        resourceNote: '资源说明',
+        usageInstructions: '使用说明',
+        rawReturn: '原始返回',
+        fullXml: (truncated) => '完整 XML' + (truncated ? '（截断）' : ''),
+        fullInput: (truncated) => '入 · 完整传入' + (truncated ? '（截断）' : ''),
+        fullOutput: (size) => '出 · 完整返回' + (size ? '（' + size + '）' : ''),
+        fullContent: (truncated) => '完整内容' + (truncated ? '（截断）' : ''),
+        dragResize: '拖拽调宽（自动记忆）',
+        inProgressNoReturn: '（进行中，尚无返回）',
+        timeLabel: (t) => '时间 ' + t,
+        modelLabel: (m) => '模型 ' + m,
+        tokLabel: (t) => '输出 +' + t + ' tok',
+        finishKindLabel: (k) => '结束 ' + k,
+        errorLabel: (code, msg) => '错误 ' + code + (msg ? '：' + msg : ''),
+        retriesLabel: (count, path) => '重试 ' + count + ' 次（' + path + '）',
+        subagentTag: '子代理',
+        subagentTitleEnter: '进入该子代理的实时流镜',
+        subagentTitleTask: '点击查看完整任务传入/返回',
+        running: '运行中',
+        subagentFullFlow: '进入该子代理的完整流程图（可逐级返回）',
+        enterArrow: '进入 →',
+        subagentStarting: '子代理启动中…',
+        back: '← 返回',
+        subFlow: '子代理流镜',
+        realtimeFlow: '实时流镜',
+        eventsAndNodes: (events, nodes, layer) => events + ' 条事件 · ' + nodes + ' 节点' + (layer ? ' · 第 ' + layer + ' 层' : ''),
+        liveSyncing: '● 实时同步中',
+        paused: '⏸ 已暂停',
+        subagentFollowOn: '● 子代理跟随',
+        subagentFollowOff: '○ 子代理跟随',
+        subagentFollowTip: '开启后，点击子代理会同时切换 DeepSeek Harness 主会话',
+        refresh: '刷新',
+        flowZoomBtn: '⛶ 大流镜',
+        flowZoomTip: '大流镜 Zoom：多会话并发总览，并排对比各会话的流程触发差异，点卡直接进入对应会话',
+        flowGuideAria: '流镜使用说明',
+        flowNoEvents: '当前会话还没有事件',
+        flowOlderHint: (shown, older) => '已显示最近 ' + shown + ' 个节点 · 继续向上滚动会自动加载更早 ' + older + ' 条',
+        flowZoomTitle: '大流镜',
+        zoomPanorama: '全景',
+        zoomNear: '近观',
+        zoomPanoramaTip: '查看所选并发的全部分支',
+        zoomNearTip: '用完整流镜查看当前选中分支',
+        zoomSessionsRunning: (total, running) => total + ' 会话 · ' + running + ' 运行中',
+        sendMessage: ' 发消息',
+        zoomGuideAria: '大流镜使用说明',
+        defaultFollowCurrent: '默认（跟随当前）',
+        thinkingFollowModel: '思考：跟随模型',
+        thinkingDefault: (d) => '思考：' + (d ? '默认（' + d + '）' : '默认'),
+        reuseCurrentSession: '沿用当前会话',
+        targetBranchCount: '目标分支数',
+        compactView: '精简',
+        detailView: '详细',
+        mapView: '导图',
+        flowZoomHistory: (n) => '大流镜历史 · ' + n,
+        flowZoomHistoryDrawerTitle: '大流镜历史',
+        noConcurrentRecords: '还没有并发记录——输入任务后点「⚡ 同时开始」',
+        noDisplayableSessions: '没有可显示的会话',
+        noBranchSessions: '还没有分支会话——用开工台「⚡ 同时开始」并发开工，或在单会话里派生子代理',
+        sessionNotFound: '未找到当前会话',
+      },
+      'en': {
+        noParams: '(No parameters)',
+        callFail: '(Call failed)',
+        emptyReturn: '(Empty output)',
+        input: 'Input ',
+        output: 'Output ',
+        inProgress: 'In progress…',
+        clickDetail: 'Click to view full input/output on the right',
+        parallel: (n) => 'Parallel ×' + n,
+        retryWait: (retry, max, remain) => '⟳ Awaiting retry ' + retry + max + (remain ? ' · ' + remain + 's' : ''),
+        retryProgress: (retry, max) => '⟳ Retry ' + retry + max + ' · In progress',
+        retryCancel: (retry, max) => '⟳ Retry ' + retry + max + ' canceled',
+        retryFail: (retry, max) => '⟳ Retry ' + retry + max + ' · Failed',
+        retryOk: (retry, max) => '⟳ Retry ' + retry + max + ' · Succeeded',
+        maxTokens: '⤒ Max tokens reached',
+        user: 'User',
+        ai: 'Assistant',
+        inject: 'System',
+        userMsg: 'User Message',
+        aiMsg: 'Assistant Message',
+        injectMsg: 'System Message',
+        detail: ' · Detail',
+        branchHarness: 'Fork a new session from this assistant message in Harness',
+        branchAria: 'Fork in new session',
+        clickMsgDetail: 'Click to view full message',
+        emptyMsg: '(Empty)',
+        copyToClipboard: 'Copy content to clipboard',
+        markdownPreview: 'Markdown Preview',
+        skillDetailTitle: (name) => 'Skill · ' + name,
+        closeDetail: 'Close detail',
+        baseDir: 'Base directory',
+        resourceNote: 'Resource instructions',
+        usageInstructions: 'Instructions',
+        rawReturn: 'Raw Return',
+        fullXml: (truncated) => 'Full XML' + (truncated ? ' (Truncated)' : ''),
+        fullInput: (truncated) => 'In · Full Input' + (truncated ? ' (Truncated)' : ''),
+        fullOutput: (size) => 'Out · Full Output' + (size ? ' (' + size + ')' : ''),
+        fullContent: (truncated) => 'Full Content' + (truncated ? ' (Truncated)' : ''),
+        dragResize: 'Drag to resize (saved automatically)',
+        inProgressNoReturn: '(In progress, no output yet)',
+        timeLabel: (t) => 'Time ' + t,
+        modelLabel: (m) => 'Model ' + m,
+        tokLabel: (t) => 'Output +' + t + ' tok',
+        finishKindLabel: (k) => 'Finish ' + k,
+        errorLabel: (code, msg) => 'Error ' + code + (msg ? ': ' + msg : ''),
+        retriesLabel: (count, path) => 'Retried ' + count + ' times (' + path + ')',
+        subagentTag: 'Subagent',
+        subagentTitleEnter: 'Enter live flow for this subagent',
+        subagentTitleTask: 'Click to view full task input/output',
+        running: 'Running',
+        subagentFullFlow: 'Enter complete execution flow for this subagent (navigable back)',
+        enterArrow: 'Enter →',
+        subagentStarting: 'Subagent starting…',
+        back: '← Back',
+        subFlow: 'Subagent Flow',
+        realtimeFlow: 'Live Flow',
+        eventsAndNodes: (events, nodes, layer) => events + ' events · ' + nodes + ' nodes' + (layer ? ' · Layer ' + layer : ''),
+        liveSyncing: '● Live syncing',
+        paused: '⏸ Paused',
+        subagentFollowOn: '● Subagent follow',
+        subagentFollowOff: '○ Subagent follow',
+        subagentFollowTip: 'When enabled, clicking a subagent switches the main Harness session',
+        refresh: 'Refresh',
+        flowZoomBtn: '⛶ Flow Zoom',
+        flowZoomTip: 'Flow Zoom: Multi-session concurrent overview, compare execution branching, click cards to navigate to session',
+        flowGuideAria: 'Flowglass instructions',
+        flowNoEvents: 'No events in this session yet',
+        flowOlderHint: (shown, older) => 'Showing latest ' + shown + ' nodes · Scroll up to load ' + older + ' earlier nodes',
+        flowZoomTitle: 'Flow Zoom',
+        zoomPanorama: 'Panorama',
+        zoomNear: 'Inspect',
+        zoomPanoramaTip: 'View all concurrent branches side by side',
+        zoomNearTip: 'Inspect currently selected branch with full execution flow',
+        zoomSessionsRunning: (total, running) => total + ' sessions · ' + running + ' running',
+        sendMessage: ' Send',
+        zoomGuideAria: 'Flow Zoom instructions',
+        defaultFollowCurrent: 'Default (follow current)',
+        thinkingFollowModel: 'Thinking: follow model',
+        thinkingDefault: (d) => 'Thinking: ' + (d ? 'Default (' + d + ')' : 'Default'),
+        reuseCurrentSession: 'Reuse current session',
+        targetBranchCount: 'Target branches',
+        compactView: 'Compact',
+        detailView: 'Detail',
+        mapView: 'Mind Map',
+        flowZoomHistory: (n) => 'Flow Zoom History · ' + n,
+        flowZoomHistoryDrawerTitle: 'Flow Zoom History',
+        noConcurrentRecords: 'No concurrent records yet — enter a task and click ⚡ Start Concurrently',
+        noDisplayableSessions: 'No displayable sessions',
+        noBranchSessions: 'No branch sessions yet — click ⚡ Start Concurrently or delegate to subagents',
+        sessionNotFound: 'Current session not found',
+      },
+    }
+    const tHost = (st, key, ...args) => {
+      const lang = flowLangOf(st)
+      const dict = FLOW_HOST_I18N[lang] || FLOW_HOST_I18N['zh-CN']
+      const val = dict[key] || (FLOW_HOST_I18N['zh-CN'] && FLOW_HOST_I18N['zh-CN'][key])
+      if (typeof val === 'function') return val(...args)
+      return val != null ? val : key
     }
     const textField = (value, name, max) => {
       if (typeof value !== 'string' || !value.trim()) throw new Error('显示规则缺少 ' + name)
@@ -182,12 +390,14 @@ return {
         return typeof args.command === 'string' ? args.command : ''
       } catch (e) { return '' }
     }
-    const displayIdentity = (call, rules) => {
-      const fallback = { name: call.name, meta: KIND_META[call.cat] || KIND_META.builtin }
+    const displayIdentity = (call, rules, st) => {
+      const lang = flowLangOf(st)
+      const kindMeta = getKindMeta(call.cat, lang)
+      const fallback = { name: call.name, meta: kindMeta }
       if (call.name === 'skill') {
         try {
           const args = JSON.parse(call.argsRaw || '{}')
-          if (typeof args.name === 'string' && args.name.trim()) return { name: args.name.trim(), meta: KIND_META.skill }
+          if (typeof args.name === 'string' && args.name.trim()) return { name: args.name.trim(), meta: getKindMeta('skill', lang) }
         } catch (e) {}
         return fallback
       }
@@ -633,7 +843,7 @@ return {
     // 进出摘要：传入/返回（用户核心诉求——看到传给 skill 什么、skill 返回什么）
     // 传入：从 arguments JSON 提取最有信息量的字段（command/file_path/pattern/prompt…），而非整段 JSON
     const ARG_KEYS = ['command', 'file_path', 'path', 'pattern', 'query', 'q', 'description', 'prompt', 'text', 'content', 'url', 'name', 'key', 'expression', 'expr', 'code', 'script', 'tool', 'method', 'message', 'input', 'old_string', 'new_string']
-    const inSummary = (c) => {
+    const inSummary = (c, st) => {
       try {
         const a = JSON.parse(c.argsRaw || '{}')
         for (const k of ARG_KEYS) {
@@ -642,40 +852,42 @@ return {
         }
         const ks = Object.keys(a)
         if (ks.length) return ks[0] + ': ' + oneLine(String(a[ks[0]]), 72)
-        return '（无参数）'
-      } catch (e) { return oneLine(c.argsRaw, 72) || '（无参数）' }
+        return tHost(st, 'noParams')
+      } catch (e) { return oneLine(c.argsRaw, 72) || tHost(st, 'noParams') }
     }
     // 返回：结果首条有意义文本 + 体量 + 状态
-    const outSummary = (c) => {
+    const outSummary = (c, st) => {
       if (c.status === 'pending') return null
       if (c.status === 'error') {
         const t = (c.resultText || '').trim()
-        return { text: t ? oneLine(t, 72) : '（调用失败）', err: true }
+        return { text: t ? oneLine(t, 72) : tHost(st, 'callFail'), err: true }
       }
       const lines = String(c.resultText || '').split('\n').map((s) => s.trim()).filter(Boolean)
       const first = lines[0] || ''
-      return { text: (first ? oneLine(first, 72) : '（空返回）') + (c.outLen > 72 ? ' · ' + fmtSize(c.outLen) : ''), err: false }
+      return { text: (first ? oneLine(first, 72) : tHost(st, 'emptyReturn')) + (c.outLen > 72 ? ' · ' + fmtSize(c.outLen) : ''), err: false }
     }
     // 调用连线单元（形态约定·手绘参考图：主干卡在左、工具卡在右，中间两条水平连线——
     // 上=输入摘要 + 横线 + ▶ 右出；下=◀ + 横线 + 输出摘要 回左；输出线绿色系、错误红色系、进行中虚线）；
     // 进行中的工具卡高亮脉冲（调用到哪步哪步亮）；点击工具卡展开完整传入/返回（详情挂卡下方）
-    const renderCallWire = (c, expandedSeq, presentationRules) => {
-      const identity = displayIdentity(c, presentationRules)
+    const renderCallWire = (c, expandedSeq, presentationRules, st) => {
+      const identity = displayIdentity(c, presentationRules, st)
       const km = identity.meta
       const isExp = expandedSeq === c.seq
       const pending = c.status === 'pending'
-      const o = outSummary(c)
+      const o = outSummary(c, st)
+      const inLabel = tHost(st, 'input')
+      const outLabel = tHost(st, 'output')
       return '<div class="fl-wp" data-flow-card="' + c.seq + '" data-flow-status="' + c.status + '">' +
-          '<div class="fl-wl"><span class="fl-wl-txt">输入 ' + esc(inSummary(c)) + '</span>' +
+          '<div class="fl-wl"><span class="fl-wl-txt">' + inLabel + esc(inSummary(c, st)) + '</span>' +
             '<span class="fl-wl-row"><span class="fl-wl-line"></span><span class="fl-wl-arr">▶</span></span></div>' +
           (pending
-            ? '<div class="fl-wl fl-wl-b fl-wl-wait"><span class="fl-wl-txt">输出 进行中…</span>' +
+            ? '<div class="fl-wl fl-wl-b fl-wl-wait"><span class="fl-wl-txt">' + outLabel + tHost(st, 'inProgress') + '</span>' +
               '<span class="fl-wl-row"><span class="fl-wl-arr">◀</span><span class="fl-wl-line"></span></span></div>'
-            : '<div class="fl-wl fl-wl-b' + (o && o.err ? ' fl-wl-err' : '') + '"><span class="fl-wl-txt">输出 ' + esc(o ? o.text : '') + '</span>' +
+            : '<div class="fl-wl fl-wl-b' + (o && o.err ? ' fl-wl-err' : '') + '"><span class="fl-wl-txt">' + outLabel + esc(o ? o.text : '') + '</span>' +
               '<span class="fl-wl-row"><span class="fl-wl-arr">◀</span><span class="fl-wl-line"></span></span></div>') +
         '</div>' +
         '<div class="fl-callside">' +
-          '<div class="fl-iocard' + (pending ? ' fl-live' : '') + (isExp ? ' fl-on' : '') + (o && o.err ? ' fl-err' : '') + '" data-action="fdetail" data-seq="' + c.seq + '" data-flow-select-seq="' + c.seq + '" title="点击在右侧查看完整传入/返回">' +
+          '<div class="fl-iocard' + (pending ? ' fl-live' : '') + (isExp ? ' fl-on' : '') + (o && o.err ? ' fl-err' : '') + '" data-action="fdetail" data-seq="' + c.seq + '" data-flow-select-seq="' + c.seq + '" title="' + tHost(st, 'clickDetail') + '">' +
             '<div class="fl-iohead">' + (km.label ? '<span class="fl-tag" style="color:' + km.color + ';background:' + km.bg + '">' + esc(km.label) + '</span>' : '') +
             '<span class="fl-name">' + esc(identity.name) + '</span>' +
             (pending ? '<span class="fl-spin"></span><span class="fl-time" data-flow-timer="' + c.time + '" data-flow-timer-prefix="⏱ ">⏱ 0ms</span>' : statusGlyph(c.status, c.dur)) + '</div>' +
@@ -684,10 +896,10 @@ return {
     }
 
     // 同一步骤的多个并行调用（>1）用虚线外框 + 「并行 ×N」角标圈成一组；单调用保持散卡
-    const grpSide = (node, units) => {
+    const grpSide = (node, units, st) => {
       const n = node.calls.length
       if (n < 2) return '<div class="fl-lane-side">' + units + '</div>'
-      return '<div class="fl-lane-side fl-grp"><span class="fl-grp-tag">并行 ×' + n + '</span>' + units + '</div>'
+      return '<div class="fl-lane-side fl-grp"><span class="fl-grp-tag">' + tHost(st, 'parallel', n) + '</span>' + units + '</div>'
     }
 
     // 泳道中列包装：连接符（▼ 上方空隙由 ::before 主干线自适应填满，▼ 贴内容顶）+ 内容 + 对称弹性空间
@@ -698,17 +910,17 @@ return {
       (withConn ? '<span class="fl-conn-gap"></span>' : '')
 
     // 孤立调用组（前无助手消息，如连续工具步）：中列只画主干竖线贯穿——无卡的行不放 ▼ 连接符（线本身即连续性）
-    const renderPar = (node, expandedSeq, presentationRules) => {
-      const units = node.calls.map((c) => renderCallWire(c, expandedSeq, presentationRules)).join('')
+    const renderPar = (node, expandedSeq, presentationRules, st) => {
+      const units = node.calls.map((c) => renderCallWire(c, expandedSeq, presentationRules, st)).join('')
       return '<div class="fl-lane"><div></div>' +
         '<div class="fl-lane-main"><span class="fl-lane-line"></span></div>' +
-        grpSide(node, units) +
+        grpSide(node, units, st) +
       '</div>'
     }
 
     // 重试/失败徽标（llm/retry 链 + 终态错误码）：等待中显示退避倒计时（面板 2s 重拉自动递减）；
     // 起跳后按卡片终局判定成功/失败；调度后未起跳即终结 = 未成行
-    const retryBadgeHtml = (it) => {
+    const retryBadgeHtml = (it, st) => {
       let out = ''
       const rs = it.retries
       if (rs && rs.length) {
@@ -717,56 +929,56 @@ return {
         const tip = esc((last.code || '') + (last.message ? '：' + last.message : ''))
         if ((it.streaming || it.awaitingRetry) && !last.startedAt) {
           const remain = Math.max(0, Math.ceil((last.time + (last.delayMs || 0) - Date.now()) / 1000))
-          out += '<span class="fl-retry fl-retry-wait" title="' + tip + '">⟳ 等待重试 ' + last.retry + max + (remain ? ' · ' + remain + 's' : '') + '</span>'
+          out += '<span class="fl-retry fl-retry-wait" title="' + tip + '">' + tHost(st, 'retryWait', last.retry, max, remain) + '</span>'
         } else if (it.streaming) {
-          out += '<span class="fl-retry fl-retry-wait" title="' + tip + '">⟳ 重试 ' + last.retry + max + ' · 进行中</span>'
+          out += '<span class="fl-retry fl-retry-wait" title="' + tip + '">' + tHost(st, 'retryProgress', last.retry, max) + '</span>'
         } else if (!last.startedAt) {
-          out += '<span class="fl-retry fl-retry-cancel" title="退避等待期间步骤/轮次已结束">⟳ 重试 ' + last.retry + max + ' 未成行</span>'
+          out += '<span class="fl-retry fl-retry-cancel" title="退避等待期间步骤/轮次已结束">' + tHost(st, 'retryCancel', last.retry, max) + '</span>'
         } else if (it.interrupted) {
-          out += '<span class="fl-retry fl-retry-fail" title="' + tip + '">⟳ 重试 ' + last.retry + max + ' · 失败</span>'
+          out += '<span class="fl-retry fl-retry-fail" title="' + tip + '">' + tHost(st, 'retryFail', last.retry, max) + '</span>'
         } else {
-          out += '<span class="fl-retry fl-retry-ok" title="' + tip + '">⟳ 重试 ' + last.retry + max + ' · 成功</span>'
+          out += '<span class="fl-retry fl-retry-ok" title="' + tip + '">' + tHost(st, 'retryOk', last.retry, max) + '</span>'
         }
       }
       if (it.interrupted && it.failCode) {
         out += '<span class="fl-retry fl-retry-fail" title="' + esc(it.failMsg || '') + '">✗ ' + esc(it.failCode) + '</span>'
       }
       if (it.finishKind === 'max-tokens') {
-        out += '<span class="fl-retry fl-retry-cancel" title="输出因 max-tokens 长度上限截断">⤒ 已达上限</span>'
+        out += '<span class="fl-retry fl-retry-cancel" title="输出因 max-tokens 长度上限截断">' + tHost(st, 'maxTokens') + '</span>'
       }
       return out
     }
 
-    const msgCardInner = (it, expandedSeq, live) => {
+    const msgCardInner = (it, expandedSeq, live, st) => {
       const isUser = it.role === 'user'
       const isAi = it.role === 'ai'
       const aiRunning = isAi && it.streaming
       const color = isUser ? 'var(--tb-done-text,#81c784)' : isAi ? 'var(--tb-active-text,#7fa7f0)' : 'var(--tb-text-3,#777884)'
-      const label = isUser ? '用户' : isAi ? '助手' : '注入'
+      const label = isUser ? tHost(st, 'user') : isAi ? tHost(st, 'ai') : tHost(st, 'inject')
       // 卡片统一面片底色（fl-node），角色色只落在左侧色条 + 几何符号/tag 上，避免整卡彩色半透明的杂乱感
       // 用户/助手/注入卡均可点开右侧详情浮层看完整内容（与工具卡同一交互）；live=进行中 → 与工具卡同款流光脉冲
       // data-flow-state 暴露折叠器终态（streaming/settled/failed/abandoned）；data-flow-attempt 带实时 attempt 身份
       const branchSeq = it.finalSeq != null ? it.finalSeq : it.seq
       const flowState = it.streaming ? 'streaming' : (it.abandoned ? 'abandoned' : (it.failed || (it.interrupted && it.failCode) ? 'failed' : 'settled'))
       const branch = isAi && !it.streaming
-        ? '<button type="button" class="fl-branch-btn" data-flow-branch data-seq="' + branchSeq + '" title="从这条助手消息在 Harness 中创建新分支" aria-label="在新对话中分支">' +
+        ? '<button type="button" class="fl-branch-btn" data-flow-branch data-seq="' + branchSeq + '" title="' + tHost(st, 'branchHarness') + '" aria-label="' + tHost(st, 'branchAria') + '">' +
           '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3v5a3 3 0 0 0 3 3h4"/><path d="M8 5l3-3 3 3"/><path d="M11 2v4"/><path d="M9 9l2 2-2 2"/></svg></button>'
         : ''
-      return '<div class="fl-node' + (expandedSeq === it.seq ? ' fl-on' : '') + (live ? ' fl-live' : '') + '" style="border-left-color:' + color + '" data-flow-main-card="' + it.seq + '" data-flow-role="' + it.role + '" data-flow-state="' + flowState + '"' + (isAi && it.attemptId ? ' data-flow-attempt="' + esc(it.attemptId) + '"' : '') + ' data-flow-select-seq="' + it.seq + '" data-action="fdetail" data-seq="' + it.seq + '" title="点击查看完整消息">' +
+      return '<div class="fl-node' + (expandedSeq === it.seq ? ' fl-on' : '') + (live ? ' fl-live' : '') + '" style="border-left-color:' + color + '" data-flow-main-card="' + it.seq + '" data-flow-role="' + it.role + '" data-flow-state="' + flowState + '"' + (isAi && it.attemptId ? ' data-flow-attempt="' + esc(it.attemptId) + '"' : '') + ' data-flow-select-seq="' + it.seq + '" data-action="fdetail" data-seq="' + it.seq + '" title="' + tHost(st, 'clickMsgDetail') + '">' +
         '<div class="fl-node-head"><span class="fl-glyph" style="color:' + color + '">' + (isUser ? '▲' : isAi ? '◆' : '■') + '</span><span class="fl-tag" style="color:' + color + '">' + label + '</span>' +
         (isAi && it.route ? '<span class="fl-model">' + esc(it.route) + '</span>' : '') +
         (fmtTime(it.time) ? '<span class="fl-time">' + fmtTime(it.time) + '</span>' : '') +
         (aiRunning && it.runStart ? '<span class="fl-time" data-flow-timer="' + it.runStart + '" data-flow-timer-prefix="⏱ ">⏱ 0ms</span>' : (isAi && it.runDur != null ? '<span class="fl-time">⏱ ' + fmtDur(it.runDur) + '</span>' : '')) +
-        (it.tok ? '<span class="fl-time">+' + it.tok + ' tok</span>' : '') + (isAi ? retryBadgeHtml(it) : '') + branch + '</div>' +
-        '<div class="fl-preview"' + (it.interrupted ? ' style="color:var(--tb-danger-text,#f28b82)"' : '') + '>' + esc(it.preview || '（空）') + '</div>' +
+        (it.tok ? '<span class="fl-time">+' + it.tok + ' tok</span>' : '') + (isAi ? retryBadgeHtml(it, st) : '') + branch + '</div>' +
+        '<div class="fl-preview"' + (it.interrupted ? ' style="color:var(--tb-danger-text,#f28b82)"' : '') + '>' + esc(it.preview || tHost(st, 'emptyMsg')) + '</div>' +
       '</div>'
     }
 
-    const renderMsg = (it, expandedSeq, withConn, live) => '<div class="fl-lane"><div></div><div class="fl-lane-main">' + connMain(msgCardInner(it, expandedSeq, live), withConn) + '</div><div></div></div>'
+    const renderMsg = (it, expandedSeq, withConn, live, st) => '<div class="fl-lane"><div></div><div class="fl-lane-main">' + connMain(msgCardInner(it, expandedSeq, live, st), withConn) + '</div><div></div></div>'
 
-    const copyButtonHtml = '<button type="button" class="fl-copy-btn" data-flow-copy="1" title="复制内容到剪贴板" aria-label="复制内容到剪贴板">' +
+    const copyButtonHtml = (st) => '<button type="button" class="fl-copy-btn" data-flow-copy="1" title="' + tHost(st, 'copyToClipboard') + '" aria-label="' + tHost(st, 'copyToClipboard') + '">' +
       '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M3 11H2.5A1.5 1.5 0 0 1 1 9.5v-7A1.5 1.5 0 0 1 2.5 1h7A1.5 1.5 0 0 1 11 2.5V3"/></svg></button>'
-    const markdownPreviewButtonHtml = (seq) => '<button type="button" class="fl-md-preview-btn" data-flow-markdown-preview="1" data-flow-markdown-key="' + seq + '" title="Markdown 预览" aria-label="Markdown 预览" aria-pressed="false">' +
+    const markdownPreviewButtonHtml = (seq, st) => '<button type="button" class="fl-md-preview-btn" data-flow-markdown-preview="1" data-flow-markdown-key="' + seq + '" title="' + tHost(st, 'markdownPreview') + '" aria-label="' + tHost(st, 'markdownPreview') + '" aria-pressed="false">' +
       '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.3-4 6.5-4 6.5 4 6.5 4-2.3 4-6.5 4S1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="1.8"/></svg></button>'
 
     const skillDetailOf = (c) => {
@@ -789,79 +1001,80 @@ return {
       return { name, raw, instructions: instructionsMatch[1].trim(), baseDir, resourceNote }
     }
 
-    const skillDetailRail = (c, anim) => {
+    const skillDetailRail = (c, anim, st) => {
       const skill = skillDetailOf(c)
       if (!skill) return null
       const cap = 16000
       const instructions = skill.instructions.length > cap ? skill.instructions.slice(0, cap) + '\n…（截断，共 ' + skill.instructions.length + ' 字符）' : skill.instructions
       const raw = skill.raw.length > cap ? skill.raw.slice(0, cap) + '\n…（截断，共 ' + skill.raw.length + ' 字符）' : skill.raw
-      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '" data-flow-markdown-detail="1"><div class="fl-rail-resize" title="拖拽调宽（自动记忆）"></div>' +
-        '<div class="fl-rail-head"><span class="fl-rail-title">技能 · ' + esc(skill.name) + '</span>' +
-        '<button type="button" class="fl-rail-x" data-action="fdetail" data-seq="' + c.seq + '" title="关闭详情">✕</button></div>' +
+      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '" data-flow-markdown-detail="1"><div class="fl-rail-resize" title="' + tHost(st, 'dragResize') + '"></div>' +
+        '<div class="fl-rail-head"><span class="fl-rail-title">' + esc(tHost(st, 'skillDetailTitle', skill.name)) + '</span>' +
+        '<button type="button" class="fl-rail-x" data-action="fdetail" data-seq="' + c.seq + '" title="' + tHost(st, 'closeDetail') + '">✕</button></div>' +
         '<div class="fl-rail-body" data-flow-markdown-body="1" data-flow-markdown-key="' + c.seq + '" data-flow-markdown-streaming="0">' +
-          '<div class="fl-skill-hero"><span class="fl-tag">技能</span><strong>' + esc(skill.name) + '</strong>' + statusGlyph(c.status, c.dur) + '</div>' +
-          (skill.baseDir ? '<div class="fl-skill-field"><span>基础目录</span><code>' + esc(skill.baseDir) + '</code></div>' : '') +
-          (skill.resourceNote ? '<div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">资源说明</span>' + copyButtonHtml + '</div><pre class="fl-pre">' + esc(skill.resourceNote) + '</pre></div>' : '') +
-          '<div class="fl-sec fl-skill-instructions"><div class="fl-sec-head"><span class="fl-sec-label">使用说明</span>' + markdownPreviewButtonHtml(c.seq) + copyButtonHtml + '</div>' +
-          '<pre class="fl-pre" data-flow-markdown-source="1">' + esc(instructions || '（空）') + '</pre></div>' +
-          '<details class="fl-skill-raw"><summary>原始返回</summary><div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">完整 XML' + (skill.raw.length > cap ? '（截断）' : '') + '</span>' + copyButtonHtml + '</div><pre class="fl-pre">' + esc(raw || '（空）') + '</pre></div></details>' +
+          '<div class="fl-skill-hero"><span class="fl-tag">' + getKindMeta('skill', flowLangOf(st)).label + '</span><strong>' + esc(skill.name) + '</strong>' + statusGlyph(c.status, c.dur) + '</div>' +
+          (skill.baseDir ? '<div class="fl-skill-field"><span>' + tHost(st, 'baseDir') + '</span><code>' + esc(skill.baseDir) + '</code></div>' : '') +
+          (skill.resourceNote ? '<div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">' + tHost(st, 'resourceNote') + '</span>' + copyButtonHtml(st) + '</div><pre class="fl-pre">' + esc(skill.resourceNote) + '</pre></div>' : '') +
+          '<div class="fl-sec fl-skill-instructions"><div class="fl-sec-head"><span class="fl-sec-label">' + tHost(st, 'usageInstructions') + '</span>' + markdownPreviewButtonHtml(c.seq, st) + copyButtonHtml(st) + '</div>' +
+          '<pre class="fl-pre" data-flow-markdown-source="1">' + esc(instructions || tHost(st, 'emptyMsg')) + '</pre></div>' +
+          '<details class="fl-skill-raw"><summary>' + tHost(st, 'rawReturn') + '</summary><div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">' + tHost(st, 'fullXml', skill.raw.length > cap) + '</span>' + copyButtonHtml(st) + '</div><pre class="fl-pre">' + esc(raw || tHost(st, 'emptyMsg')) + '</pre></div></details>' +
         '</div></div>'
     }
 
     // 完整详情 → 右侧浮层（不插入流程流撑高内容：展开/收起零跳跃，滚动位置不动）：
     // 完整输入参数（美化 JSON）+ 完整返回结果（均截断标注，防大参数撑爆 HTML）；头部 ✕ 或再点卡片关闭
-    const detailRail = (c, anim, presentationRules) => {
-      const skill = skillDetailRail(c, anim)
+    const detailRail = (c, anim, presentationRules, st) => {
+      const skill = skillDetailRail(c, anim, st)
       if (skill) return skill
-      const identity = displayIdentity(c, presentationRules)
+      const identity = displayIdentity(c, presentationRules, st)
       let input = c.argsRaw || ''
       try { input = JSON.stringify(JSON.parse(c.argsRaw || '{}'), null, 2) } catch (e) {}
       const cap = 8000
       const inShown = input.length > cap ? input.slice(0, cap) + '\n…（截断，共 ' + input.length + ' 字符）' : input
-      const out = c.status === 'pending' ? '（进行中，尚无返回）' : (c.resultText || '（空返回）')
+      const out = c.status === 'pending' ? tHost(st, 'inProgressNoReturn') : (c.resultText || tHost(st, 'emptyReturn'))
       const outShown = out.length > cap ? out.slice(0, cap) + '\n…（截断，共 ' + out.length + ' 字符）' : out
       // anim=是否新展开（轮询重渲染不重播滑入动画，防闪烁）
-      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '"><div class="fl-rail-resize" title="拖拽调宽（自动记忆）"></div>' +
-        '<div class="fl-rail-head"><span class="fl-rail-title">' + esc(identity.name) + ' · 详情</span>' +
-        '<button type="button" class="fl-rail-x" data-action="fdetail" data-seq="' + c.seq + '" title="关闭详情">✕</button></div>' +
+      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '"><div class="fl-rail-resize" title="' + tHost(st, 'dragResize') + '"></div>' +
+        '<div class="fl-rail-head"><span class="fl-rail-title">' + esc(identity.name) + tHost(st, 'detail') + '</span>' +
+        '<button type="button" class="fl-rail-x" data-action="fdetail" data-seq="' + c.seq + '" title="' + tHost(st, 'closeDetail') + '">✕</button></div>' +
         '<div class="fl-rail-body">' +
-          '<div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">入 · 完整传入' + (input.length > cap ? '（截断）' : '') + '</span>' + copyButtonHtml + '</div><pre class="fl-pre">' + esc(inShown) + '</pre></div>' +
-          '<div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">出 · 完整返回' + (c.outLen ? '（' + fmtSize(c.outLen) + '）' : '') + '</span>' + copyButtonHtml + '</div><pre class="fl-pre">' + esc(outShown) + '</pre></div>' +
+          '<div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">' + tHost(st, 'fullInput', input.length > cap) + '</span>' + copyButtonHtml(st) + '</div><pre class="fl-pre">' + esc(inShown) + '</pre></div>' +
+          '<div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">' + tHost(st, 'fullOutput', c.outLen ? fmtSize(c.outLen) : '') + '</span>' + copyButtonHtml(st) + '</div><pre class="fl-pre">' + esc(outShown) + '</pre></div>' +
         '</div>' +
       '</div>'
     }
 
     // 消息详情浮层（用户/助手/注入卡点击）：角色 + 时间/模型/tokens 元信息 + 完整内容（截断标注）
-    const msgRail = (it, anim) => {
-      const label = it.role === 'user' ? '用户消息' : it.role === 'ai' ? '助手消息' : '注入消息'
+    const msgRail = (it, anim, st) => {
+      const label = it.role === 'user' ? tHost(st, 'userMsg') : it.role === 'ai' ? tHost(st, 'aiMsg') : tHost(st, 'injectMsg')
       const cap = 8000
       const full = String(it.full || it.preview || '')
       const shown = full.length > cap ? full.slice(0, cap) + '\n…（截断，共 ' + full.length + ' 字符）' : full
       const meta = []
-      if (fmtTime(it.time)) meta.push('时间 ' + fmtTime(it.time))
-      if (it.route) meta.push('模型 ' + it.route)
+      if (fmtTime(it.time)) meta.push(tHost(st, 'timeLabel', fmtTime(it.time)))
+      if (it.route) meta.push(tHost(st, 'modelLabel', it.route))
       if (it.attemptId) meta.push('attempt ' + String(it.attemptId).slice(0, 12))
-      if (it.tok) meta.push('输出 +' + it.tok + ' tok')
-      if (it.finishKind && it.finishKind !== 'stop') meta.push('结束 ' + it.finishKind)
-      if (it.failCode) meta.push('错误 ' + it.failCode + (it.failMsg ? '：' + oneLine(it.failMsg, 80) : ''))
-      if (it.retries && it.retries.length) meta.push('重试 ' + it.retries.length + ' 次（' + it.retries.map((r) => r.code || '?').join(' → ') + '）')
+      if (it.tok) meta.push(tHost(st, 'tokLabel', it.tok))
+      if (it.finishKind && it.finishKind !== 'stop') meta.push(tHost(st, 'finishKindLabel', it.finishKind))
+      if (it.failCode) meta.push(tHost(st, 'errorLabel', it.failCode, it.failMsg ? oneLine(it.failMsg, 80) : ''))
+      if (it.retries && it.retries.length) meta.push(tHost(st, 'retriesLabel', it.retries.length, it.retries.map((r) => r.code || '?').join(' → ')))
       // 与外层助手卡同款分支按钮：详情头部可直接从这条消息创建新分支（复用 data-flow-branch 委托）
       const branch = it.role === 'ai' && !it.streaming
-        ? '<button type="button" class="fl-branch-btn" data-flow-branch data-seq="' + (it.finalSeq != null ? it.finalSeq : it.seq) + '" title="从这条助手消息在 Harness 中创建新分支" aria-label="在新对话中分支">' +
+        ? '<button type="button" class="fl-branch-btn" data-flow-branch data-seq="' + (it.finalSeq != null ? it.finalSeq : it.seq) + '" title="' + tHost(st, 'branchHarness') + '" aria-label="' + tHost(st, 'branchAria') + '">' +
           '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3v5a3 3 0 0 0 3 3h4"/><path d="M8 5l3-3 3 3"/><path d="M11 2v4"/><path d="M9 9l2 2-2 2"/></svg></button>'
         : ''
       const markdown = it.role === 'ai'
-      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '"' + (markdown ? ' data-flow-markdown-detail="1"' : '') + '><div class="fl-rail-resize" title="拖拽调宽（自动记忆）"></div>' +
-        '<div class="fl-rail-head"><span class="fl-rail-title">' + label + ' · 详情</span>' + branch +
-        '<button type="button" class="fl-rail-x" data-action="fdetail" data-seq="' + it.seq + '" title="关闭详情">✕</button></div>' +
+      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '"' + (markdown ? ' data-flow-markdown-detail="1"' : '') + '><div class="fl-rail-resize" title="' + tHost(st, 'dragResize') + '"></div>' +
+        '<div class="fl-rail-head"><span class="fl-rail-title">' + label + tHost(st, 'detail') + '</span>' + branch +
+        '<button type="button" class="fl-rail-x" data-action="fdetail" data-seq="' + it.seq + '" title="' + tHost(st, 'closeDetail') + '">✕</button></div>' +
         '<div class="fl-rail-body"' + (markdown ? ' data-flow-markdown-body="1" data-flow-markdown-key="' + it.seq + '" data-flow-markdown-streaming="' + (it.streaming ? '1' : '0') + '"' : '') + '>' +
           (meta.length ? '<div class="fl-sec"><span class="fl-sec-label">' + esc(meta.join(' · ')) + '</span></div>' : '') +
-          '<div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">完整内容' + (full.length > cap ? '（截断）' : '') + '</span>' + (markdown ? markdownPreviewButtonHtml(it.seq) : '') + copyButtonHtml + '</div><pre class="fl-pre"' + (markdown ? ' data-flow-markdown-source="1"' : '') + '>' + esc(shown || '（空）') + '</pre></div>' +
+          '<div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">' + tHost(st, 'fullContent', full.length > cap) + '</span>' + (markdown ? markdownPreviewButtonHtml(it.seq, st) : '') + copyButtonHtml(st) + '</div><pre class="fl-pre"' + (markdown ? ' data-flow-markdown-source="1"' : '') + '>' + esc(shown || tHost(st, 'emptyMsg')) + '</pre></div>' +
         '</div>' +
       '</div>'
     }
 
     const presentationRulesRail = (st, anim) => {
+      const isEn = flowLangOf(st) === 'en'
       const value = JSON.stringify(st.presentationRules || [], null, 2)
       const example = '[\n  {\n    "enabled": true,\n    "tools": ["pwsh"],\n    "executables": ["engram-memory.ps1"],\n    "displayName": "engram-lattice",\n    "actions": ["search", "recall", "memory"],\n    "badge": "记忆",\n    "color": "#81c784"\n  }\n]'
       const trashIcon = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6 2.5h4l.7 2H5.3l.7-2Z"/><path d="M4.5 4.5l.6 9h5.8l.6-9M7 7v4M9 7v4"/></svg>'
@@ -869,48 +1082,59 @@ return {
       const plusIcon = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>'
       const input = (field, value, placeholder) => '<input class="tb-input" data-field="' + field + '" value="' + esc(value) + '"' + (placeholder ? ' placeholder="' + esc(placeholder) + '"' : '') + '>'
       const fieldsFor = (prefix, rule) => '<div class="fl-rule-grid">' +
-        '<label><span>原始工具</span>' + input(prefix + '.tools', (rule.tools || []).join(', '), 'pwsh, bash') + '</label>' +
-        '<label><span>可执行文件</span>' + input(prefix + '.executables', (rule.executables || []).join(', '), 'tool.ps1, tool') + '</label>' +
-        '<label><span>显示名称</span>' + input(prefix + '.displayName', rule.displayName || '', '可留空') + '</label>' +
-        '<label><span>子命令</span>' + input(prefix + '.actions', (rule.actions || []).join(', '), 'search, recall') + '</label>' +
-        '<label><span>徽章</span>' + input(prefix + '.badge', rule.badge || '', '可留空') + '</label>' +
-        '<label><span>颜色</span><input class="fl-rule-color" type="color" data-field="' + prefix + '.color" value="' + esc(rule.color || '#81c784') + '"></label>' +
+        '<label><span>' + (isEn ? 'Raw tools' : '原始工具') + '</span>' + input(prefix + '.tools', (rule.tools || []).join(', '), 'pwsh, bash') + '</label>' +
+        '<label><span>' + (isEn ? 'Executables' : '可执行文件') + '</span>' + input(prefix + '.executables', (rule.executables || []).join(', '), 'tool.ps1, tool') + '</label>' +
+        '<label><span>' + (isEn ? 'Display name' : '显示名称') + '</span>' + input(prefix + '.displayName', rule.displayName || '', isEn ? 'Optional' : '可留空') + '</label>' +
+        '<label><span>' + (isEn ? 'Subcommands' : '子命令') + '</span>' + input(prefix + '.actions', (rule.actions || []).join(', '), 'search, recall') + '</label>' +
+        '<label><span>' + (isEn ? 'Badge' : '徽章') + '</span>' + input(prefix + '.badge', rule.badge || '', isEn ? 'Optional' : '可留空') + '</label>' +
+        '<label><span>' + (isEn ? 'Color' : '颜色') + '</span><input class="fl-rule-color" type="color" data-field="' + prefix + '.color" value="' + esc(rule.color || '#81c784') + '"></label>' +
       '</div>'
       const editor = (prefix, rule, saveAction, index) => '<div class="fl-rule-editor">' +
         '<input type="hidden" data-field="' + prefix + '.enabled" value="' + (rule.enabled ? '1' : '0') + '">' + fieldsFor(prefix, rule) +
-        '<div class="fl-rule-editor-actions"><button type="button" class="tb-btn tb-btn-sm" data-flow-rule-cancel="1">取消</button>' +
-        '<button type="button" class="tb-btn tb-btn-sm tb-btn-primary" data-action="' + saveAction + '"' + (index == null ? '' : ' data-index="' + index + '"') + '>保存</button></div></div>'
+        '<div class="fl-rule-editor-actions"><button type="button" class="tb-btn tb-btn-sm" data-flow-rule-cancel="1">' + (isEn ? 'Cancel' : '取消') + '</button>' +
+        '<button type="button" class="tb-btn tb-btn-sm tb-btn-primary" data-action="' + saveAction + '"' + (index == null ? '' : ' data-index="' + index + '"') + '>' + (isEn ? 'Save' : '保存') + '</button></div></div>'
       const rows = (st.presentationRules || []).map((rule, index) => {
-        const title = rule.displayName || '未命名规则'
-        const summary = rule.tools.join(', ') + ' · ' + rule.executables.length + ' 个程序 · ' + (rule.actions.length || '任意') + ' 个子命令'
+        const title = rule.displayName || (isEn ? 'Unnamed rule' : '未命名规则')
+        const summary = isEn
+          ? rule.tools.join(', ') + ' · ' + rule.executables.length + ' executables · ' + (rule.actions.length || 'any') + ' subcommands'
+          : rule.tools.join(', ') + ' · ' + rule.executables.length + ' 个程序 · ' + (rule.actions.length || '任意') + ' 个子命令'
         return '<section class="fl-rule-card' + (!rule.enabled ? ' fl-rule-off' : '') + '"><div class="fl-rule-summary">' +
-          '<button type="button" class="fl-rule-main" data-flow-rule-edit="1" title="展开编辑规则" aria-expanded="false">' +
+          '<button type="button" class="fl-rule-main" data-flow-rule-edit="1" title="' + (isEn ? 'Expand rule to edit' : '展开编辑规则') + '" aria-expanded="false">' +
             '<span class="fl-rule-dot" style="background:' + esc(rule.color) + '"></span>' +
             (rule.badge ? '<span class="fl-rule-badge" style="color:' + esc(rule.color) + ';background:' + esc(rule.color) + '1f">' + esc(rule.badge) + '</span>' : '') +
             '<span class="fl-rule-copy"><strong>' + esc(title) + '</strong><small>' + esc(summary) + '</small></span>' +
             '<span class="fl-rule-chevron">' + chevronIcon + '</span></button>' +
-          '<button type="button" class="fl-rule-switch' + (rule.enabled ? ' is-on' : '') + '" data-action="ftoggle-rule" data-index="' + index + '" title="' + (rule.enabled ? '停用规则' : '启用规则') + '" aria-label="' + (rule.enabled ? '停用规则' : '启用规则') + '" aria-pressed="' + (rule.enabled ? 'true' : 'false') + '"><span></span></button>' +
-          '<button type="button" class="fl-rule-icon fl-rule-delete" data-action="fdelete-rule" data-index="' + index + '" title="删除规则" aria-label="删除规则">' + trashIcon + '</button></div>' +
+          '<button type="button" class="fl-rule-switch' + (rule.enabled ? ' is-on' : '') + '" data-action="ftoggle-rule" data-index="' + index + '" title="' + (rule.enabled ? (isEn ? 'Disable rule' : '停用规则') : (isEn ? 'Enable rule' : '启用规则')) + '" aria-label="' + (rule.enabled ? (isEn ? 'Disable rule' : '停用规则') : (isEn ? 'Enable rule' : '启用规则')) + '" aria-pressed="' + (rule.enabled ? 'true' : 'false') + '"><span></span></button>' +
+          '<button type="button" class="fl-rule-icon fl-rule-delete" data-action="fdelete-rule" data-index="' + index + '" title="' + (isEn ? 'Delete rule' : '删除规则') + '" aria-label="' + (isEn ? 'Delete rule' : '删除规则') + '">' + trashIcon + '</button></div>' +
           editor('flowRule.' + index, rule, 'fsave-rule', index) + '</section>'
       }).join('')
-      const empty = '<div class="tb-notice">暂无规则。点击“添加规则”，或展开 JSON 源码导入。</div>'
+      const empty = '<div class="tb-notice">' + (isEn ? 'No rules configured. Click "Add Rule" or import from JSON.' : '暂无规则。点击“添加规则”，或展开 JSON 源码导入。') + '</div>'
       const blank = { tools: [], executables: [], displayName: '', actions: [], badge: '', color: '#81c784' }
-      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '"><div class="fl-rail-resize" title="拖拽调宽（自动记忆）"></div>' +
-        '<div class="fl-rail-head"><span class="fl-rail-title">工具显示规则</span><button type="button" class="fl-rule-add" data-flow-rule-new="1" aria-expanded="false">' + plusIcon + '<span>添加规则</span></button>' +
-        '<button type="button" class="fl-rail-x" data-action="fsettings" title="关闭设置">✕</button></div>' +
+      const currentLang = flowLangOf(st)
+      const langOptions = '<div class="fl-sec" style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
+        '<span class="fl-sec-label" style="font-weight:600;">' + (isEn ? 'Language / 语言' : '语言 / Language') + '</span>' +
+        '<div style="display:flex;gap:6px;">' +
+          '<button type="button" class="tb-chip' + (currentLang === 'zh-CN' ? ' tb-chip-on' : '') + '" data-action="fset-lang" data-lang="zh-CN">简体中文</button>' +
+          '<button type="button" class="tb-chip' + (currentLang === 'en' ? ' tb-chip-on' : '') + '" data-action="fset-lang" data-lang="en">English</button>' +
+        '</div>' +
+      '</div>'
+      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '"><div class="fl-rail-resize" title="' + tHost(st, 'dragResize') + '"></div>' +
+        '<div class="fl-rail-head"><span class="fl-rail-title">' + (isEn ? 'Flowglass Settings' : '流镜设置') + '</span><button type="button" class="fl-rule-add" data-flow-rule-new="1" aria-expanded="false">' + plusIcon + '<span>' + (isEn ? 'Add Rule' : '添加规则') + '</span></button>' +
+        '<button type="button" class="fl-rail-x" data-action="fsettings" title="' + (isEn ? 'Close Settings' : '关闭设置') + '">✕</button></div>' +
         '<div class="fl-rail-body">' +
-          '<div class="tb-note">规则只改变流镜中的标题和徽章；原始工具名、参数、结果及会话日志保持不变。按顺序匹配，首条命中生效。displayName 为空时不添加名称，badge 为空时不显示徽章。</div>' +
+          langOptions +
+          '<div class="tb-note">' + (isEn ? 'Rules project card titles and badges in Flowglass; original tool names, arguments, results, and session logs remain unchanged.' : '规则只改变流镜中的标题和徽章；原始工具名、参数、结果及会话日志保持不变。按顺序匹配，首条命中生效。displayName 为空时不添加名称，badge 为空时不显示徽章。') + '</div>' +
           '<div class="fl-rule-list">' + (rows || empty) + '</div>' +
-          '<section class="fl-rule-card fl-rule-new"><div class="fl-rule-new-title">新增规则</div>' + editor('flowRule.new', blank, 'fcreate-rule') + '</section>' +
+          '<section class="fl-rule-card fl-rule-new"><div class="fl-rule-new-title">' + (isEn ? 'New Rule' : '新增规则') + '</div>' + editor('flowRule.new', blank, 'fcreate-rule') + '</section>' +
           (st.ruleNotice ? '<div class="tb-note" style="color:var(--tb-done-text,#81c784)">' + esc(st.ruleNotice) + '</div>' : '') +
-          '<details class="fl-rule-source"><summary class="tb-note">JSON 源码</summary><textarea class="tb-textarea" spellcheck="false" data-field="flowPresentationRules" placeholder="' + esc(example) + '">' + esc(value) + '</textarea>' +
-          '<div class="tb-row"><button type="button" class="tb-btn tb-btn-sm" data-action="fapply-rule-json">从 JSON 应用</button>' + ((st.presentationRules || []).length ? '<button type="button" class="tb-btn tb-btn-sm" data-action="freset-rules">清空全部</button>' : '') + '</div></details>' +
+          '<details class="fl-rule-source"><summary class="tb-note">' + (isEn ? 'JSON Source' : 'JSON 源码') + '</summary><textarea class="tb-textarea" spellcheck="false" data-field="flowPresentationRules" placeholder="' + esc(example) + '">' + esc(value) + '</textarea>' +
+          '<div class="tb-row"><button type="button" class="tb-btn tb-btn-sm" data-action="fapply-rule-json">' + (isEn ? 'Apply from JSON' : '从 JSON 应用') + '</button>' + ((st.presentationRules || []).length ? '<button type="button" class="tb-btn tb-btn-sm" data-action="freset-rules">' + (isEn ? 'Clear all' : '清空全部') + '</button>' : '') + '</div></details>' +
         '</div></div>'
     }
 
     // 子代理分支内容（左列）：入口卡（可点详情）+ 支线步骤（限高滚动）+ 出口卡
     // 运行中 = 调用在途（pending）或子会话仍 live——任一成立入口卡持续 fl-live（流光/脉冲/转圈）
-    const subBranchHtml = async (c) => {
+    const subBranchHtml = async (c, st) => {
       const cid = childIdOf(c)
       let subLive = c.status === 'pending'
       let sub2 = null
@@ -920,15 +1144,15 @@ return {
 
       // 有子会话 id 后，整张入口卡就是“进入子流镜”的主点击面；
       // 子代理尚在启动时仍保留详情行为，避免点击无效。
-      let sub = '<div class="fl-sub-card fl-sub-open' + (subLive ? ' fl-live' : '') + '" data-action="' + (cid ? 'fenter' : 'fdetail') + '" data-seq="' + c.seq + '" data-flow-select-seq="' + c.seq + '" title="' + (cid ? '进入该子代理的实时流镜' : '点击查看完整任务传入/返回') + '">' +
-        '<div class="fl-iohead"><span class="fl-tag" style="color:var(--tb-active-text,#7fa7f0);background:rgba(91,141,239,.12)">子代理</span>' +
+      let sub = '<div class="fl-sub-card fl-sub-open' + (subLive ? ' fl-live' : '') + '" data-action="' + (cid ? 'fenter' : 'fdetail') + '" data-seq="' + c.seq + '" data-flow-select-seq="' + c.seq + '" title="' + (cid ? tHost(st, 'subagentTitleEnter') : tHost(st, 'subagentTitleTask')) + '">' +
+        '<div class="fl-iohead"><span class="fl-tag" style="color:var(--tb-active-text,#7fa7f0);background:rgba(91,141,239,.12)">' + tHost(st, 'subagentTag') + '</span>' +
         '<span class="fl-name">' + esc(c.name) + '</span>' + statusGlyph(c.status, c.dur) + '</div>' +
-        '<div class="fl-sub-io"><span class="fl-io-tag">入</span><span class="fl-branch-txt">' + esc(inSummary(c)) + '</span></div>' +
+        '<div class="fl-sub-io"><span class="fl-io-tag">' + (flowLangOf(st) === 'en' ? 'In' : '入') + '</span><span class="fl-branch-txt">' + esc(inSummary(c, st)) + '</span></div>' +
       '</div>'
       let steps = ''
       if (cid && sub2) {
-        steps += '<div class="fl-sub-meta"><span class="fl-time">↳ ' + esc(cid.slice(0, 8)) + '… · ' + sub2.total + ' 步</span>' + (sub2.live ? '<span class="fl-tag" style="color:var(--tb-done-text,#81c784)">运行中</span>' : '') +
-          '<button type="button" class="tb-btn tb-btn-sm" data-action="fenter" data-seq="' + c.seq + '" title="进入该子代理的完整流程图（可逐级返回）">进入 →</button></div>'
+        steps += '<div class="fl-sub-meta"><span class="fl-time">↳ ' + esc(cid.slice(0, 8)) + '… · ' + sub2.total + (flowLangOf(st) === 'en' ? ' steps' : ' 步') + '</span>' + (sub2.live ? '<span class="fl-tag" style="color:var(--tb-done-text,#81c784)">' + tHost(st, 'running') + '</span>' : '') +
+          '<button type="button" class="tb-btn tb-btn-sm" data-action="fenter" data-seq="' + c.seq + '" title="' + tHost(st, 'subagentFullFlow') + '">' + tHost(st, 'enterArrow') + '</button></div>'
         for (const r of sub2.rows) {
           steps += '<div class="fl-sub-step">' +
             (r.pill ? '<span class="fl-branch-pill">' + esc(r.pill) + '</span>' : '') +
@@ -936,15 +1160,15 @@ return {
             (r.pill ? statusGlyph(r.status, r.dur) : '') +
           '</div>'
         }
-        if (sub2.total > sub2.rows.length) steps += '<div class="fl-sub-step"><span class="fl-time">… 更早 ' + (sub2.total - sub2.rows.length) + ' 步未展开</span></div>'
+        if (sub2.total > sub2.rows.length) steps += '<div class="fl-sub-step"><span class="fl-time">… ' + (sub2.total - sub2.rows.length) + (flowLangOf(st) === 'en' ? ' earlier steps not expanded' : ' 步未展开') + '</span></div>'
       } else if (c.status === 'pending') {
-        steps = '<div class="fl-sub-step"><span class="fl-time">子代理启动中…</span></div>'
+        steps = '<div class="fl-sub-step"><span class="fl-time">' + tHost(st, 'subagentStarting') + '</span></div>'
       }
       if (steps) sub += '<div class="fl-sub-steps">' + steps + '</div>'
       if (c.status !== 'pending') {
-        const o = outSummary(c)
-        sub += '<div class="fl-sub-card fl-sub-close" data-action="fdetail" data-seq="' + c.seq + '" title="点击查看完整任务传入/返回">' +
-          '<div class="fl-sub-io"><span class="fl-io-tag">出</span>' +
+        const o = outSummary(c, st)
+        sub += '<div class="fl-sub-card fl-sub-close" data-action="fdetail" data-seq="' + c.seq + '" title="' + tHost(st, 'subagentTitleTask') + '">' +
+          '<div class="fl-sub-io"><span class="fl-io-tag">' + (flowLangOf(st) === 'en' ? 'Out' : '出') + '</span>' +
           '<span class="fl-time">' + fmtDur(c.dur) + '</span>' +
           (o ? '<span class="fl-args">' + esc(o.text) + '</span>' : '') + '</div>' +
         '</div>'
@@ -974,9 +1198,10 @@ return {
     }
 
     // 同步子代理组：每个分支是一个可自行拉伸的小流镜，宽屏自动多列、窄屏回落单列。
-    const subGroupHtml = async (node) => {
-      const branches = await Promise.all(node.calls.map(subBranchHtml))
-      return (node.calls.length > 1 ? '<span class="fl-subgrp-tag">并行子代理 ×' + node.calls.length + '</span>' : '') +
+    const subGroupHtml = async (node, st) => {
+      const branches = await Promise.all(node.calls.map((c) => subBranchHtml(c, st)))
+      const label = flowLangOf(st) === 'en' ? 'Parallel subagents ×' : '并行子代理 ×'
+      return (node.calls.length > 1 ? '<span class="fl-subgrp-tag">' + label + node.calls.length + '</span>' : '') +
         branches.map((html) => '<div class="fl-subbranch">' + html + '</div>').join('')
     }
 
@@ -985,7 +1210,7 @@ return {
     // 普通流镜与大流镜详细对比共用同一泳道渲染器：返回视觉顺序（旧→新）的行。
     const renderFlowNodeRows = async (nodes, st, liveAiSeq) => {
       const subHtmls = {}
-      await Promise.all(nodes.map(async (n, i) => { if (n.t === 'subs') subHtmls[i] = await subGroupHtml(n) }))
+      await Promise.all(nodes.map(async (n, i) => { if (n.t === 'subs') subHtmls[i] = await subGroupHtml(n, st) }))
       const rows = []
       for (let i = 0; i < nodes.length; i++) {
         const n = nodes[i]
@@ -998,7 +1223,7 @@ return {
           if (!parN && nodes[next] && nodes[next].t === 'par') { parN = nodes[next]; next++ }
           const subCalls = subN ? subN.calls : []
           const aiLive = (parN && parN.calls.some((c) => c.status === 'pending')) || subCalls.some((c) => c.status === 'pending') || n.it.seq === liveAiSeq
-          let main = msgCardInner(n.it, st.expanded, aiLive)
+          let main = msgCardInner(n.it, st.expanded, aiLive, st)
           let lastI = next - 1
           const allSettled = subCalls.length > 0 && subCalls.every((c) => c.resSeq != null)
           const resultSeq = allSettled ? Math.max(...subCalls.map((c) => c.resSeq)) : null
@@ -1007,7 +1232,7 @@ return {
               const m = nodes[j]
               if (m.t !== 'msg') break
               if (subN.turn != null && m.it.turn != null && m.it.turn !== subN.turn) break
-              main += '<span class="fl-arrow">▼</span>' + msgCardInner(m.it, st.expanded, m.it.seq === liveAiSeq)
+              main += '<span class="fl-arrow">▼</span>' + msgCardInner(m.it, st.expanded, m.it.seq === liveAiSeq, st)
               lastI = j
               if (m.it.seq > resultSeq) break
             }
@@ -1015,11 +1240,11 @@ return {
           h = '<div class="fl-lane">' +
             (subN ? subColHtml(subN, subHtmls[subIdx] || '') : '<div></div>') +
             '<div class="fl-lane-main">' + connMain(main, withConn) + '</div>' +
-            (parN ? grpSide(parN, parN.calls.map((c) => renderCallWire(c, st.expanded, st.presentationRules)).join('')) : '<div></div>') +
+            (parN ? grpSide(parN, parN.calls.map((c) => renderCallWire(c, st.expanded, st.presentationRules, st)).join(''), st) : '<div></div>') +
           '</div>'
           i = lastI
-        } else if (n.t === 'msg') h = renderMsg(n.it, st.expanded, withConn, n.it.seq === liveAiSeq)
-        else if (n.t === 'par') h = renderPar(n, st.expanded, st.presentationRules)
+        } else if (n.t === 'msg') h = renderMsg(n.it, st.expanded, withConn, n.it.seq === liveAiSeq, st)
+        else if (n.t === 'par') h = renderPar(n, st.expanded, st.presentationRules, st)
         else h = '<div class="fl-lane">' + subColHtml(n, subHtmls[i] || '') + '<div class="fl-lane-main"><span class="fl-lane-line"></span></div><div></div></div>'
         rows.push(h)
       }
@@ -1490,8 +1715,19 @@ return {
           (badges.length ? '<div class="fl-zoom-badges">' + badges.join('') + '</div>' : '') +
           '<div class="fl-zoom-stats">' + esc(stats) + '</div>'
       }
-      const openTip = st.follow ? '进入该会话的流镜视角，并切换 Harness' : '进入该会话的流镜视角'
-      const zoomHelp = [
+      const isEn = flowLangOf(st) === 'en'
+      const openTip = isEn ? (st.follow ? 'Inspect this session in Flowglass and switch Harness active session' : 'Inspect this session in Flowglass') : (st.follow ? '进入该会话的流镜视角，并切换 Harness' : '进入该会话的流镜视角')
+      const zoomHelp = isEn ? [
+        '• Flow Zoom is a container for concurrent tasks: inspect all branches side by side in Panorama, or fill the canvas with full flow in Inspect mode.',
+        '• Default view is chosen automatically: multi-branch sessions default to Panorama; single sessions default to Inspect.',
+        '• Panorama supports Compact, Detail, and Mind Map views. Click any branch card to inspect it.',
+        '• Mind Map plots the full branch tree: vertical edge = reused session, diagonal edge = branched session.',
+        '• Panorama sending continues N→N across the group; Inspect sending forks 1→N from current session.',
+        '• Inspect workbench can toggle "Reuse current session" to continue branch 1 in-place.',
+        '• "Flow Zoom History" preserves execution topology across rounds without overwriting older history.',
+        '• Branch card ⇪ passes latest assistant conclusion into other sessions (as draft or sent immediately).',
+        '• Presentation rules are shared with standard Flowglass.',
+      ].join('\n') : [
         '• 大流镜是并发任务的容器：全景并排查看/对比全部分支，近观用完整流镜铺满画布。',
         '• 进入时按内容选默认尺度：多分支（并发组/血缘树）默认全景；单会话（新会话）默认近观。',
         '• 全景支持 精简 / 详细 / 导图 三种视图；点分支卡自然放大到近观，点「全景」返回。',
@@ -1503,20 +1739,20 @@ return {
         '• 「显示规则」与普通流镜共用同一份配置，按工具名/命令/子命令改写卡片标题与徽章。',
       ].join('\n')
       const parts = []
-      parts.push('<div class="jr-tabpanel tb-root tb-pane' + (zoomMotion ? ' fl-zoom-motion-' + zoomMotion : '') + '" data-flow' + (!nearMode ? ' data-flow-board="1"' : '') + ' data-flow-view="' + esc(zoomView) + '" data-flow-scope="' + esc(sid) + '" data-zoom-active-sids="' + esc(continueBranches.map((c) => c.rec.sid).join(',')) + '" data-zoom-run-id="' + esc(activeRun ? activeRun.id : '') + '" data-zoom-round-id="' + esc(activeRound ? activeRound.id : '') + '" data-flow-has-older="' + (nearFlow && nearFlow.hasOlder ? '1' : '0') + '" data-flow-visible="' + (nearFlow ? nearFlow.shown.length : shownCards.length) + '" data-flow-total="' + (nearFlow ? nearFlow.nodes.length : total) + '" data-autorefresh="' + flowAutorefreshOf(st) + '" data-tab-badge="' + (st.live && runningCount ? String(runningCount) + '活' : '') + '">')
+      parts.push('<div class="jr-tabpanel tb-root tb-pane' + (zoomMotion ? ' fl-zoom-motion-' + zoomMotion : '') + '" data-flow' + (!nearMode ? ' data-flow-board="1"' : '') + ' data-flow-view="' + esc(zoomView) + '" data-flow-scope="' + esc(sid) + '" data-zoom-active-sids="' + esc(continueBranches.map((c) => c.rec.sid).join(',')) + '" data-zoom-run-id="' + esc(activeRun ? activeRun.id : '') + '" data-zoom-round-id="' + esc(activeRound ? activeRound.id : '') + '" data-flow-has-older="' + (nearFlow && nearFlow.hasOlder ? '1' : '0') + '" data-flow-visible="' + (nearFlow ? nearFlow.shown.length : shownCards.length) + '" data-flow-total="' + (nearFlow ? nearFlow.nodes.length : total) + '" data-autorefresh="' + flowAutorefreshOf(st) + '" data-tab-badge="' + (st.live && runningCount ? String(runningCount) + (isEn ? ' live' : '活') : '') + '">')
       parts.push('<div class="tb-pane-head">')
       parts.push('<div class="tb-row">' +
-        '<span class="tb-sec-label">大流镜</span>' +
-        '<span class="fl-zoom-count" aria-label="大流镜尺度">' +
-          '<button type="button" class="tb-chip' + (!nearMode ? ' tb-chip-on' : '') + '" data-action="fzoom-focus-back" title="查看所选并发的全部分支">全景</button>' +
-          '<button type="button" class="tb-chip' + (nearMode ? ' tb-chip-on' : '') + '" data-action="fzoom-focus-current" title="用完整流镜查看当前选中分支"' + (!selectedCard ? ' disabled' : '') + '>近观</button>' +
+        '<span class="tb-sec-label">' + tHost(st, 'flowZoomTitle') + '</span>' +
+        '<span class="fl-zoom-count" aria-label="' + (isEn ? 'Flow Zoom scale' : '大流镜尺度') + '">' +
+          '<button type="button" class="tb-chip' + (!nearMode ? ' tb-chip-on' : '') + '" data-action="fzoom-focus-back" title="' + tHost(st, 'zoomPanoramaTip') + '">' + tHost(st, 'zoomPanorama') + '</button>' +
+          '<button type="button" class="tb-chip' + (nearMode ? ' tb-chip-on' : '') + '" data-action="fzoom-focus-current" title="' + tHost(st, 'zoomNearTip') + '"' + (!selectedCard ? ' disabled' : '') + '>' + tHost(st, 'zoomNear') + '</button>' +
         '</span>' +
-        '<span class="tb-note">' + total + ' 会话 · ' + runningCount + ' 运行中</span>' +
-        '<button type="button" class="tb-chip' + (st.zoomComposerOpen ? ' tb-chip-on' : '') + '" data-action="fzoom-composer" aria-expanded="' + (st.zoomComposerOpen ? 'true' : 'false') + '">' + (st.zoomComposerOpen ? '▾' : '▸') + ' 发消息' + (continueCurrentGroup ? ' · 当前 ' + continueBranches.length + ' 个会话' : nearMode && selectedCard ? ' · 1→' + targetBranchCount : '') + '</button>' +
-        '<button type="button" class="tb-chip' + (st.live ? ' tb-chip-on' : '') + '" data-action="toggle-live">' + (st.live ? '● 实时同步中' : '⏸ 已暂停') + '</button>' +
-        '<button type="button" class="tb-chip' + (st.follow ? ' tb-chip-on' : '') + '" data-action="toggle-follow" title="开启后，从总览进入会话会同时切换 DeepSeek Harness 主会话">' + (st.follow ? '● 子代理跟随' : '○ 子代理跟随') + '</button>' +
-        '<button type="button" class="tb-btn tb-btn-sm" data-action="refresh">刷新</button>' +
-        '<span class="fl-info" tabindex="0" aria-label="大流镜使用说明">' +
+        '<span class="tb-note">' + tHost(st, 'zoomSessionsRunning', total, runningCount) + '</span>' +
+        '<button type="button" class="tb-chip' + (st.zoomComposerOpen ? ' tb-chip-on' : '') + '" data-action="fzoom-composer" aria-expanded="' + (st.zoomComposerOpen ? 'true' : 'false') + '">' + (st.zoomComposerOpen ? '▾' : '▸') + tHost(st, 'sendMessage') + (continueCurrentGroup ? ' · ' + (isEn ? 'current ' + continueBranches.length + ' sessions' : '当前 ' + continueBranches.length + ' 个会话') : nearMode && selectedCard ? ' · 1→' + targetBranchCount : '') + '</button>' +
+        '<button type="button" class="tb-chip' + (st.live ? ' tb-chip-on' : '') + '" data-action="toggle-live">' + (st.live ? tHost(st, 'liveSyncing') : tHost(st, 'paused')) + '</button>' +
+        '<button type="button" class="tb-chip' + (st.follow ? ' tb-chip-on' : '') + '" data-action="toggle-follow" title="' + (isEn ? 'When enabled, selecting a session in Flow Zoom switches the main Harness session' : '开启后，从总览进入会话会同时切换 DeepSeek Harness 主会话') + '">' + (st.follow ? tHost(st, 'subagentFollowOn') : tHost(st, 'subagentFollowOff')) + '</button>' +
+        '<button type="button" class="tb-btn tb-btn-sm" data-action="refresh">' + tHost(st, 'refresh') + '</button>' +
+        '<span class="fl-info" tabindex="0" aria-label="' + tHost(st, 'zoomGuideAria') + '">' +
           '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7.2v4"/><circle cx="8" cy="4.7" r=".7" fill="currentColor" stroke="none"/></svg>' +
           '<span class="fl-info-pop">' + esc(zoomHelp) + '</span>' +
         '</span>' +
@@ -1527,15 +1763,15 @@ return {
       // data-action-onchange 回写 state（重渲染不丢）。
       if (st.zoomComposerOpen) {
         const routes = await buildZoomRoutes()
-        const routeOptions = (sel) => '<option value="">默认（跟随当前）</option>' + routes.map((r) => '<option value="' + esc(r.value) + '"' + (r.value === sel ? ' selected' : '') + '>' + esc(r.label) + '</option>').join('')
+        const routeOptions = (sel) => '<option value="">' + tHost(st, 'defaultFollowCurrent') + '</option>' + routes.map((r) => '<option value="' + esc(r.value) + '"' + (r.value === sel ? ' selected' : '') + '>' + esc(r.label) + '</option>').join('')
         const effortOptions = (route, sel) => {
           const meta = routes.find((r) => r.value === route)
-          if (!meta || !meta.efforts.length) return '<option value="">思考：跟随模型</option>'
-          const inherited = meta.defaultEffort ? '默认（' + meta.defaultEffort + '）' : '默认'
-          return '<option value="">思考：' + esc(inherited) + '</option>' + meta.efforts.map((e) => '<option value="' + esc(e.id) + '"' + (e.id === sel ? ' selected' : '') + '>' + esc(e.name) + '</option>').join('')
+          if (!meta || !meta.efforts.length) return '<option value="">' + tHost(st, 'thinkingFollowModel') + '</option>'
+          const inherited = meta.defaultEffort ? (isEn ? 'Default (' + meta.defaultEffort + ')' : '默认（' + meta.defaultEffort + '）') : (isEn ? 'Default' : '默认')
+          return '<option value="">' + (isEn ? 'Thinking: ' + esc(inherited) : '思考：' + esc(inherited)) + '</option>' + meta.efforts.map((e) => '<option value="' + esc(e.id) + '"' + (e.id === sel ? ' selected' : '') + '>' + esc(e.name) + '</option>').join('')
         }
         const laneSelects = st.zoomLanes.map((lane, i) =>
-          '<span class="fl-zoom-lane-group" title="分支 ' + (i + 1) + '：模型与思考强度（左→右对应看板分支列）">' +
+          '<span class="fl-zoom-lane-group" title="' + (isEn ? 'Branch ' + (i + 1) + ': model and reasoning effort' : '分支 ' + (i + 1) + '：模型与思考强度（左→右对应看板分支列）') + '">' +
             '<select class="tb-select fl-zoom-lane fl-zoom-lane-model" data-field="zoomLane.' + i + '" data-action-onchange="fzoom-lane" data-lane="' + i + '" data-zoom-lane="1">' + routeOptions(lane) + '</select>' +
             '<select class="tb-select fl-zoom-lane fl-zoom-lane-effort" data-field="zoomEffort.' + i + '" data-action-onchange="fzoom-effort" data-lane="' + i + '" data-zoom-effort="1"' + (!lane ? ' disabled' : '') + '>' + effortOptions(lane, st.zoomEfforts[i] || '') + '</select>' +
           '</span>'
@@ -1544,58 +1780,58 @@ return {
         // Client 启动时读 chip 的 aria-pressed（data-zoom-reuse）；开关经 fzoom-reuse 回写 state，重渲染不丢。
         const zoomReuseOn = nearMode && selectedCard && st.zoomReuse === true
         const reuseChip = nearMode && selectedCard
-          ? '<button type="button" class="tb-chip' + (zoomReuseOn ? ' tb-chip-on' : '') + '" data-action="fzoom-reuse" data-zoom-reuse="1" aria-pressed="' + (zoomReuseOn ? 'true' : 'false') + '" title="开启后：当前会话作为分支 1 直接继续，只新建 ' + (targetBranchCount - 1) + ' 个新分支；本轮接进同一条大流镜历史">沿用当前会话</button>'
+          ? '<button type="button" class="tb-chip' + (zoomReuseOn ? ' tb-chip-on' : '') + '" data-action="fzoom-reuse" data-zoom-reuse="1" aria-pressed="' + (zoomReuseOn ? 'true' : 'false') + '" title="' + (isEn ? 'When enabled: current session continues as branch 1, creating only ' + (targetBranchCount - 1) + ' new branches' : '开启后：当前会话作为分支 1 直接继续，只新建 ' + (targetBranchCount - 1) + ' 个新分支；本轮接进同一条大流镜历史') + '">' + tHost(st, 'reuseCurrentSession') + '</button>'
           : ''
         const zoomComposerContext = continueCurrentGroup && activeRun && activeRound
-          ? '<div class="fl-zoom-composer-context"><strong>发送到当前 ' + activeRound.sids.length + ' 个会话</strong><span>' + esc(oneLine(activeRun.prompt || '并发任务', 28)) + ' · ' + esc(zoomTopology(activeRun)) + '</span><div class="fl-zoom-composer-targets" data-zoom-add-drop="1">' + currentConversationItems + addSessionMenu + '</div></div>'
+          ? '<div class="fl-zoom-composer-context"><strong>' + (isEn ? 'Send to current ' + activeRound.sids.length + ' sessions' : '发送到当前 ' + activeRound.sids.length + ' 个会话') + '</strong><span>' + esc(oneLine(activeRun.prompt || (isEn ? 'Concurrent Task' : '并发任务'), 28)) + ' · ' + esc(zoomTopology(activeRun)) + '</span><div class="fl-zoom-composer-targets" data-zoom-add-drop="1">' + currentConversationItems + addSessionMenu + '</div></div>'
           : nearMode && selectedCard
-            ? '<div class="fl-zoom-composer-context"><strong>' + (zoomReuseOn ? '沿用当前会话，再新建 ' + (targetBranchCount - 1) + ' 个分支（1→' + targetBranchCount + '）' : '从当前单会话发起 1→' + targetBranchCount) + '</strong><span>来源 Session：' + esc(selectedCard.rec.sid.replace(/^session-/, '').slice(0, 8)) + '</span></div>'
-            : '<div class="fl-zoom-composer-context"><strong>新建并发会话</strong><span>输入一次，创建并发送到 ' + targetBranchCount + ' 个 Session</span></div>'
-        const zoomPromptPlaceholder = continueCurrentGroup ? '这条消息将同时发送到上面列出的 Session' : nearMode && selectedCard ? (zoomReuseOn ? '这条消息将发送到当前会话，并派生 ' + (targetBranchCount - 1) + ' 个新分支' : '这条消息将从当前 Session 派生并发送到新分支') : '输入第一个任务，创建新的并发 Session'
-        const zoomLaunchLabel = continueCurrentGroup ? '发送到当前 ' + continueBranches.length + ' 个会话' : nearMode && selectedCard ? (zoomReuseOn ? '沿用当前会话 + 新建 ' + (targetBranchCount - 1) + ' 个分支' : '从当前会话发起 1→' + targetBranchCount) : '新建 ' + st.zoomLanes.length + ' 个会话并发送'
+            ? '<div class="fl-zoom-composer-context"><strong>' + (zoomReuseOn ? (isEn ? 'Reuse current session and create ' + (targetBranchCount - 1) + ' branches (1→' + targetBranchCount + ')' : '沿用当前会话，再新建 ' + (targetBranchCount - 1) + ' 个分支（1→' + targetBranchCount + '）') : (isEn ? 'Fork 1→' + targetBranchCount + ' from current session' : '从当前单会话发起 1→' + targetBranchCount)) + '</strong><span>' + (isEn ? 'Source Session: ' : '来源 Session：') + esc(selectedCard.rec.sid.replace(/^session-/, '').slice(0, 8)) + '</span></div>'
+            : '<div class="fl-zoom-composer-context"><strong>' + (isEn ? 'New concurrent sessions' : '新建并发会话') + '</strong><span>' + (isEn ? 'Input once, create and dispatch to ' + targetBranchCount + ' sessions' : '输入一次，创建并发送到 ' + targetBranchCount + ' 个 Session') + '</span></div>'
+        const zoomPromptPlaceholder = continueCurrentGroup ? (isEn ? 'This message will be sent to the sessions listed above' : '这条消息将同时发送到上面列出的 Session') : nearMode && selectedCard ? (zoomReuseOn ? (isEn ? 'This message will continue the current session and branch ' + (targetBranchCount - 1) + ' new sessions' : '这条消息将发送到当前会话，并派生 ' + (targetBranchCount - 1) + ' 个新分支') : (isEn ? 'This message will fork new branches from current session' : '这条消息将从当前 Session 派生并发送到新分支')) : (isEn ? 'Enter task to create new concurrent sessions' : '输入第一个任务，创建新的并发 Session')
+        const zoomLaunchLabel = continueCurrentGroup ? (isEn ? 'Send to current ' + continueBranches.length + ' sessions' : '发送到当前 ' + continueBranches.length + ' 个会话') : nearMode && selectedCard ? (zoomReuseOn ? (isEn ? 'Reuse session + ' + (targetBranchCount - 1) + ' branches' : '沿用当前会话 + 新建 ' + (targetBranchCount - 1) + ' 个分支') : (isEn ? 'Fork 1→' + targetBranchCount + ' from current' : '从当前会话发起 1→' + targetBranchCount)) : (isEn ? 'Create ' + st.zoomLanes.length + ' sessions and send' : '新建 ' + st.zoomLanes.length + ' 个会话并发送')
         parts.push('<div class="fl-zoom-composer">' +
           zoomComposerContext +
           '<textarea class="tb-input fl-zoom-prompt" data-zoom-prompt="1" rows="2" placeholder="' + zoomPromptPlaceholder + '"></textarea>' +
           '<div class="fl-zoom-composer-controls">' + laneSelects + reuseChip +
-            '<span class="fl-zoom-target-label">目标分支数</span>' +
-            '<span class="fl-zoom-count" title="新并发将生成的目标分支数">' + [2, 3, 4].map((n) => '<button type="button" class="tb-chip' + (st.zoomLanes.length === n ? ' tb-chip-on' : '') + '" data-action="fzoom-lanes" data-count="' + n + '">' + n + '</button>').join('') + '</span>' +
+            '<span class="fl-zoom-target-label">' + tHost(st, 'targetBranchCount') + '</span>' +
+            '<span class="fl-zoom-count" title="' + (isEn ? 'Number of target branches' : '新并发将生成的目标分支数') + '">' + [2, 3, 4].map((n) => '<button type="button" class="tb-chip' + (st.zoomLanes.length === n ? ' tb-chip-on' : '') + '" data-action="fzoom-lanes" data-count="' + n + '">' + n + '</button>').join('') + '</span>' +
             '<span class="fl-zoom-composer-spacer"></span>' +
             '<button type="button" class="tb-btn tb-btn-sm tb-btn-primary" data-zoom-launch="1">⚡ ' + zoomLaunchLabel + '</button>' +
           '</div></div>')
       }
       // 显示方式与历史保留为轻量工具行；并发路径、目标 Session 与发送输入统一收进上方发送区。
       parts.push('<div class="tb-row fl-zoom-logbar"><span class="tb-note fl-zoom-log-spacer"></span>' +
-        '<span class="tb-sec-label">显示</span>' +
-        (nearMode ? '<span class="tb-note">完整流镜 · ' + esc(selectedCard ? oneLine((selectedCard.sum && selectedCard.sum.title) || selectedCard.rec.sid, 24) : '未选中分支') + '</span>' :
-          '<button type="button" class="tb-chip' + (st.zoomView === 'compact' ? ' tb-chip-on' : '') + '" data-action="fzoom-view" data-view="compact">精简</button>' +
-          '<button type="button" class="tb-chip' + (st.zoomView === 'detail' ? ' tb-chip-on' : '') + '" data-action="fzoom-view" data-view="detail">详细</button>' +
-          '<button type="button" class="tb-chip' + (st.zoomView === 'map' ? ' tb-chip-on' : '') + '" data-action="fzoom-view" data-view="map">导图</button>') +
-        '<button type="button" class="tb-btn tb-btn-sm" data-action="fzoom-history">大流镜历史 · ' + st.zoomRuns.length + '</button>' +
+        '<span class="tb-sec-label">' + (isEn ? 'View' : '显示') + '</span>' +
+        (nearMode ? '<span class="tb-note">' + (isEn ? 'Full Flow · ' : '完整流镜 · ') + esc(selectedCard ? oneLine((selectedCard.sum && selectedCard.sum.title) || selectedCard.rec.sid, 24) : (isEn ? 'No branch selected' : '未选中分支')) + '</span>' :
+          '<button type="button" class="tb-chip' + (st.zoomView === 'compact' ? ' tb-chip-on' : '') + '" data-action="fzoom-view" data-view="compact">' + tHost(st, 'compactView') + '</button>' +
+          '<button type="button" class="tb-chip' + (st.zoomView === 'detail' ? ' tb-chip-on' : '') + '" data-action="fzoom-view" data-view="detail">' + tHost(st, 'detailView') + '</button>' +
+          '<button type="button" class="tb-chip' + (st.zoomView === 'map' ? ' tb-chip-on' : '') + '" data-action="fzoom-view" data-view="map">' + tHost(st, 'mapView') + '</button>') +
+        '<button type="button" class="tb-btn tb-btn-sm" data-action="fzoom-history">' + tHost(st, 'flowZoomHistory', st.zoomRuns.length) + '</button>' +
       '</div>')
       parts.push('</div>')
       if (st.zoomHistoryOpen) {
-        parts.push('<aside class="fl-zoom-history-drawer"><div class="fl-zoom-history-drawer-head"><strong>大流镜历史</strong><button type="button" data-action="fzoom-history">×</button></div><div class="fl-zoom-history-tree">' +
+        parts.push('<aside class="fl-zoom-history-drawer"><div class="fl-zoom-history-drawer-head"><strong>' + tHost(st, 'flowZoomHistoryDrawerTitle') + '</strong><button type="button" data-action="fzoom-history">×</button></div><div class="fl-zoom-history-tree">' +
           st.zoomRuns.slice().reverse().map((run) => {
             const active = run.id === st.zoomRunId
             const expanded = st.zoomExpandedHistories.includes(run.id)
-            const summary = oneLine(run.prompt || run.name || '并发任务', 24)
+            const summary = oneLine(run.prompt || run.name || (isEn ? 'Concurrent Task' : '并发任务'), 24)
             return '<section class="fl-history-node' + (active ? ' is-active' : '') + '"><div class="fl-history-run-line">' +
-              '<button type="button" class="fl-history-toggle" data-action="fzoom-history-toggle" data-run="' + esc(run.id) + '" aria-expanded="' + (expanded ? 'true' : 'false') + '" title="' + (expanded ? '折叠历史' : '展开历史') + '">' + (expanded ? '▾' : '▸') + '</button>' +
-              '<button type="button" class="fl-history-run" data-action="fzoom-run" data-run="' + esc(run.id) + '" title="' + esc(run.prompt || '并发任务') + '"><span>⚡ ' + esc(summary) + '</span><small>' + esc(zoomTopology(run)) + '</small></button></div>' +
-              (expanded ? '<div class="fl-history-rounds">' + run.rounds.map((round, ri) => '<section class="fl-history-round-node' + (active && round.id === st.zoomRoundId ? ' is-active' : '') + '"><button type="button" class="fl-history-round" data-action="fzoom-round" data-run="' + esc(run.id) + '" data-round="' + esc(round.id) + '"><span>└ ' + (ri === 0 ? '初始' : '第 ' + ri + ' 轮') + '</span><small>' + (round.sourceSids.length ? round.sourceSids.length + '→' : '') + round.sids.length + '</small></button>' +
-                '<div class="fl-history-children">' + round.sids.map((runSid, i) => '<button type="button" class="fl-history-session" data-action="fzoom-open" data-run="' + esc(run.id) + '" data-round="' + esc(round.id) + '" data-sid="' + esc(runSid) + '"><span>└ 对话 ' + (i + 1) + '</span><code>' + esc(runSid.replace(/^session-/, '').slice(0, 8)) + '</code></button>').join('') + '</div></section>').join('') + '</div>' : '') + '</section>'
+              '<button type="button" class="fl-history-toggle" data-action="fzoom-history-toggle" data-run="' + esc(run.id) + '" aria-expanded="' + (expanded ? 'true' : 'false') + '" title="' + (expanded ? (isEn ? 'Collapse history' : '折叠历史') : (isEn ? 'Expand history' : '展开历史')) + '">' + (expanded ? '▾' : '▸') + '</button>' +
+              '<button type="button" class="fl-history-run" data-action="fzoom-run" data-run="' + esc(run.id) + '" title="' + esc(run.prompt || (isEn ? 'Concurrent Task' : '并发任务')) + '"><span>⚡ ' + esc(summary) + '</span><small>' + esc(zoomTopology(run)) + '</small></button></div>' +
+              (expanded ? '<div class="fl-history-rounds">' + run.rounds.map((round, ri) => '<section class="fl-history-round-node' + (active && round.id === st.zoomRoundId ? ' is-active' : '') + '"><button type="button" class="fl-history-round" data-action="fzoom-round" data-run="' + esc(run.id) + '" data-round="' + esc(round.id) + '"><span>└ ' + (ri === 0 ? (isEn ? 'Initial' : '初始') : (isEn ? 'Round ' + ri : '第 ' + ri + ' 轮')) + '</span><small>' + (round.sourceSids.length ? round.sourceSids.length + '→' : '') + round.sids.length + '</small></button>' +
+                '<div class="fl-history-children">' + round.sids.map((runSid, i) => '<button type="button" class="fl-history-session" data-action="fzoom-open" data-run="' + esc(run.id) + '" data-round="' + esc(round.id) + '" data-sid="' + esc(runSid) + '"><span>└ ' + (isEn ? 'Session ' : '对话 ') + (i + 1) + '</span><code>' + esc(runSid.replace(/^session-/, '').slice(0, 8)) + '</code></button>').join('') + '</div></section>').join('') + '</div>' : '') + '</section>'
           }).join('') + '</div></aside>')
       }
       parts.push('<div class="tb-pane-body">')
       if (!shownCards.length) {
-        parts.push('<div class="tb-notice">' + (st.zoomScope === 'run' ? '还没有并发记录——输入任务后点「⚡ 同时开始」' : '没有可显示的会话') + '</div>')
+        parts.push('<div class="tb-notice">' + (st.zoomScope === 'run' ? tHost(st, 'noConcurrentRecords') : tHost(st, 'noDisplayableSessions')) + '</div>')
       } else if (nearFlow && selectedCard) {
         // 近观不是单列 diff：直接复用原单会话流镜节点，铺满大流镜画布。
         const nearRows = await renderFlowNodeRows(nearFlow.shown, st, null)
-        if (nearFlow.hasOlder) nearRows.push('<div class="tb-notice fl-older" data-flow-older-hint>已显示最近 ' + nearFlow.shown.length + ' 个节点 · 继续向上滚动会自动加载更早 ' + Math.min(60, nearFlow.nodes.length - nearFlow.shown.length) + ' 条</div>')
+        if (nearFlow.hasOlder) nearRows.push('<div class="tb-notice fl-older" data-flow-older-hint>' + (isEn ? 'Showing latest ' + nearFlow.shown.length + ' nodes · Scroll up to load ' + Math.min(60, nearFlow.nodes.length - nearFlow.shown.length) + ' earlier nodes' : '已显示最近 ' + nearFlow.shown.length + ' 个节点 · 继续向上滚动会自动加载更早 ' + Math.min(60, nearFlow.nodes.length - nearFlow.shown.length) + ' 条') + '</div>')
         // 普通流镜把 rows.reverse() 作为 tb-pane-body 的直接子项，再由 column-reverse 还原视觉时间序。
         // 近观多了一层 wrapper，不能再 reverse，否则视觉顺序会变成“助手在上、用户在下”。
-        parts.push('<div class="fl-zoom-near-flow" data-flow-near-session="' + esc(selectedCard.rec.sid) + '">' + (nearRows.length ? nearRows.join('') : '<div class="tb-notice">当前会话还没有事件</div>') + '</div>')
+        parts.push('<div class="fl-zoom-near-flow" data-flow-near-session="' + esc(selectedCard.rec.sid) + '">' + (nearRows.length ? nearRows.join('') : '<div class="tb-notice">' + tHost(st, 'flowNoEvents') + '</div>') + '</div>')
       } else {
         if ((st.zoomScope === 'run' || inferredFleet || zoomView === 'detail') && branches.length) {
           // 精简/详细共用 Git diff 轮次网格；详细单元格用普通流镜泳道，精简只保留轮次摘要。
@@ -1914,7 +2150,16 @@ return {
       // 钻取态：查看的不是面板所属会话 → 头部给「← 返回」+ 层级标注（crumbs 栈深度）
       const drilled = !!((st.home && sid !== st.home) || (Array.isArray(st.crumbs) && st.crumbs.length))
       const depth = drilled && Array.isArray(st.crumbs) ? st.crumbs.length : 0
-      const help = [
+      const isEn = flowLangOf(st) === 'en'
+      const help = isEn ? [
+        '• Center column: User / Assistant spine; Right column: Tool calls (Input ▶ / Output ◀); Left column: Subagent branches.',
+        '• Click any card to inspect full content and details.',
+        '• Hover assistant card to fork a new session branch in Harness.',
+        '• Canvas supports drag-to-box-select; click empty space to clear selection; bottom-left lets you create a draft from selection.',
+        '• Zoom controls support scaling and native Zen mode.',
+        '• Click a subagent card to enter its live sub-flow; "Subagent Follow" synchronizes the Harness active session.',
+        '• Scroll to top to automatically load 60 earlier nodes.',
+      ].join('\n') : [
         '• 中列是用户/助手主线，右列是工具调用（输入 ▶ / 输出 ◀），左列是子代理分支。',
         '• 点击卡片查看完整内容。',
         '• 悬停助手卡可从该节点创建 Harness 分支。',
@@ -1924,14 +2169,14 @@ return {
         '• 滚到顶部会每次自动加载更早 60 个节点。',
       ].join('\n')
       parts.push('<div class="tb-row">' +
-        (drilled ? '<button type="button" class="tb-btn tb-btn-sm" data-action="fback" title="返回上一级流程图">← 返回</button>' : '') +
-        '<span class="tb-sec-label">' + (drilled ? '子代理流镜' : '实时流镜') + '</span>' +
-        '<span class="tb-note">' + esc(sid.replace(/^session-/, '').slice(0, 8)) + ' · ' + items.length + ' 条事件 · ' + nodes.length + ' 节点' + (drilled ? ' · 第 ' + (depth + 1) + ' 层' : '') + '</span>' +
-        '<button type="button" class="tb-chip' + (st.live ? ' tb-chip-on' : '') + '" data-action="toggle-live">' + (st.live ? '● 实时同步中' : '⏸ 已暂停') + '</button>' +
-        '<button type="button" class="tb-chip' + (st.follow ? ' tb-chip-on' : '') + '" data-action="toggle-follow" title="开启后，点击子代理会同时切换 DeepSeek Harness 主会话">' + (st.follow ? '● 子代理跟随' : '○ 子代理跟随') + '</button>' +
-        '<button type="button" class="tb-btn tb-btn-sm" data-action="refresh">刷新</button>' +
-        (flowPreferencesOf(st).zoomEnabled ? '<button type="button" class="tb-btn tb-btn-sm" data-action="fzoom" title="大流镜 Zoom：多会话并发总览，并排对比各会话的流程触发差异，点卡直接进入对应会话">⛶ 大流镜</button>' : '') +
-        '<span class="fl-info" tabindex="0" aria-label="流镜使用说明">' +
+        (drilled ? '<button type="button" class="tb-btn tb-btn-sm" data-action="fback" title="' + (isEn ? 'Back to parent flow' : '返回上一级流程图') + '">' + tHost(st, 'back') + '</button>' : '') +
+        '<span class="tb-sec-label">' + (drilled ? tHost(st, 'subFlow') : tHost(st, 'realtimeFlow')) + '</span>' +
+        '<span class="tb-note">' + esc(sid.replace(/^session-/, '').slice(0, 8)) + ' · ' + tHost(st, 'eventsAndNodes', items.length, nodes.length, drilled ? depth + 1 : 0) + '</span>' +
+        '<button type="button" class="tb-chip' + (st.live ? ' tb-chip-on' : '') + '" data-action="toggle-live">' + (st.live ? tHost(st, 'liveSyncing') : tHost(st, 'paused')) + '</button>' +
+        '<button type="button" class="tb-chip' + (st.follow ? ' tb-chip-on' : '') + '" data-action="toggle-follow" title="' + tHost(st, 'subagentFollowTip') + '">' + (st.follow ? tHost(st, 'subagentFollowOn') : tHost(st, 'subagentFollowOff')) + '</button>' +
+        '<button type="button" class="tb-btn tb-btn-sm" data-action="refresh">' + tHost(st, 'refresh') + '</button>' +
+        (flowPreferencesOf(st).zoomEnabled ? '<button type="button" class="tb-btn tb-btn-sm" data-action="fzoom" title="' + tHost(st, 'flowZoomTip') + '">' + tHost(st, 'flowZoomBtn') + '</button>' : '') +
+        '<span class="fl-info" tabindex="0" aria-label="' + tHost(st, 'flowGuideAria') + '">' +
           '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7.2v4"/><circle cx="8" cy="4.7" r=".7" fill="currentColor" stroke="none"/></svg>' +
           '<span class="fl-info-pop">' + esc(help) + '</span>' +
         '</span>' +
@@ -1940,11 +2185,11 @@ return {
       // 流程体：tb-pane-body 为 column-reverse——这里以「视觉最新在底」渲染：DOM 先放最新节点，滚动条默认贴底
       parts.push('<div class="tb-pane-body">')
       if (!shown.length) {
-        parts.push('<div class="tb-notice">当前会话还没有事件</div>')
+        parts.push('<div class="tb-notice">' + tHost(st, 'flowNoEvents') + '</div>')
       } else {
         const rows = await renderFlowNodeRows(shown, st, liveAiSeq)
         if (hasOlder) rows.push('<div class="tb-notice fl-older" data-flow-older-hint>' +
-          '已显示最近 ' + shown.length + ' 个节点 · 继续向上滚动会自动加载更早 ' + Math.min(PAGE, nodes.length - shown.length) + ' 条' +
+          tHost(st, 'flowOlderHint', shown.length, Math.min(PAGE, nodes.length - shown.length)) +
         '</div>')
         parts.push(rows.reverse().join(''))
       }
@@ -1952,7 +2197,7 @@ return {
       // 详情右侧浮层：展开状态且目标仍在可视事件集内时渲染（工具调用→传入/返回；消息→完整内容）
       if (st.expanded != null) {
         const target = items.find((it) => it.seq === st.expanded && (it.kind === 'call' || it.kind === 'msg'))
-        if (target) parts.push(target.kind === 'call' ? detailRail(target, st.freshSeq === target.seq, st.presentationRules) : msgRail(target, st.freshSeq === target.seq))
+        if (target) parts.push(target.kind === 'call' ? detailRail(target, st.freshSeq === target.seq, st.presentationRules, st) : msgRail(target, st.freshSeq === target.seq, st))
       }
       delete st.freshSeq // 一次性动画标记，不残留进 state
       delete st.freshSettings
@@ -2349,6 +2594,14 @@ return {
         st.presentationRules = []
         st.settings = true
         st.ruleNotice = '已清空显示规则'
+      }
+      else if (action === 'fset-lang' && typeof el.lang === 'string') {
+        const nextLang = el.lang === 'en' ? 'en' : 'zh-CN'
+        const currentPrefs = flowPreferencesOf(st)
+        const nextPrefs = { ...currentPrefs, language: nextLang }
+        try { Object.defineProperty(st, '__flowPreferences', { value: nextPrefs, configurable: true }) } catch (e) {}
+        st.settings = true
+        st.ruleNotice = nextLang === 'en' ? 'Language switched to English' : '界面语言已切换为简体中文'
       }
       else if (action === 'fmore') st.limit = Math.min(100000, Number(st.limit) + 60)
       else if (action === 'fcontext' && typeof el.seqs === 'string') {
