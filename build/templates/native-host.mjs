@@ -187,7 +187,7 @@ export async function apply(ctx) {
     if (typeof disposer === 'function') ctx.effect(() => disposer)
   }
   new NativeToolboxRemote(ctx, registry)
-  console.log(TOOLBOX_RUNTIME.logTag() + ' 原生静态 Host 已加载（功能: ' + registry.tools().map((x) => x.id).join(', ') + '）')
+  console.log(TOOLBOX_RUNTIME.logTag() + ' Flowglass Host loaded (features: ' + registry.tools().map((x) => x.id).join(', ') + ')')
 }
 `
 }

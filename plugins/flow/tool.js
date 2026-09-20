@@ -1074,6 +1074,7 @@ return {
     }
 
     const presentationRulesRail = (st, anim) => {
+      const isEn = flowLangOf(st) === 'en'
       const value = JSON.stringify(st.presentationRules || [], null, 2)
       const example = '[\n  {\n    "enabled": true,\n    "tools": ["pwsh"],\n    "executables": ["engram-memory.ps1"],\n    "displayName": "engram-lattice",\n    "actions": ["search", "recall", "memory"],\n    "badge": "记忆",\n    "color": "#81c784"\n  }\n]'
       const trashIcon = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6 2.5h4l.7 2H5.3l.7-2Z"/><path d="M4.5 4.5l.6 9h5.8l.6-9M7 7v4M9 7v4"/></svg>'
@@ -1081,42 +1082,53 @@ return {
       const plusIcon = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>'
       const input = (field, value, placeholder) => '<input class="tb-input" data-field="' + field + '" value="' + esc(value) + '"' + (placeholder ? ' placeholder="' + esc(placeholder) + '"' : '') + '>'
       const fieldsFor = (prefix, rule) => '<div class="fl-rule-grid">' +
-        '<label><span>原始工具</span>' + input(prefix + '.tools', (rule.tools || []).join(', '), 'pwsh, bash') + '</label>' +
-        '<label><span>可执行文件</span>' + input(prefix + '.executables', (rule.executables || []).join(', '), 'tool.ps1, tool') + '</label>' +
-        '<label><span>显示名称</span>' + input(prefix + '.displayName', rule.displayName || '', '可留空') + '</label>' +
-        '<label><span>子命令</span>' + input(prefix + '.actions', (rule.actions || []).join(', '), 'search, recall') + '</label>' +
-        '<label><span>徽章</span>' + input(prefix + '.badge', rule.badge || '', '可留空') + '</label>' +
-        '<label><span>颜色</span><input class="fl-rule-color" type="color" data-field="' + prefix + '.color" value="' + esc(rule.color || '#81c784') + '"></label>' +
+        '<label><span>' + (isEn ? 'Raw tools' : '原始工具') + '</span>' + input(prefix + '.tools', (rule.tools || []).join(', '), 'pwsh, bash') + '</label>' +
+        '<label><span>' + (isEn ? 'Executables' : '可执行文件') + '</span>' + input(prefix + '.executables', (rule.executables || []).join(', '), 'tool.ps1, tool') + '</label>' +
+        '<label><span>' + (isEn ? 'Display name' : '显示名称') + '</span>' + input(prefix + '.displayName', rule.displayName || '', isEn ? 'Optional' : '可留空') + '</label>' +
+        '<label><span>' + (isEn ? 'Subcommands' : '子命令') + '</span>' + input(prefix + '.actions', (rule.actions || []).join(', '), 'search, recall') + '</label>' +
+        '<label><span>' + (isEn ? 'Badge' : '徽章') + '</span>' + input(prefix + '.badge', rule.badge || '', isEn ? 'Optional' : '可留空') + '</label>' +
+        '<label><span>' + (isEn ? 'Color' : '颜色') + '</span><input class="fl-rule-color" type="color" data-field="' + prefix + '.color" value="' + esc(rule.color || '#81c784') + '"></label>' +
       '</div>'
       const editor = (prefix, rule, saveAction, index) => '<div class="fl-rule-editor">' +
         '<input type="hidden" data-field="' + prefix + '.enabled" value="' + (rule.enabled ? '1' : '0') + '">' + fieldsFor(prefix, rule) +
-        '<div class="fl-rule-editor-actions"><button type="button" class="tb-btn tb-btn-sm" data-flow-rule-cancel="1">取消</button>' +
-        '<button type="button" class="tb-btn tb-btn-sm tb-btn-primary" data-action="' + saveAction + '"' + (index == null ? '' : ' data-index="' + index + '"') + '>保存</button></div></div>'
+        '<div class="fl-rule-editor-actions"><button type="button" class="tb-btn tb-btn-sm" data-flow-rule-cancel="1">' + (isEn ? 'Cancel' : '取消') + '</button>' +
+        '<button type="button" class="tb-btn tb-btn-sm tb-btn-primary" data-action="' + saveAction + '"' + (index == null ? '' : ' data-index="' + index + '"') + '>' + (isEn ? 'Save' : '保存') + '</button></div></div>'
       const rows = (st.presentationRules || []).map((rule, index) => {
-        const title = rule.displayName || '未命名规则'
-        const summary = rule.tools.join(', ') + ' · ' + rule.executables.length + ' 个程序 · ' + (rule.actions.length || '任意') + ' 个子命令'
+        const title = rule.displayName || (isEn ? 'Unnamed rule' : '未命名规则')
+        const summary = isEn
+          ? rule.tools.join(', ') + ' · ' + rule.executables.length + ' executables · ' + (rule.actions.length || 'any') + ' subcommands'
+          : rule.tools.join(', ') + ' · ' + rule.executables.length + ' 个程序 · ' + (rule.actions.length || '任意') + ' 个子命令'
         return '<section class="fl-rule-card' + (!rule.enabled ? ' fl-rule-off' : '') + '"><div class="fl-rule-summary">' +
-          '<button type="button" class="fl-rule-main" data-flow-rule-edit="1" title="展开编辑规则" aria-expanded="false">' +
+          '<button type="button" class="fl-rule-main" data-flow-rule-edit="1" title="' + (isEn ? 'Expand rule to edit' : '展开编辑规则') + '" aria-expanded="false">' +
             '<span class="fl-rule-dot" style="background:' + esc(rule.color) + '"></span>' +
             (rule.badge ? '<span class="fl-rule-badge" style="color:' + esc(rule.color) + ';background:' + esc(rule.color) + '1f">' + esc(rule.badge) + '</span>' : '') +
             '<span class="fl-rule-copy"><strong>' + esc(title) + '</strong><small>' + esc(summary) + '</small></span>' +
             '<span class="fl-rule-chevron">' + chevronIcon + '</span></button>' +
-          '<button type="button" class="fl-rule-switch' + (rule.enabled ? ' is-on' : '') + '" data-action="ftoggle-rule" data-index="' + index + '" title="' + (rule.enabled ? '停用规则' : '启用规则') + '" aria-label="' + (rule.enabled ? '停用规则' : '启用规则') + '" aria-pressed="' + (rule.enabled ? 'true' : 'false') + '"><span></span></button>' +
-          '<button type="button" class="fl-rule-icon fl-rule-delete" data-action="fdelete-rule" data-index="' + index + '" title="删除规则" aria-label="删除规则">' + trashIcon + '</button></div>' +
+          '<button type="button" class="fl-rule-switch' + (rule.enabled ? ' is-on' : '') + '" data-action="ftoggle-rule" data-index="' + index + '" title="' + (rule.enabled ? (isEn ? 'Disable rule' : '停用规则') : (isEn ? 'Enable rule' : '启用规则')) + '" aria-label="' + (rule.enabled ? (isEn ? 'Disable rule' : '停用规则') : (isEn ? 'Enable rule' : '启用规则')) + '" aria-pressed="' + (rule.enabled ? 'true' : 'false') + '"><span></span></button>' +
+          '<button type="button" class="fl-rule-icon fl-rule-delete" data-action="fdelete-rule" data-index="' + index + '" title="' + (isEn ? 'Delete rule' : '删除规则') + '" aria-label="' + (isEn ? 'Delete rule' : '删除规则') + '">' + trashIcon + '</button></div>' +
           editor('flowRule.' + index, rule, 'fsave-rule', index) + '</section>'
       }).join('')
-      const empty = '<div class="tb-notice">暂无规则。点击“添加规则”，或展开 JSON 源码导入。</div>'
+      const empty = '<div class="tb-notice">' + (isEn ? 'No rules configured. Click "Add Rule" or import from JSON.' : '暂无规则。点击“添加规则”，或展开 JSON 源码导入。') + '</div>'
       const blank = { tools: [], executables: [], displayName: '', actions: [], badge: '', color: '#81c784' }
-      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '"><div class="fl-rail-resize" title="拖拽调宽（自动记忆）"></div>' +
-        '<div class="fl-rail-head"><span class="fl-rail-title">工具显示规则</span><button type="button" class="fl-rule-add" data-flow-rule-new="1" aria-expanded="false">' + plusIcon + '<span>添加规则</span></button>' +
-        '<button type="button" class="fl-rail-x" data-action="fsettings" title="关闭设置">✕</button></div>' +
+      const currentLang = flowLangOf(st)
+      const langOptions = '<div class="fl-sec" style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--tb-border,var(--dsw-alias-border-l1,#35363e));display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
+        '<span class="fl-sec-label" style="font-weight:600;">' + (isEn ? 'Language / 语言' : '语言 / Language') + '</span>' +
+        '<div style="display:flex;gap:6px;">' +
+          '<button type="button" class="tb-chip' + (currentLang === 'zh-CN' ? ' tb-chip-on' : '') + '" data-action="fset-lang" data-lang="zh-CN">简体中文</button>' +
+          '<button type="button" class="tb-chip' + (currentLang === 'en' ? ' tb-chip-on' : '') + '" data-action="fset-lang" data-lang="en">English</button>' +
+        '</div>' +
+      '</div>'
+      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '"><div class="fl-rail-resize" title="' + tHost(st, 'dragResize') + '"></div>' +
+        '<div class="fl-rail-head"><span class="fl-rail-title">' + (isEn ? 'Flowglass Settings' : '流镜设置') + '</span><button type="button" class="fl-rule-add" data-flow-rule-new="1" aria-expanded="false">' + plusIcon + '<span>' + (isEn ? 'Add Rule' : '添加规则') + '</span></button>' +
+        '<button type="button" class="fl-rail-x" data-action="fsettings" title="' + (isEn ? 'Close Settings' : '关闭设置') + '">✕</button></div>' +
         '<div class="fl-rail-body">' +
-          '<div class="tb-note">规则只改变流镜中的标题和徽章；原始工具名、参数、结果及会话日志保持不变。按顺序匹配，首条命中生效。displayName 为空时不添加名称，badge 为空时不显示徽章。</div>' +
+          langOptions +
+          '<div class="tb-note">' + (isEn ? 'Rules project card titles and badges in Flowglass; original tool names, arguments, results, and session logs remain unchanged.' : '规则只改变流镜中的标题和徽章；原始工具名、参数、结果及会话日志保持不变。按顺序匹配，首条命中生效。displayName 为空时不添加名称，badge 为空时不显示徽章。') + '</div>' +
           '<div class="fl-rule-list">' + (rows || empty) + '</div>' +
-          '<section class="fl-rule-card fl-rule-new"><div class="fl-rule-new-title">新增规则</div>' + editor('flowRule.new', blank, 'fcreate-rule') + '</section>' +
+          '<section class="fl-rule-card fl-rule-new"><div class="fl-rule-new-title">' + (isEn ? 'New Rule' : '新增规则') + '</div>' + editor('flowRule.new', blank, 'fcreate-rule') + '</section>' +
           (st.ruleNotice ? '<div class="tb-note" style="color:var(--tb-done-text,#81c784)">' + esc(st.ruleNotice) + '</div>' : '') +
-          '<details class="fl-rule-source"><summary class="tb-note">JSON 源码</summary><textarea class="tb-textarea" spellcheck="false" data-field="flowPresentationRules" placeholder="' + esc(example) + '">' + esc(value) + '</textarea>' +
-          '<div class="tb-row"><button type="button" class="tb-btn tb-btn-sm" data-action="fapply-rule-json">从 JSON 应用</button>' + ((st.presentationRules || []).length ? '<button type="button" class="tb-btn tb-btn-sm" data-action="freset-rules">清空全部</button>' : '') + '</div></details>' +
+          '<details class="fl-rule-source"><summary class="tb-note">' + (isEn ? 'JSON Source' : 'JSON 源码') + '</summary><textarea class="tb-textarea" spellcheck="false" data-field="flowPresentationRules" placeholder="' + esc(example) + '">' + esc(value) + '</textarea>' +
+          '<div class="tb-row"><button type="button" class="tb-btn tb-btn-sm" data-action="fapply-rule-json">' + (isEn ? 'Apply from JSON' : '从 JSON 应用') + '</button>' + ((st.presentationRules || []).length ? '<button type="button" class="tb-btn tb-btn-sm" data-action="freset-rules">' + (isEn ? 'Clear all' : '清空全部') + '</button>' : '') + '</div></details>' +
         '</div></div>'
     }
 
@@ -2185,7 +2197,7 @@ return {
       // 详情右侧浮层：展开状态且目标仍在可视事件集内时渲染（工具调用→传入/返回；消息→完整内容）
       if (st.expanded != null) {
         const target = items.find((it) => it.seq === st.expanded && (it.kind === 'call' || it.kind === 'msg'))
-        if (target) parts.push(target.kind === 'call' ? detailRail(target, st.freshSeq === target.seq, st.presentationRules) : msgRail(target, st.freshSeq === target.seq))
+        if (target) parts.push(target.kind === 'call' ? detailRail(target, st.freshSeq === target.seq, st.presentationRules, st) : msgRail(target, st.freshSeq === target.seq, st))
       }
       delete st.freshSeq // 一次性动画标记，不残留进 state
       delete st.freshSettings
@@ -2582,6 +2594,14 @@ return {
         st.presentationRules = []
         st.settings = true
         st.ruleNotice = '已清空显示规则'
+      }
+      else if (action === 'fset-lang' && typeof el.lang === 'string') {
+        const nextLang = el.lang === 'en' ? 'en' : 'zh-CN'
+        const currentPrefs = flowPreferencesOf(st)
+        const nextPrefs = { ...currentPrefs, language: nextLang }
+        try { Object.defineProperty(st, '__flowPreferences', { value: nextPrefs, configurable: true }) } catch (e) {}
+        st.settings = true
+        st.ruleNotice = nextLang === 'en' ? 'Language switched to English' : '界面语言已切换为简体中文'
       }
       else if (action === 'fmore') st.limit = Math.min(100000, Number(st.limit) + 60)
       else if (action === 'fcontext' && typeof el.seqs === 'string') {

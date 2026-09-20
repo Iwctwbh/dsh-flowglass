@@ -4078,6 +4078,11 @@ return {
           const res = await Promise.race([callP, timeoutP])
           if (seqRef.current[toolId] !== seq) return // 已有更新的请求发出：过期响应直接丢弃（联动切换竞态修复）；DOM 由新请求的响应接管
           if (res && res.ok) {
+            if (toolId === 'flow' && action === 'fset-lang' && el && el.dataset && el.dataset.lang) {
+              const lang = el.dataset.lang === 'en' ? 'en' : 'zh-CN'
+              const currentPrefs = readFlowPreferences()
+              writeFlowSettings({ ...currentPrefs, language: lang }, readFlowRuleObjects())
+            }
             if (persistFlowRules) writeFlowRules(JSON.stringify((res.state && res.state.presentationRules) || []))
             retryCountRef.current[toolId] = 0 // 成功：清零一次性重试计数
             stateRef.current[toolId] = res.state
@@ -5647,10 +5652,33 @@ return {
     }
 
     // Harness 官方插件管理页扩展点：点击 dsh-flowglass bundle 后，在详情页渲染配置表单。
+    // 同时注册进 settings.plugins.tab 与 settings.section，确保在不同版本的 DSH 设置界面中均能找到。
     if (RT.bundleId === 'flow') {
       slots.inject('plugins.bundle.config', () => slots.register(
         { name: 'plugins.bundle.config', key: 'dsh-flowglass' },
         () => React.createElement(FlowglassPluginSettings, null),
+      ))
+      slots.inject('settings.plugins.tab', () => slots.register(
+        {
+          name: 'settings.plugins.tab',
+          id: 'flowglass',
+          order: 20,
+          label: () => (readFlowPreferences().language === 'en' ? 'Flowglass' : '流镜 (Flowglass)'),
+        },
+        () => React.createElement('div', { style: { padding: '16px 20px', overflowY: 'auto' } },
+          React.createElement(FlowglassPluginSettings, null)
+        ),
+      ))
+      slots.inject('settings.section', () => slots.register(
+        {
+          name: 'settings.section',
+          id: 'flowglass',
+          order: 35,
+          label: () => (readFlowPreferences().language === 'en' ? 'Flowglass' : '流镜 (Flowglass)'),
+        },
+        () => React.createElement('div', { style: { padding: '16px 20px', overflowY: 'auto' } },
+          React.createElement(FlowglassPluginSettings, null)
+        ),
       ))
     }
 
