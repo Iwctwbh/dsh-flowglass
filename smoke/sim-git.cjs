@@ -6,7 +6,11 @@ const path = require('path')
 const { spawn, spawnSync } = require('child_process')
 const os = require('os')
 const HERE = path.resolve(__dirname, '..')
-const read = (p) => fs.readFileSync(path.join(HERE, p), 'utf8')
+const read = (p) => {
+  const full = path.normalize(HERE + path.sep + p)
+  if (full !== HERE && !full.startsWith(HERE + path.sep)) throw new Error('非法路径: ' + p)
+  return fs.readFileSync(full, 'utf8')
+}
 
 // ---- 迷你仓库夹具：临时目录里造齐全部状态样本 ----
 // 沙箱禁命名管道 → 夹具命令一律 stdio:'ignore'，采集输出走临时文件重定向，不用 pipe
@@ -15,7 +19,11 @@ const git = (args) => {
   const r = spawnSync('git', args, { cwd: REPO, stdio: 'ignore' })
   if (r.status !== 0) throw new Error('夹具 git ' + args.join(' ') + ' 失败（exit ' + r.status + '）')
 }
-const w = (rel, text) => fs.writeFileSync(path.join(REPO, rel), text)
+const w = (rel, text) => {
+  const full = path.normalize(REPO + path.sep + rel)
+  if (!full.startsWith(REPO + path.sep)) throw new Error('非法路径: ' + rel)
+  fs.writeFileSync(full, text)
+}
 fs.rmSync(REPO, { recursive: true, force: true })
 fs.mkdirSync(REPO, { recursive: true })
 git(['init'])
@@ -49,10 +57,15 @@ fs.writeFileSync(path.join(REPO2, 'only-in-repo2.txt'), 'distinct\n') // 未跟�
 let tmpSeq = 0
 const subprocess = {
   spawn({ argv, cwd }) {
+    // 仅允许模拟 git 命令，杜绝任意可执行文件被 spawn（防命令注入）
+    if (!Array.isArray(argv) || argv[0] !== 'git') {
+      throw new Error('subprocess: 仅允许调用 git 命令，收到 ' + JSON.stringify(argv && argv[0]))
+    }
     const base = path.join(os.tmpdir(), 'sim-git-' + process.pid + '-' + (tmpSeq++))
     const outF = base + '.out', errF = base + '.err'
     const outFd = fs.openSync(outF, 'w'), errFd = fs.openSync(errF, 'w')
-    const p = spawn(argv[0], argv.slice(1), { cwd, stdio: ['ignore', outFd, errFd] })
+    // 可执行文件名固定为字面量 'git'（已校验 argv[0] === 'git'），不将外部输入传给 spawn 的命令名
+    const p = spawn('git', argv.slice(1), { cwd, stdio: ['ignore', outFd, errFd] })
     const done = new Promise((res, rej) => {
       p.on('error', rej)
       p.on('close', (code) => {
