@@ -4,6 +4,7 @@
 import { PLUGINS } from './plugin-catalog.mjs'
 import { makeSourceLoader, syntaxCheck, checkTimerInject } from './source-loader.mjs'
 import { buildDynamicPayload, hostImplFiles } from './payload-builder.mjs'
+import { assembleClientSource, clientImplFiles } from './source-assembly.mjs'
 
 // rootUrl：仓库根 file URL；log：可选日志函数（语法 OK 等进度）
 // 返回 { files: Map<根相对路径, 文本内容>, errors: string[] }
@@ -35,6 +36,11 @@ export const buildDynamicArtifacts = (rootUrl, log) => {
       }
     }
     if (p.hostFiles) check(implFiles.join(' + ') + ' [impl]', loader.readExisting(implFiles).join('\n'))
+    if (p.clientFile) {
+      const clientFiles = clientImplFiles(p, { includeRuntime: true })
+      for (const file of clientFiles) if (!loader.exists(file)) errors.push('missing client impl: ' + file + ' (' + p.key + ')')
+      if (clientFiles.every(loader.exists)) check(p.key + ' [assembled client impl]', assembleClientSource(loader.read, p, { includeRuntime: true }))
+    }
 
     if (p.hostFiles && p.platform !== 'client-only') {
       const implSrc = loader.readExisting(implFiles).join('\n')

@@ -43,6 +43,9 @@ return {
       code: Object.freeze({ copyLabel: '复制代码', copiedLabel: '已复制' }),
       footnotes: '脚注',
     })
+    // Stable React islands keep editable and readable DOM outside canvas HTML
+    // replacement. The wire contract remains compatible with older consumers.
+    const { FlowStablePanel, clearFlowDraft } = createFlowStableRuntime(RT, React)
     // 进程级单例（bundle 级）：页面已有本 bundle 主实例的抽屉时，本会话 Client 半空转——避免重复注册
     // sidebar.footer.action / shell.overlay 造成双抽屉。marker 值为空格分隔的 bundleId 列表
     // （多 bundle 同进程各挂各的抽屉，互不抢占）；标记随 fiber 卸载只移除自己那一份。
@@ -899,7 +902,7 @@ return {
       '.fl-zoom-add-pop>button code{color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));font-size:inherit}',
       '.fl-zoom-add-pop>.fl-zoom-add-new{display:flex;justify-content:center;border-color:var(--tb-accent-border,rgba(91,141,239,.45));color:var(--tb-active-text,#7fa7f0);font-weight:700}',
       '.fl-zoom-add-pop>small,.fl-zoom-add-empty{padding:4px 6px;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));font-size:calc(9px*var(--tb-fs,1))}',
-      '.fl-zoom-prompt{width:100%;min-height:48px;max-height:120px;resize:vertical;border:none!important;background:transparent!important;padding:2px 3px!important;line-height:1.5}',
+      '.fl-zoom-prompt{width:100%;min-height:64px;max-height:160px;resize:vertical;border:1px solid var(--fg-border)!important;border-radius:6px;background:var(--fg-surface)!important;padding:8px 10px!important;line-height:1.5;box-sizing:border-box}',
       '.fl-zoom-prompt:focus{box-shadow:none!important;outline:none!important}',
       '.fl-zoom-composer-controls{display:flex;align-items:center;gap:6px;min-width:0;overflow-x:auto}',
       '.fl-zoom-composer-spacer{flex:1;min-width:10px}',
@@ -1017,6 +1020,265 @@ return {
       '.fl-zoom-badge-fleet{background:rgba(91,141,239,.12);color:var(--tb-active-text,#7fa7f0)}',
       // 操作条带入源标签
       '.tb-flow-zoom-relay-src{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:999px;font-size:calc(10.5px*var(--tb-fs,1));font-weight:600;background:rgba(91,141,239,.12);color:var(--tb-active-text,#7fa7f0);white-space:nowrap}',
+      // Flowglass UI: domain tokens and container queries stay inside the flow surface.
+      // The shared Toolbox palette and other tools keep their existing presentation.
+      '.tb-frame:has([data-flow]),[data-flow],.fg-settings{--fg-canvas:var(--dsw-alias-bg-base,#17181d);--fg-surface:var(--dsw-alias-bg-layer-1,#26272e);--fg-raised:var(--dsw-alias-bg-layer-2,#31323b);--fg-text:var(--dsw-alias-label-primary,#dcdee4);--fg-muted:var(--dsw-alias-label-secondary,#a5a7b2);--fg-subtle:var(--dsw-alias-label-tertiary,#858793);--fg-border:var(--dsw-alias-border-l2,#454650);--fg-accent:var(--dsw-alias-state-business-primary,var(--dsw-alias-brand-primary,#7fa7f0));--fg-success:var(--dsw-alias-state-success-primary,#81c784);--fg-warning:var(--dsw-alias-state-warn-primary,#d4b95c);--fg-danger:var(--dsw-alias-state-error-primary,#f28b82);--fg-wire:color-mix(in srgb,var(--fg-muted) 32%,transparent);--fg-selected:color-mix(in srgb,var(--fg-accent) 9%,var(--fg-surface));--fg-font-size:calc(var(--dsh-content-font-size,14px)*var(--tb-fs,1));--fg-inspector-width:clamp(320px,var(--fl-rail-w,360px),400px)}',
+      '.tb-frame:has([data-flow]),.tb-frame:has([data-flow])>.tb-panel-html{min-width:0;max-width:100%}',
+      '[data-flow]{container:flowglass/inline-size;min-width:0;max-width:100%;gap:12px;color:var(--fg-text);font-family:var(--dsw-font-family,inherit);font-size:var(--fg-font-size);line-height:1.5}',
+      '[data-flow] *,[data-flow] *::before,[data-flow] *::after{box-sizing:border-box}',
+      '[data-flow]>.tb-pane-head{gap:9px;padding:2px 2px 10px;border-bottom:1px solid var(--fg-border)}',
+      '.jr-drawer [data-flow]>.tb-pane-body{background:var(--fg-canvas);background-image:none;gap:8px;padding:4px 4px 54px;overflow-x:hidden;scroll-padding:12px}',
+      '[data-flow]>.tb-pane-head .tb-row{flex-wrap:wrap;gap:7px;min-width:0}',
+      '[data-flow] :is(.tb-chip,.tb-btn-sm,.tb-select){min-height:28px;height:auto;font-size:calc(var(--fg-font-size)*.82);line-height:1.4}',
+      '[data-flow] :is(.tb-chip,.tb-btn,.tb-select,.tb-input){color:var(--fg-muted);border-color:var(--fg-border);font-family:inherit}',
+      '[data-flow] :is(.tb-chip-on,.tb-btn-primary){color:var(--fg-accent);border-color:var(--fg-accent);background:var(--fg-selected)}',
+      '[data-flow] :is(.tb-note,.tb-sec-label){font-size:.8em;color:var(--fg-muted)}',
+      '[data-flow] :is(button,summary,a,input,select,textarea,[role="button"],[tabindex]):focus-visible,.fg-settings :is(button,input,select,summary):focus-visible{outline:2px solid var(--fg-accent)!important;outline-offset:3px;border-radius:5px}',
+      '[data-flow] :is(button,[role="button"]){touch-action:manipulation}',
+      '[data-flow] :is(button,[role="button"]):disabled{opacity:.5;cursor:not-allowed}',
+      '[data-flow] .fl-context-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-width:0}',
+      '[data-flow] .fl-breadcrumbs{display:flex;align-items:center;flex-wrap:wrap;gap:5px;min-width:0;font-size:.88em;color:var(--fg-muted)}',
+      '[data-flow] .fl-breadcrumbs button{max-width:100%;height:auto;min-height:28px;white-space:normal;overflow-wrap:anywhere}',
+      '[data-flow] .fl-session-title{min-width:0;flex:1 1 100%;font-size:1em;font-weight:650;color:var(--fg-text);overflow-wrap:anywhere;white-space:normal}',
+      '[data-flow] :is(.fl-execution-status,.fl-sync-status){font-size:.8em;color:var(--fg-muted);overflow-wrap:anywhere}',
+      '[data-flow] .fl-sync-status.is-paused{color:var(--fg-warning)}',
+      '[data-flow] .fl-toolbar-more{position:relative;margin-left:auto;font-size:.85em}',
+      '[data-flow] .fl-toolbar-more>summary{display:flex;align-items:center;justify-content:center;min-height:28px;padding:3px 9px;border:1px solid var(--fg-border);border-radius:6px;cursor:pointer;list-style:none;color:var(--fg-muted)}',
+      '[data-flow] .fl-toolbar-more>summary::-webkit-details-marker{display:none}',
+      '[data-flow] .fl-toolbar-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:30;display:flex;flex-direction:column;align-items:stretch;gap:5px;width:260px;max-width:calc(100cqi - 16px);padding:10px;background:var(--fg-surface);border:1px solid var(--fg-border);border-radius:9px;box-shadow:0 8px 26px rgba(0,0,0,.18)}',
+      '[data-flow] .fl-toolbar-menu :is(button,label){min-height:32px;text-align:left;white-space:normal;overflow-wrap:anywhere}',
+      '[data-flow] .fl-toolbar-menu .fl-info{margin-left:0;width:auto;max-width:100%;height:auto;min-height:28px}',
+      '[data-flow] .fl-toolbar-menu .fl-info-pop{right:0;width:100%;max-height:50vh;overflow:auto}',
+      '[data-flow] :is(.fl-node,.fl-iocard,.fl-sub-card,.fl-zoom-card,.fl-zoom-branch-head,.fl-map-node){border-color:var(--fg-border);background:var(--fg-surface);box-shadow:none;color:var(--fg-text);border-radius:8px}',
+      '[data-flow] :is(.fl-node,.fl-iocard){padding:10px 12px;gap:6px}',
+      '[data-flow] .fl-node[data-flow-role="ai"]{padding-right:36px}',
+      '[data-flow] :is(.fl-node.fl-on,.fl-iocard.fl-on){border-color:var(--fg-accent);background:var(--fg-selected);box-shadow:0 0 0 1px var(--fg-accent)}',
+      '[data-flow] .fl-node-open{display:flex;flex-direction:column;gap:6px;min-width:0;width:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}',
+      '[data-flow] button.fl-iocard{font:inherit;text-align:left;width:100%;appearance:none}',
+      '[data-flow] :is(.fl-node-head,.fl-iohead){flex-wrap:wrap;gap:5px 8px;min-width:0}',
+      '[data-flow] .fl-preview{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;max-width:none;white-space:normal;overflow-wrap:anywhere;word-break:normal;font-size:.92em;line-height:1.6;color:var(--fg-text)}',
+      '[data-flow] :is(.fl-name,.fl-zoom-title){font-family:inherit;font-size:.92em;color:var(--fg-text);white-space:normal;overflow-wrap:anywhere}',
+      '[data-flow] :is(.fl-args,.fl-sub-io,.fl-wl-txt,.fl-model,.fl-pre){font-family:var(--ds-font-family-code,ui-monospace),monospace}',
+      '[data-flow] :is(.fl-tag,.fl-status,.fl-time,.fl-model,.fl-retry,.fl-zoom-stats,.fl-zoom-badge){height:auto;min-height:1.5em;font-size:.76em;line-height:1.5;letter-spacing:0}',
+      '[data-flow] :is(.fl-time,.fl-model,.fl-zoom-stats){color:var(--fg-subtle);background:transparent}',
+      '[data-flow] .fl-node-head .fl-tag{background:transparent}',
+      '[data-flow] .fl-iohead>.fl-tag{color:var(--fg-text)!important;background:var(--fg-raised)!important;border-inline-start:2px solid var(--fg-tool-color,var(--fg-accent))}',
+      '[data-flow] .fl-status{color:var(--fg-muted)!important}',
+      '[data-flow] .fl-err .fl-status{color:var(--fg-danger)!important}',
+      '[data-flow] .fl-live .fl-status{color:var(--fg-accent)!important}',
+      '[data-flow] :is(.fl-args,.fl-sub-io){font-size:.8em;white-space:normal;overflow-wrap:anywhere}',
+      '[data-flow] .fl-branch-btn{opacity:.75;pointer-events:auto;transform:none;min-width:26px;min-height:26px;background:var(--fg-surface)}',
+      '[data-flow] .fl-branch-btn:hover{opacity:1}',
+      '[data-flow] button.fl-icon-button{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;min-height:28px;padding:4px;line-height:1}[data-flow] .fl-icon-button svg{display:block;flex:none;width:16px;height:16px}[data-flow] .fl-icon-button.is-bookmarked svg{fill:var(--fg-selected)}',
+      '[data-flow] .fl-zoom-relay{opacity:.75}',
+      '[data-flow] :is(.fl-zoom-branch,.fl-zoom-rootcard):focus-within .fl-zoom-relay{opacity:1}',
+      '[data-flow] .fl-system-context{min-width:0;padding:5px 8px;border-left:2px solid var(--fg-border);border-radius:4px;color:var(--fg-muted)}',
+      '[data-flow] .fl-system-context>summary{font-size:.8em;cursor:pointer;overflow-wrap:anywhere;padding:3px 0}',
+      '[data-flow] .fl-system-context[open]>summary{margin-bottom:7px}',
+      '[data-flow] .fl-system-context .fl-node{background:var(--fg-canvas);border-left-width:1px}',
+      '[data-flow] :is(.fl-lane-main::before,.fl-lane-line,.fl-zoom-trunk,.fl-zoom-branch::before,.fl-zoom-branch::after,.fl-zoom-flow::before,.fl-zoom-step::before){background:var(--fg-wire);opacity:1}',
+      '[data-flow] .fl-lane-main::before{width:1px;left:50%;bottom:-8px}',
+      '[data-flow] .fl-lane-line{width:1px}',
+      '[data-flow] :is(.fl-grp,.fl-subgrp){border-color:var(--fg-border)}',
+      '[data-flow] :is(.fl-retry-ok,.fl-zoom-step-ok){color:var(--fg-success)}',
+      '[data-flow] .fl-retry-wait{color:var(--fg-warning)}',
+      '[data-flow] :is(.fl-retry-fail,.fl-zoom-step-err){color:var(--fg-danger)}',
+      '[data-flow] .fl-iocard.fl-err{border-color:var(--fg-danger)}',
+      '[data-flow] .fl-live{border-color:var(--fg-accent)!important;animation:none}',
+      '[data-flow] :is(.fl-live,.fl-main-min-anim)::before,[data-flow] .fl-min-anim .fl-iocard::before{display:none}',
+      '[data-flow] :is(.fl-rail,.fl-zoom-history-drawer,.fl-info-pop,.fl-zoom-add-pop){background:var(--fg-surface);border-color:var(--fg-border);box-shadow:0 8px 26px rgba(0,0,0,.18);backdrop-filter:none;-webkit-backdrop-filter:none}',
+      '[data-flow] .fl-rail{width:min(var(--fg-inspector-width),92%);border-radius:8px;z-index:20;max-width:100%;color:var(--fg-text)}',
+      '[data-flow] .fl-rail-head{min-height:48px;gap:7px;padding:10px 12px;flex-wrap:wrap;border-bottom-color:var(--fg-border);font-size:.92em}',
+      '[data-flow] .fl-rail-title{font-family:inherit;white-space:normal;overflow-wrap:anywhere;line-height:1.4}',
+      '[data-flow] .fl-rail-back{flex:none;width:auto;min-height:28px;padding:3px 7px;border:1px solid var(--fg-border);border-radius:6px;background:transparent;color:var(--fg-muted);font:inherit;font-size:.85em;white-space:nowrap;cursor:pointer}',
+      '[data-flow] .fl-rail-body{padding:12px;gap:12px;overscroll-behavior:contain;min-width:0}',
+      '[data-flow] .fl-rail-body>.fl-sec{flex:1;min-height:180px}',
+      '[data-flow] .fl-rail-body>.fl-sec>:is(.fl-pre,.fl-markdown-rendered){flex:1;min-height:0;max-height:none}',
+      '[data-flow] .fl-rail-body>:is(.fl-tool-input,.fl-technical-info,.fl-detail-status){flex:none}',
+      '[data-flow] .fl-rail-body.fl-tool-io{display:grid;grid-template-rows:auto minmax(0,2fr) minmax(0,3fr) auto;overflow:hidden}',
+      '[data-flow] .fl-tool-io:has(>.fl-tool-input:not([open])){grid-template-rows:auto auto minmax(0,1fr) auto}',
+      '[data-flow] .fl-tool-io>.fl-tool-input{min-height:0;overflow:auto}[data-flow] .fl-tool-io>.fl-tool-input .fl-pre{max-height:none}',
+      '[data-flow] .fl-tool-io>.fl-sec{min-height:0;overflow:hidden}[data-flow] .fl-tool-io>.fl-technical-info{max-height:20vh;overflow:auto}',
+      '[data-flow] .fl-sec{min-width:0;gap:6px}',
+      '[data-flow] :is(.fl-pre,.fl-markdown-rendered){min-width:0;max-width:100%;padding:10px 12px;border-color:var(--fg-border);background:var(--fg-canvas);color:var(--fg-text);font-size:calc(var(--fg-font-size)*var(--tb-fs-detail,1));line-height:1.65;overflow-wrap:anywhere;word-break:normal}',
+      '[data-flow] .fl-pre{white-space:pre-wrap}',
+      '[data-flow] .fl-markdown-rendered :is(pre,table){max-width:100%;overflow:auto}',
+      '[data-flow] :is(.fl-sec-label,.fl-technical-info>summary){font-size:.8em;line-height:1.5;color:var(--fg-muted);letter-spacing:0}',
+      '[data-flow] .fl-technical-info{min-width:0;max-width:100%;padding-top:8px;border-top:1px solid var(--fg-border)}',
+      '[data-flow] .fl-technical-info>summary{padding:4px 0;cursor:pointer}',
+      '[data-flow] .fl-technical-info[open]>summary{margin-bottom:8px}',
+      '[data-flow] :is(.fl-query-bar,.fl-replay-bar){min-width:0;border:1px solid var(--fg-border);border-radius:7px;background:var(--fg-canvas)}',
+      '[data-flow] :is(.fl-query-bar,.fl-replay-bar)>summary{min-height:30px;padding:5px 9px;color:var(--fg-muted);font-size:.82em;cursor:pointer}',
+      '[data-flow] :is(.fl-query-bar,.fl-replay-bar)[open]>summary{border-bottom:1px solid var(--fg-border)}',
+      '[data-flow] .fl-filter-row{display:flex;align-items:flex-end;flex-wrap:wrap;gap:8px;padding:10px;min-width:0}',
+      '[data-flow] .fl-filter-row>label{display:flex;flex:1 1 110px;flex-direction:column;gap:4px;min-width:0;color:var(--fg-muted);font-size:.78em}',
+      '[data-flow] .fl-filter-row>label:first-child{flex-basis:180px}',
+      '[data-flow] .fl-filter-row :is(input,select){width:100%;min-width:0;max-width:100%;height:auto;min-height:30px;background:var(--fg-surface);font-size:var(--fg-font-size)}',
+      '[data-flow] :is(.fl-search-summary,.fl-replay-bar>.tb-note){margin:0;padding:0 10px 10px;color:var(--fg-subtle);font-size:.78em;line-height:1.5;overflow-wrap:anywhere}',
+      '[data-flow] .fl-attention{align-self:flex-start;border-color:var(--fg-danger);color:var(--fg-danger);background:color-mix(in srgb,var(--fg-danger) 6%,var(--fg-surface));white-space:normal}',
+      '[data-flow] .fl-unavailable{padding:9px 11px;border-left:2px solid var(--fg-warning);background:var(--fg-raised)}',
+      '[data-flow] .fl-bookmark-btn{flex:none;min-height:26px;padding:2px 6px;border:1px solid transparent;border-radius:5px;background:var(--fg-surface);color:var(--fg-muted);font:inherit;font-size:calc(var(--fg-font-size)*.74);line-height:1.5;cursor:pointer}',
+      '[data-flow] .fl-bookmark-btn:hover,[data-flow] .fl-bookmark-btn.is-bookmarked{color:var(--fg-accent);border-color:var(--fg-border);background:var(--fg-selected)}',
+      '[data-flow] .fl-node>.fl-bookmark-btn{position:absolute;top:5px;right:6px;opacity:0;pointer-events:none}',
+      '[data-flow] .fl-node[data-flow-role="ai"]{padding-right:12px}',
+      '[data-flow] .fl-node[data-flow-role="ai"]>.fl-bookmark-btn{right:36px}',
+      '[data-flow] .fl-node-head{padding-right:46px}',
+      '[data-flow] .fl-node[data-flow-role="ai"] .fl-node-head{padding-right:76px}',
+      '[data-flow] .fl-node:is(:hover,:focus-within)>.fl-bookmark-btn,[data-flow] .fl-node>.fl-bookmark-btn.is-bookmarked{opacity:1;pointer-events:auto}',
+      '[data-flow] .fl-overview-list{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-self:stretch;min-width:0}',
+      '.jr-drawer [data-flow][data-flow-board][data-flow-view="compact"]>.tb-pane-body{flex-direction:column;justify-content:flex-start}',
+      '[data-flow] .fl-overview-source{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;min-width:0;padding:8px 10px;border-bottom:1px solid var(--fg-border);color:var(--fg-muted);font-size:.84em}',
+      '[data-flow] .fl-overview-source>span{flex:1;min-width:100px;overflow-wrap:anywhere}',
+      '[data-flow] .fl-overview-source>button{flex:none}',
+      '[data-flow] .fl-overview-card{display:flex;flex-direction:column;gap:9px;min-width:0;padding:14px;border:1px solid var(--fg-border);border-radius:9px;background:var(--fg-surface)}',
+      '[data-flow] .fl-overview-card.has-errors{border-left:3px solid var(--fg-danger)}',
+      '[data-flow] .fl-overview-card>.fl-diff-session-label{align-self:flex-start;margin-bottom:0;font-size:.78em;background:var(--fg-selected);color:var(--fg-accent)}',
+      '[data-flow] .fl-overview-card :is(.fl-zoom-title,.fl-current-step){white-space:normal;overflow-wrap:anywhere}',
+      '[data-flow] .fl-current-step{margin:0;color:var(--fg-muted);font-size:.85em;line-height:1.6}',
+      '[data-flow] .fl-detail-error{margin:0;padding:8px;border-left:2px solid var(--fg-danger);border-radius:4px;background:color-mix(in srgb,var(--fg-danger) 7%,var(--fg-surface));color:var(--fg-danger);font-size:.86em;line-height:1.6;overflow-wrap:anywhere}',
+      '[data-flow] .fl-overview-conclusion{flex:1;min-width:0;padding-top:8px;border-top:1px solid var(--fg-border)}',
+      '[data-flow] .fl-overview-conclusion p{margin:6px 0 0;color:var(--fg-text);font-size:.94em;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}',
+      '[data-flow] .fl-overview-actions{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;min-width:0;padding-top:3px}',
+      '[data-flow] .fl-conclusion-select{display:inline-flex;align-items:center;gap:6px;min-height:28px;color:var(--fg-muted);font-size:.82em;cursor:pointer}',
+      '[data-flow] .fl-conclusion-select input{width:16px;height:16px;margin:0;accent-color:var(--fg-accent)}',
+      '[data-flow] .fl-diff-shared-input{min-width:0;padding:12px;border-top:1px solid var(--fg-border);background:var(--fg-canvas)}',
+      '[data-flow] .fl-diff-shared-input p{margin:6px 0 0;color:var(--fg-muted);font-size:.86em;line-height:1.6;overflow-wrap:anywhere;white-space:pre-wrap}',
+      '@container flowglass (min-width:800px){[data-flow] .fl-overview-list{grid-template-columns:repeat(2,minmax(0,1fr))}}',
+      '@container flowglass (min-width:1200px){[data-flow] .fl-overview-list{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}}',
+      '[data-flow] .fl-zoom-composer{box-shadow:none;border-color:var(--fg-border);background:var(--fg-surface);max-height:45cqh;overflow:auto}',
+      '[data-flow] .fl-zoom-composer-controls{flex-wrap:wrap;overflow:visible}',
+      '[data-flow] .fl-zoom-composer-context{flex-wrap:wrap}',
+      '[data-flow] .fl-zoom-composer-context>span{white-space:normal;overflow-wrap:anywhere}',
+      '[data-flow] .fl-zoom-composer-targets{justify-content:flex-start;margin-left:0}',
+      '[data-flow] .fl-zoom-lane-group{max-width:100%;flex:1 1 220px}',
+      '[data-flow] .fl-zoom-lane-model{width:auto;min-width:0;flex:1}',
+      '[data-flow] .fl-zoom-lane-effort{width:98px;max-width:45%}',
+      '[data-flow] .fl-zoom-prompt:focus-visible{outline:2px solid var(--fg-accent)!important;outline-offset:2px}',
+      '[data-flow] .fl-zoom-logbar{border-top:0;padding-top:0}',
+      '[data-flow] .fl-zoom-log-spacer{display:none}',
+      '[data-flow] .fl-zoom-step-txt{font-size:.85em;white-space:normal;overflow-wrap:anywhere;line-height:1.5}',
+      '[data-flow] .fl-zoom-current-conversations{flex-wrap:wrap;overflow:visible;border-color:var(--fg-border);background:var(--fg-canvas)}',
+      '[data-flow] .fl-zoom-current-session{min-width:0;max-width:100%;height:auto;min-height:30px}',
+      '[data-flow] .fl-compact-diff span{white-space:normal;overflow-wrap:anywhere}',
+      '[data-flow] :is(.tb-empty,.tb-notice){max-width:100%;font-size:.9em;line-height:1.7;overflow-wrap:anywhere;color:var(--fg-muted)}',
+      '[data-flow] .tb-empty{border-style:solid;border-color:var(--fg-border);padding:30px 18px}',
+      '[data-flow] .fl-mindmap-help{flex-wrap:wrap;font-size:.8em;background:var(--fg-surface);border-color:var(--fg-border)}',
+      '[data-flow] .fl-mindmap-help span{flex-basis:180px;overflow-wrap:anywhere}',
+      '.jr-drawer [data-flow][data-flow-view="map"]>.tb-pane-body{padding:0;overflow:hidden}',
+      '[data-flow] .fl-mindmap-viewport{background-color:var(--fg-canvas);border-color:var(--fg-border)}',
+      '[data-flow] .fl-map-controls{display:flex;align-items:center;flex-wrap:wrap;gap:6px;width:100%}',
+      '[data-flow] .fl-map-controls button{min-width:28px;min-height:28px;padding:3px 7px;background:var(--fg-surface);border-color:var(--fg-border);color:var(--fg-text);font:inherit;cursor:pointer}',
+      '[data-flow] :is(.fl-map-zoom-controls,.fl-map-pan-controls){display:inline-flex;gap:3px;align-items:center}',
+      '[data-flow] .fl-map-zoom-controls output{min-width:36px;font-variant-numeric:tabular-nums}',
+      '[data-flow] .fl-map-select{flex:1;min-width:0;padding:3px 4px;border:0;border-radius:4px;background:transparent;color:var(--fg-text);text-align:left;font:inherit;font-weight:650;line-height:1.4;overflow-wrap:anywhere;cursor:pointer}',
+      '[data-flow] .fl-map-select:hover{background:var(--fg-selected)}',
+      '[data-flow] .fl-map-node.is-selected{border-color:var(--fg-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--fg-accent) 22%,transparent)}',
+      '.tb-frame:has([data-flow][data-flow-view="map"])>.tb-flow-zoom-float{display:none}',
+      '.tb-frame:has([data-flow]) :is(.tb-flow-zoom-float,.tb-flow-selection-bar,.tb-flow-bring-popup,.tb-jump-latest){background:var(--fg-surface);border-color:var(--fg-border);box-shadow:0 4px 16px rgba(0,0,0,.16);backdrop-filter:none;-webkit-backdrop-filter:none}',
+      '.tb-frame:has([data-flow]>.fl-rail)>:is(.tb-flow-zoom-float,.tb-flow-selection-bar,.tb-jump-latest){display:none}',
+      '.tb-frame:has([data-flow]){container:flowglass-frame/inline-size}',
+      '.fg-workbench-overlay{position:absolute;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;min-width:0;padding:12px;background:color-mix(in srgb,var(--fg-canvas) 85%,transparent)}',
+      '.fg-workbench{display:flex;flex-direction:column;gap:0;min-width:0;width:min(900px,100%);max-height:100%;border:1px solid var(--fg-border);border-radius:10px;background:var(--fg-surface);color:var(--fg-text);font-family:var(--dsw-font-family,inherit);font-size:var(--fg-font-size);box-shadow:0 10px 32px rgba(0,0,0,.2);overflow:hidden}',
+      '.fg-workbench *{box-sizing:border-box}',
+      '.fg-workbench-head{flex:none;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;min-height:48px;padding:12px 14px;border-bottom:1px solid var(--fg-border)}',
+      '.fg-workbench-head :is(h2,h3){margin:0;font-size:1em;line-height:1.5}',
+      '.fg-workbench-body{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;gap:12px;padding:14px;overflow:auto;overscroll-behavior:contain}',
+      '.fg-workbench-actions{flex:none;display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;padding:12px 14px;border-top:1px solid var(--fg-border)}',
+      '.fg-workbench :is(button,input,select,textarea){max-width:100%;min-height:30px;font:inherit;font-size:.88em}',
+      '.fg-workbench button{height:auto;white-space:normal;overflow-wrap:anywhere;line-height:1.5}',
+      '.fg-workbench :is(button,input,select,textarea,a):focus-visible,.fg-launch-recovery button:focus-visible{outline:2px solid var(--fg-accent);outline-offset:2px}',
+      '.fg-workbench-note{margin:0;color:var(--fg-muted);font-size:.84em;line-height:1.6;overflow-wrap:anywhere}',
+      '.fg-workbench-preview{min-width:0;max-width:100%;max-height:340px;margin:0;padding:12px;border:1px solid var(--fg-border);border-radius:7px;background:var(--fg-canvas);color:var(--fg-text);font-family:var(--ds-font-family-code,ui-monospace),monospace;font-size:.86em;line-height:1.6;white-space:pre-wrap;overflow:auto;overflow-wrap:anywhere}',
+      '.fg-bookmark-item{display:flex;align-items:flex-start;flex-wrap:wrap;gap:9px;min-width:0;padding:11px;border:1px solid var(--fg-border);border-radius:7px;background:var(--fg-canvas);overflow-wrap:anywhere}',
+      '.fg-bookmark-item>:first-child{flex:1;min-width:120px;max-width:100%}',
+      '.fg-bookmark-item :is(p,small){margin:4px 0;color:var(--fg-muted);line-height:1.5}',
+      '.fg-conclusions{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;min-width:0}',
+      '.fg-conclusions>article{min-width:0;padding:12px;border:1px solid var(--fg-border);border-radius:8px;background:var(--fg-canvas);overflow-wrap:anywhere}',
+      '.fg-conclusions :is(pre,p){max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}',
+      '.fg-launch-recovery{flex:none;max-height:35%;min-height:0;display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--fg-border);border-radius:8px;background:var(--fg-surface);color:var(--fg-text);font-family:var(--dsw-font-family,inherit);font-size:var(--fg-font-size);overflow:auto;overscroll-behavior:contain}',
+      '.fg-launch-recovery>header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}',
+      '.fg-launch-result{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;padding:7px 0;border-top:1px solid var(--fg-border);font-size:.85em;line-height:1.6;overflow-wrap:anywhere}',
+      '.fg-launch-result>:first-child{flex:1 1 160px;min-width:0}',
+      '.fg-launch-result button{height:auto;min-height:30px;font-size:inherit;white-space:normal}',
+      '@container flowglass-frame (min-width:960px){.fg-conclusions{grid-template-columns:repeat(2,minmax(0,1fr))}}',
+      '@container flowglass-frame (max-width:479px){.fg-workbench-overlay{padding:0}.fg-workbench{width:100%;height:100%;border-radius:0}.fg-workbench-head,.fg-workbench-body,.fg-workbench-actions{padding:10px}.fg-workbench-actions{justify-content:flex-start}.fg-launch-recovery{max-height:38%;padding:8px}.fg-bookmark-item>:first-child{flex-basis:100%}}',
+      // Below 800px, ordinary reading follows one column; the explicit relationship map keeps its canvas.
+      '@container flowglass (max-width:799px){[data-flow] .fl-lane,[data-flow] .fl-flow-two .fl-lane{display:flex;flex-direction:column;gap:8px;min-height:0}[data-flow] .fl-lane>div:empty{display:none}[data-flow] .fl-lane-main{order:0}[data-flow] .fl-lane-main:has(>.fl-lane-line){display:none}[data-flow] .fl-lane-main::before{display:none}[data-flow] .fl-lane-side{order:1;grid-template-columns:50px minmax(0,1fr);gap:8px}[data-flow] .fl-subcol{order:2;min-height:0;grid-template-columns:minmax(0,1fr)}[data-flow] .fl-subbranch{min-height:0}[data-flow] .fl-sub-card::after{display:none}[data-flow] .fl-conn{min-height:9px}[data-flow] .fl-conn-gap{min-height:0}[data-flow] .fl-node{width:100%;max-width:none}[data-flow] .fl-zoom-branches{display:flex;flex-direction:column;gap:14px;padding:10px 0;overflow:visible}[data-flow] .fl-zoom-branch{width:100%;padding:10px;border:1px solid var(--fg-border);border-radius:9px;background:var(--fg-surface)}[data-flow] .fl-zoom-branch-head{padding:0;border:0;background:transparent}[data-flow] .fl-zoom-branch::before,[data-flow] .fl-zoom-branch::after,[data-flow] .fl-zoom-trunk{display:none}[data-flow] .fl-zoom-rootcard{width:100%}[data-flow] .fl-zoom-diff-scroll{overflow-x:hidden;padding:0}[data-flow] .fl-zoom-diff-board{display:flex;flex-direction:column;min-width:0;width:100%;border:0;background:transparent;overflow:visible}[data-flow] .fl-diff-corner,[data-flow] .fl-diff-session-head{display:none}[data-flow] .fl-diff-gutter{position:static;gap:5px;margin-top:16px;padding:10px;border:1px solid var(--fg-border);border-radius:8px;background:var(--fg-raised)}[data-flow] .fl-diff-gutter small{flex-direction:row;flex-wrap:wrap;gap:8px}[data-flow] .fl-diff-cell{min-height:0;margin-top:8px;padding:12px;border:1px solid var(--fg-border);border-radius:8px}[data-flow] .fl-diff-cell::before{content:attr(data-branch-label);display:block;margin-bottom:8px;color:var(--fg-text);font-size:.88em;font-weight:650;overflow-wrap:anywhere}[data-flow] .fl-diff-cell-missing{flex-direction:column;align-items:flex-start}[data-flow] .fl-diff-cell-head{flex-wrap:wrap}[data-flow] .fl-diff-branch{margin-left:0;white-space:normal}[data-flow] .fl-rail-resize{display:none}}',
+      '@container flowglass (min-width:800px) and (max-width:1199px){[data-flow] .fl-lane{grid-template-columns:minmax(0,1fr) minmax(0,1.2fr)}[data-flow] .fl-lane>div:empty{display:none}[data-flow] .fl-lane-main{grid-column:1}[data-flow] .fl-lane-side{grid-column:2;grid-template-columns:52px minmax(0,1fr)}[data-flow] .fl-subcol{grid-column:1/-1;grid-row:2;margin:10px 0;min-height:0}[data-flow] .fl-sub-card::after{display:none}[data-flow] .fl-zoom-branches{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));overflow:visible;gap:16px}[data-flow] .fl-zoom-branch{width:100%}[data-flow] .fl-zoom-branch::before,[data-flow] .fl-zoom-branch::after{display:none}}',
+      '@container flowglass (min-width:800px) and (max-width:1199px){[data-flow][data-flow-view="compact"] .fl-zoom-diff-scroll{overflow-x:hidden}[data-flow][data-flow-view="compact"] .fl-zoom-diff-board{display:flex;flex-direction:column;min-width:0;width:100%;border:0;background:transparent;overflow:visible}[data-flow][data-flow-view="compact"] :is(.fl-diff-corner,.fl-diff-session-head){display:none}[data-flow][data-flow-view="compact"] .fl-diff-gutter{position:static;gap:5px;margin-top:16px;padding:10px;border:1px solid var(--fg-border);border-radius:8px;background:var(--fg-raised)}[data-flow][data-flow-view="compact"] .fl-diff-gutter small{flex-direction:row;flex-wrap:wrap;gap:8px}[data-flow][data-flow-view="compact"] .fl-diff-cell{min-height:0;margin-top:8px;padding:12px;border:1px solid var(--fg-border);border-radius:8px}[data-flow][data-flow-view="compact"] .fl-diff-cell::before{content:attr(data-branch-label);display:block;margin-bottom:8px;color:var(--fg-text);font-size:.88em;font-weight:650;overflow-wrap:anywhere}[data-flow][data-flow-view="compact"] .fl-diff-cell-missing{flex-direction:column;align-items:flex-start}}',
+      '@container flowglass (min-width:1200px){[data-flow] .fl-lane{grid-template-columns:minmax(0,1fr) minmax(0,1.1fr) minmax(0,1.2fr)}[data-flow] .fl-flow-two .fl-lane{grid-template-columns:minmax(0,1fr) minmax(0,1.2fr)}[data-flow] .fl-zoom-branches{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));overflow:visible;gap:16px}[data-flow] .fl-zoom-branch{width:100%}[data-flow] .fl-zoom-branch::before,[data-flow] .fl-zoom-branch::after{display:none}[data-flow]:has(>.fl-rail)>.tb-pane-body{margin-inline-end:calc(var(--fg-inspector-width) + 12px)}[data-flow] .fl-rail{width:var(--fg-inspector-width);box-shadow:none;border:1px solid var(--fg-border)}}',
+      // A narrow inspector replaces visible content without unmounting it or losing its scroll position.
+      '@container flowglass (max-width:479px){[data-flow]:has(>.fl-rail)>:is(.tb-pane-head,.tb-pane-body,.fl-zoom-history-drawer){visibility:hidden;pointer-events:none}[data-flow] .fl-rail{inset:0;width:100%;border:0;border-radius:0;box-shadow:none}[data-flow] .fl-lane-side{grid-template-columns:minmax(0,1fr);padding-left:10px;border-left:1px solid var(--fg-wire)}[data-flow] .fl-lane-side>.fl-wp{display:none}[data-flow] .fl-lane-side.fl-grp{margin:0;padding:10px}[data-flow] .fl-preview{-webkit-line-clamp:4}[data-flow] .fl-zoom-composer-controls>[data-zoom-launch]{width:100%;white-space:normal}[data-flow] .fl-zoom-composer-spacer{display:none}[data-flow] .fl-zoom-history-drawer{width:100%}[data-flow] .fl-toolbar-menu{max-width:calc(100cqi - 8px)}[data-flow] .fl-rail-head .fl-branch-btn{width:26px;height:26px}}',
+      // Keep the session surface a flow diagram at both sidebar and full-screen sizes.
+      '.jr-drawer [data-flow]:not([data-flow-board])>.tb-pane-body{background-image:radial-gradient(circle,var(--fg-wire) .7px,transparent .8px);background-size:22px 22px;gap:4px;padding:16px 12px 54px}',
+      '[data-flow]:not([data-flow-board])>.tb-pane-body>.fl-lane{flex-shrink:0;width:100%;max-width:1440px;align-self:flex-start;margin-inline:auto}',
+      '[data-flow]>.tb-pane-head{flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px}',
+      '[data-flow]>.tb-pane-head>.tb-row{flex:1 1 100%}',
+      '[data-flow]>.tb-pane-head>:is(.fl-query-bar,.fl-replay-bar){flex:0 1 auto}',
+      '[data-flow]>.tb-pane-head>:is(.fl-query-bar,.fl-replay-bar)[open]{flex-basis:100%}',
+      '[data-flow] .fl-session-title{flex:1 1 180px;font-size:.95em}',
+      '[data-flow] .fl-node{padding:8px 10px;border-radius:7px}',
+      '[data-flow] .fl-node-open{gap:4px}',
+      '[data-flow] .fl-preview{-webkit-line-clamp:2;font-size:12px;line-height:1.5}',
+      '[data-flow] .fl-system-context{background:var(--fg-canvas);border:1px dashed var(--fg-border);padding:3px 9px}',
+      '[data-flow] .fl-lane-main::before{width:2px;left:calc(50% - 1px);bottom:-4px}',
+      '[data-flow] .fl-conn{min-height:18px}',
+      '[data-flow] .fl-zoom-composer-controls{gap:10px}',
+      '[data-flow] .fl-zoom-lane-group{display:flex;flex:1 1 100%;gap:8px;align-items:center}',
+      '[data-flow] .fl-zoom-lane-label{flex:none;font-size:12px;color:var(--fg-muted)}',
+      '@container flowglass (max-width:799px){[data-flow]:not([data-flow-board]) .fl-lane{gap:0}[data-flow]:not([data-flow-board]) .fl-lane-main::before{display:block}[data-flow]:not([data-flow-board]) .fl-lane-main:has(>.fl-lane-line){display:flex}[data-flow]:not([data-flow-board]) .fl-lane-side{margin:8px 0 8px 24px;padding:10px;border-left:2px solid var(--fg-wire);border-radius:7px;background:var(--fg-canvas)}[data-flow]:not([data-flow-board]) .fl-subcol{margin:8px 0 8px 24px}[data-flow] .fl-preview{-webkit-line-clamp:2}}',
+      // Session diagrams retain the original three semantic lanes at every panel width.
+      '[data-flow]:not([data-flow-board])>.tb-pane-body{overflow-x:auto!important}',
+      '[data-flow]:not([data-flow-board]) .fl-lane{display:grid!important;grid-template-columns:minmax(180px,1.05fr) minmax(220px,1fr) minmax(240px,1.2fr)!important;gap:0 10px!important;min-width:680px;align-items:stretch}',
+      '[data-flow]:not([data-flow-board]) .fl-lane>div:empty{display:block!important}',
+      '[data-flow]:not([data-flow-board]) .fl-lane-main{grid-column:2!important;grid-row:1;order:initial!important}',
+      '[data-flow]:not([data-flow-board]) .fl-lane-side{grid-column:3!important;grid-row:1;order:initial!important;margin:0!important;padding:0;grid-template-columns:64px minmax(0,1fr)!important;border-left:0;background:transparent}',
+      '[data-flow]:not([data-flow-board]) .fl-lane-side>.fl-wp{display:flex!important}',
+      '[data-flow]:not([data-flow-board]) .fl-subcol{grid-column:1!important;grid-row:1!important;order:initial!important;margin:0!important;min-height:112px;grid-template-columns:minmax(0,1fr)}',
+      '[data-flow]:not([data-flow-board]) .fl-sub-card::after{display:block!important}',
+      '.fg-settings{--fg-font-size:var(--dsh-content-font-size,14px);container:flowglass-settings/inline-size;min-width:0;font-family:var(--dsw-font-family,inherit);font-size:var(--fg-font-size);color:var(--fg-text)}',
+      '.fg-settings :is(.fg-settings-head,.fg-settings-section-head,.fg-settings-rule-head,.fg-settings-actions){flex-wrap:wrap}',
+      '.fg-settings :is(.fg-settings-title,.fg-settings-section h3){font-size:1.05em}',
+      '.fg-settings :is(.fg-settings-sub,.fg-settings-note,.fg-settings-rule-preview,.fg-settings-copy>small){font-size:.82em;line-height:1.6;overflow-wrap:anywhere}',
+      '.fg-settings :is(.fg-settings-select,.fg-settings-input,.fg-settings-button,.fg-settings-rule-grid label,.fg-settings-copy>strong){font-size:.9em}',
+      '.fg-settings :is(.fg-settings-select,.fg-settings-input,.fg-settings-button){height:auto;min-height:32px;line-height:1.5}',
+      '.fg-settings .fg-settings-button{white-space:normal}',
+      '.fg-settings-rule-summary{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0}',
+      '.fg-settings-rule-preview{flex:none;min-width:0;margin:0;color:var(--fg-muted)}',
+      '.fg-settings-rule-head>strong{white-space:normal;overflow-wrap:anywhere}',
+      '.fg-settings-rule-grid{padding-top:10px;border-top:1px solid var(--fg-border)}',
+      '@container flowglass-settings (max-width:719px){.fg-settings-grid{grid-template-columns:minmax(0,1fr)}.fg-settings-rule-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}',
+      '@container flowglass-settings (max-width:479px){.fg-settings-section{padding:12px}.fg-settings-row{flex-wrap:wrap;gap:8px}.fg-settings-copy{flex:1 1 180px}.fg-settings-rule-grid{grid-template-columns:minmax(0,1fr)}.fg-settings-select,.fg-settings-input{width:100%;max-width:none}.fg-settings-rule-head{gap:7px}.fg-settings-rule-head>strong{flex-basis:calc(100% - 60px)}.fg-settings-actions{justify-content:flex-start}}',
+
+      '[data-flow][data-flow-board]>.tb-pane-body{flex-direction:column;justify-content:flex-start}[data-flow]>.tb-pane-body{animation:none!important}',
+      '.jr-drawer [data-flow][data-flow-view="detail"]>.tb-pane-body{overflow:auto}[data-flow] .fl-zoom-diff-scroll{flex:none;overflow:visible}[data-flow] .fl-zoom-diff-board{margin-inline-start:0}',
+      '[data-flow]>.tb-pane-head>:is(.fl-query-bar,.fl-replay-bar){border:0;padding:0}[data-flow] .fl-filter-panel>.fl-filter-row{position:static}[data-flow] .fl-filter-panel>p{margin:8px 0 0}',
+      // One typography scale for the plugin; compact metadata never compounds em sizes.
+      '[data-flow],.fg-settings{--fg-font-body:var(--fg-font-size);--fg-font-small:calc(var(--fg-font-size)*.86)}',
+      '[data-flow] :is(button,input,select,textarea,summary,.fl-preview,.fl-title,.fl-zoom-title,.fl-zoom-step-txt),.fg-settings :is(p,button,input,select,label,strong){font-size:var(--fg-font-body);line-height:1.5}',
+      '[data-flow] :is(.tb-note,.tb-sec-label,.fl-tag,.fl-status,.fl-time,.fl-model,.fl-zoom-stats,.fl-zoom-badge,.fl-zoom-lane-label),.fg-settings :is(small,.fg-settings-note,.fg-settings-rule-preview){font-size:var(--fg-font-small);line-height:1.5}',
+      '.fg-settings-rule{height:auto;min-height:0;flex:none}.fg-settings-rule>p{margin:0;flex:none;overflow-wrap:anywhere}.fg-settings-rule-summary{display:block}',
+      '[data-flow]>.tb-pane-head{position:relative;display:flex;flex-flow:row nowrap;gap:6px;min-height:38px;padding:4px 2px;align-items:center}',
+      '[data-flow]>.tb-pane-head>:is(.fl-context-bar,.fl-toolbar){display:contents}',
+      '[data-flow]>.tb-pane-head .fl-session-title{flex:1 1 100px;min-width:30px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+      '[data-flow]>.tb-pane-head :is(.fl-breadcrumbs,button,summary){flex-shrink:0;white-space:nowrap}',
+      '[data-flow]>.tb-pane-head :is(.fl-query-bar,.fl-replay-bar){flex:0 0 auto;margin:0}',
+      '[data-flow]>.tb-pane-head>:is(.fl-query-bar,.fl-replay-bar)[open]{flex-basis:auto}',
+      '[data-flow]>.tb-pane-head>:is(.fl-query-bar,.fl-replay-bar)[open]>.fl-filter-panel,[data-flow]>.tb-pane-head>:is(.fl-query-bar,.fl-replay-bar)[open]>.fl-filter-panel{position:absolute;top:100%;left:0;right:0;z-index:40;padding:10px;background:var(--fg-surface);border:1px solid var(--fg-border)}',
+      '[data-flow]>.tb-pane-head .fl-execution-status{display:none}[data-flow]>.tb-pane-head .fl-sync-status{white-space:nowrap}',
+      '[data-flow] .fl-zoom-composer{flex:0 0 auto;width:100%}',
+      '[data-flow] .fl-zoom-composer-context{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center}',
+      '[data-flow] .fl-zoom-composer-context>strong{white-space:nowrap}[data-flow] .fl-zoom-composer-context>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}[data-flow] .fl-zoom-composer-context>.fl-zoom-composer-targets{grid-column:1/-1}',
+      '[data-flow] .fl-zoom-composer-targets{width:100%;display:flex;gap:8px;flex-wrap:wrap}',
+      '[data-flow] .fl-zoom-current-item{flex:0 1 240px;min-width:180px;display:flex}[data-flow] .fl-zoom-current-item .fl-zoom-current-session{flex:1;min-width:0;max-width:none;white-space:nowrap;grid-template-columns:auto minmax(0,1fr) auto}[data-flow] .fl-zoom-current-session>*{white-space:nowrap;min-width:0}[data-flow] .fl-zoom-current-session>:nth-child(2){overflow:hidden;text-overflow:ellipsis}',
+      '[data-flow] .fl-zoom-step-txt{min-width:0;white-space:normal;overflow-wrap:anywhere}[data-flow] .fl-overview-process{border-top:1px solid var(--fg-border);padding-top:8px}[data-flow] .fl-overview-process .fl-zoom-flow{max-height:none}',
+      '[data-flow]>.tb-pane-body{overflow-anchor:none;scrollbar-gutter:stable}[data-flow] .fl-mindmap-viewport{overflow-anchor:none}',
+      '[data-flow] .fl-toolbar-menu{font-size:var(--fg-font-body);line-height:1.65}',
+      '[data-flow] :is(.fl-help,.fl-technical-info)>summary{font-size:var(--fg-font-body);font-weight:600;line-height:1.65;white-space:normal}',
+      '[data-flow] :is(.fl-help,.fl-technical-info)>p{font-size:var(--fg-font-body);font-weight:400;line-height:1.65;white-space:pre-line;overflow-wrap:anywhere;word-break:normal;margin:8px 0}',
+      '[data-flow] .fl-help-text{white-space:pre-line;overflow-wrap:anywhere;word-break:normal}',
+      '@container flowglass (max-width:1000px){[data-flow]>.tb-pane-head .fl-sync-status{display:none}}@container flowglass (max-width:699px){[data-flow]>.tb-pane-head>.fl-toolbar>[data-flow-bookmarks],[data-flow]>.tb-pane-head>.fl-toolbar>[data-flow-export],[data-flow]>.tb-pane-head>.fl-toolbar>[data-flow-compare-preview]{display:none}}',
+      '@media(prefers-reduced-motion:reduce){[data-flow] *,[data-flow] *::before,[data-flow] *::after,.tb-frame:has([data-flow])>:is(.tb-flow-zoom-float,.tb-flow-selection-bar,.tb-flow-bring-popup,.tb-jump-latest),.fg-settings *{animation:none!important;transition:none!important;scroll-behavior:auto!important}}',
     ].join('\n')
     // 编译 bundle 的主 UI 样式以独立 scope 包裹，避免不同 bundle/版本的 .tb-*、.jr-* 互相覆盖。
     // 动态模式保持历史全局样式；导航按钮位于 scope 外，编译模式另补值级选择器。
@@ -1521,6 +1783,23 @@ return {
 
     // 外观设置面板：全内联样式（better-sidebar 设置弹层不在本 bundle scope 内，tb-* 类不可依赖）；
     // 抽屉管理页与 better-sidebar 流镜设置页共用本组件
+    function FlowFontSettings() {
+      const a = useAppearance()
+      return React.createElement('section', { className: 'fg-settings-section' },
+        React.createElement('div', { className: 'fg-settings-section-head' }, React.createElement('h3', null, '流镜字号')),
+        React.createElement('div', { className: 'fg-settings-row' },
+          React.createElement('label', { className: 'fg-settings-copy', htmlFor: 'flowglass-font-scale' },
+            React.createElement('strong', null, '界面字号'),
+            React.createElement('small', null, '统一调整流镜标题、节点、按钮与说明文字；即时生效并保存在当前浏览器。')),
+          React.createElement('input', { id: 'flowglass-font-scale', type: 'range', min: APPEARANCE_SCALE_MIN, max: APPEARANCE_SCALE_MAX, step: 0.05, value: a.uiScale,
+            'aria-label': '流镜字号', 'aria-valuetext': Math.round(a.uiScale * 100) + '%',
+            style: { width: '180px', flex: '0 0 180px', maxWidth: '100%', accentColor: 'var(--fg-accent)' },
+            onChange: (event) => appearanceWrite({ uiScale: Number(event.target.value) }) }),
+          React.createElement('output', { htmlFor: 'flowglass-font-scale' }, Math.round(a.uiScale * 100) + '%'),
+          React.createElement('button', { type: 'button', className: 'fg-settings-button', disabled: Math.abs(a.uiScale - 1) < 0.001,
+            onClick: () => appearanceWrite({ uiScale: 1 }) }, '恢复默认')),
+        React.createElement('p', { className: 'fg-settings-font-preview', style: { fontSize: 'calc(var(--dsh-content-font-size,14px) * ' + a.uiScale + ')' } }, '字号预览：当前会话 · 并发任务 · 最新结论'))
+    }
     function AppearancePanel() {
       const a = useAppearance()
       const rowStyle = { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }
@@ -1622,6 +1901,7 @@ return {
       const [rules, setRules] = React.useState(initialRules)
       const [savedKey, setSavedKey] = React.useState(() => JSON.stringify({ preferences: initialPreferences, rules: initialRules }))
       const [notice, setNotice] = React.useState(null)
+      const [editingRule, setEditingRule] = React.useState(null)
       const currentKey = JSON.stringify({ preferences, rules })
       const dirty = currentKey !== savedKey
       const h = React.createElement
@@ -1633,6 +1913,17 @@ return {
         : h('button', { type: 'button', ...props, primary: undefined }, child)
       const setPreference = (key, value) => {
         setPreferences((current) => ({ ...current, [key]: value }))
+        setNotice(null)
+      }
+      const moveRule = (index, direction) => {
+        const next = index + direction
+        if (next < 0 || next >= rules.length) return
+        setRules((current) => {
+          const reordered = current.slice()
+          ;[reordered[index], reordered[next]] = [reordered[next], reordered[index]]
+          return reordered
+        })
+        setEditingRule((current) => current === index ? next : current === next ? index : current)
         setNotice(null)
       }
       const setRule = (index, patch) => {
@@ -1655,6 +1946,7 @@ return {
         const nextRules = readFlowRuleObjects()
         setPreferences(nextPreferences)
         setRules(nextRules)
+        setEditingRule(null)
         setSavedKey(JSON.stringify({ preferences: nextPreferences, rules: nextRules }))
         setNotice(null)
       }
@@ -1685,12 +1977,23 @@ return {
             toggle('启用规则 ' + (index + 1), rule.enabled, (enabled) => setRule(index, { enabled })),
             h('span', { className: 'fl-rule-dot', style: { background: rule.color } }),
             h('strong', null, title),
+            button({ type: 'button', className: 'fg-settings-button', 'aria-label': '上移规则 ' + title, disabled: index === 0, onClick: () => moveRule(index, -1) }, '上移'),
+            button({ type: 'button', className: 'fg-settings-button', 'aria-label': '下移规则 ' + title, disabled: index === rules.length - 1, onClick: () => moveRule(index, 1) }, '下移'),
+            button({ type: 'button', className: 'fg-settings-button', 'aria-expanded': editingRule === index, 'aria-label': '编辑规则 ' + title,
+              onClick: () => setEditingRule(editingRule === index ? null : index) }, editingRule === index ? '收起' : '编辑'),
             button({
               type: 'button', className: 'fg-settings-button danger',
-              onClick: () => { setRules((current) => current.filter((_item, at) => at !== index)); setNotice(null) },
+              'aria-label': '删除规则 ' + title,
+              onClick: () => {
+                setRules((current) => current.filter((_item, at) => at !== index))
+                setEditingRule((current) => current === index ? null : current > index ? current - 1 : current)
+                setNotice(null)
+              },
             }, '删除'),
           ),
-          h('div', { className: 'fg-settings-rule-grid' },
+          h('p', { className: 'fg-settings-rule-summary' }, (rule.tools || []).join(' / ') + ' · ' + ((rule.executables || []).join(' / ') || '尚未设置可执行文件') + ((rule.actions || []).length ? ' · ' + rule.actions.join(' / ') : ' · 任意子命令')),
+          h('p', { className: 'fg-settings-rule-preview' }, '显示预览：' + (rule.badge ? '[' + rule.badge + '] ' : '') + (rule.displayName || rule.executables[0] || '原始工具名')),
+          editingRule === index ? h('div', { className: 'fg-settings-rule-grid' },
             input('原始工具（逗号分隔）', 'tools', (rule.tools || []).join(', '), 'pwsh, bash', true),
             input('可执行文件（逗号分隔）', 'executables', (rule.executables || []).join(', '), 'git, git.exe', true),
             input('显示名称', 'displayName', rule.displayName || '', '可留空', false),
@@ -1700,7 +2003,7 @@ return {
               type: 'color', className: 'fg-settings-color', value: rule.color || '#81c784',
               onChange: (event) => setRule(index, { color: event.currentTarget.value }),
             })),
-          ),
+          ) : null,
         )
       })
       return h('div', { 'data-dsh-toolbox-scope': RT.domValue() },
@@ -1711,19 +2014,20 @@ return {
               h('p', { className: 'fg-settings-sub' }, '配置仅保存在当前浏览器；内置默认规则随插件包发布，自定义规则不会写入 Git 或 npm 包。'),
             ),
           ),
+          h(FlowFontSettings),
           h('section', { className: 'fg-settings-section' },
-            h('div', { className: 'fg-settings-section-head' }, h('h3', null, '行为与大流镜')),
+            h('div', { className: 'fg-settings-section-head' }, h('h3', null, '行为与并发任务')),
             h('div', { className: 'fg-settings-grid' },
               preferenceRow('切换 Session 时保持展开', '仅延续已展开的流镜；主动关闭后不会自动弹回。',
                 toggle('切换 Session 时保持展开', preferences.keepOpenOnSessionSwitch, (value) => setPreference('keepOpenOnSessionSwitch', value))),
-              preferenceRow('启用大流镜', '关闭后隐藏大流镜入口，并退出已经打开的大流镜。',
-                toggle('启用大流镜', preferences.zoomEnabled, (value) => setPreference('zoomEnabled', value))),
+              preferenceRow('启用并发任务', '关闭后隐藏并发任务入口，并返回当前会话。',
+                toggle('启用并发任务', preferences.zoomEnabled, (value) => setPreference('zoomEnabled', value))),
               preferenceRow('默认分支数量', '新会话第一次打开并发开工台时使用。',
                 h('select', { className: 'fg-settings-select', value: String(preferences.defaultBranchCount), onChange: (event) => setPreference('defaultBranchCount', Number(event.currentTarget.value)) },
                   option(2, '2 个分支'), option(3, '3 个分支'), option(4, '4 个分支'))),
-              preferenceRow('大流镜默认视图', '没有已保存历史视图时采用。',
+              preferenceRow('并发任务默认视图', '没有已保存历史视图时采用；已有视图保持不变。',
                 h('select', { className: 'fg-settings-select', value: preferences.defaultZoomView, onChange: (event) => setPreference('defaultZoomView', event.currentTarget.value) },
-                  option('compact', '精简'), option('detail', '详细'), option('map', '导图'))),
+                  option('compact', '概览'), option('detail', '对比'), option('map', '关系图'))),
               preferenceRow('轮询刷新', '事件推送仍然生效；关闭表示只使用事件驱动刷新。',
                 h('select', { className: 'fg-settings-select', value: String(preferences.refreshMs), onChange: (event) => setPreference('refreshMs', Number(event.currentTarget.value)) },
                   option(0, '关闭轮询'), option(1000, '1 秒'), option(2000, '2 秒'), option(5000, '5 秒'), option(10000, '10 秒'))),
@@ -1735,9 +2039,9 @@ return {
               h('div', { className: 'fg-settings-actions' },
                 button({
                   type: 'button', className: 'fg-settings-button', disabled: rules.length >= 24,
-                  onClick: () => { setRules((current) => [...current, { enabled: true, tools: ['pwsh'], executables: [], displayName: '', actions: [], badge: '', color: '#81c784' }]); setNotice(null) },
+                  onClick: () => { setEditingRule(rules.length); setRules((current) => [...current, { enabled: true, tools: ['pwsh'], executables: [], displayName: '', actions: [], badge: '', color: '#81c784' }]); setNotice(null) },
                 }, '添加规则'),
-                button({ type: 'button', className: 'fg-settings-button', onClick: () => { setRules(cloneFlowRules(FLOW_DEFAULT_PRESENTATION_RULES)); setNotice(null) } }, '恢复内置规则'),
+                button({ type: 'button', className: 'fg-settings-button', title: '替换当前规则列表；保存设置后生效，保存前可放弃更改。', onClick: () => { setRules(cloneFlowRules(FLOW_DEFAULT_PRESENTATION_RULES)); setEditingRule(null); setNotice(null) } }, '恢复内置规则'),
               ),
             ),
             h('div', { className: 'fg-settings-rules' }, ruleCards.length ? ruleCards : h('p', { className: 'fg-settings-note' }, '当前没有显示规则。保存空列表后，刷新也不会恢复默认规则。')),
@@ -1800,6 +2104,7 @@ return {
       const [tabBadges, setTabBadges] = React.useState({}) // toolId -> Tab 角标文本（面板 HTML 声明 data-tab-badge 驱动；借鉴 better-sidebar tab 角标）
       const [html, setHtml] = React.useState(null)
       const [error, setError] = React.useState(null)
+      const [flowSyncFailure, setFlowSyncFailure] = React.useState(false)
       const [copied, setCopied] = React.useState(null)
       const [flowMarkdownPreviewKey, setFlowMarkdownPreviewKey] = React.useState(null)
       const flowMarkdownDisabledKeyRef = React.useRef(null)
@@ -1818,12 +2123,17 @@ return {
       const [flowAddAnchor, setFlowAddAnchor] = React.useState(null)
       const [flowTreeOpen, setFlowTreeOpen] = React.useState({})
       const [flowUiBusy, setFlowUiBusy] = React.useState(false)
+      const [flowBookmarks, setFlowBookmarks] = React.useState([])
+      const [flowWorkbench, setFlowWorkbench] = React.useState(null)
+      const [flowLaunchBatch, setFlowLaunchBatch] = React.useState(null)
+      const flowLaunchBusyRef = React.useRef(false)
       const [flowUiNotice, setFlowUiNotice] = React.useState('')
       // 大流镜 Zoom 会话互通：⇪ 带入后点选目标会话；普通“选择会话”入口已移除。
       const [zoomPick, setZoomPick] = React.useState([])
       const [zoomRelay, setZoomRelay] = React.useState(null) // { source, text } | null
       const zoomPromptRef = React.useRef('') // 开工台输入镜像（面板全量重渲染后恢复；模型分支调整经 Host RPC 也不丢）
       const flowMindMapPositionsRef = React.useRef(new Map()) // scope/node -> 手工布局；静默刷新后恢复
+      const flowMindMapViewportRef = React.useRef(new Map()) // workspace/session/history -> zoom, scroll and selected node
       const readSessionsSnapshot = () => {
         if (RT.bundleId !== 'flow') return undefined
         try {
@@ -2111,6 +2421,14 @@ return {
       const stateRef = React.useRef({})
       const htmlRef = React.useRef({})
       const htmlScrollRef = React.useRef(null) // 静默刷新前记录的滚动位置（effect 里恢复，防自动刷新打断阅读）
+      const flowDisclosureRef = React.useRef(new Map())
+      const flowConclusionSelectionRef = React.useRef(new Map())
+      const flowFocusRef = React.useRef(null)
+      React.useLayoutEffect(() => {
+        const label = active === 'flow' && panelRef.current && panelRef.current.querySelector('[data-flow-sync-state]')
+        if (!label) return
+        label.textContent = flowSyncFailure ? '同步失败' : label.getAttribute('data-flow-sync-state') === 'paused' ? '已暂停同步' : busyTool === 'flow' ? '更新中' : '已同步'
+      }, [active, html, busyTool, flowSyncFailure])
       const seqRef = React.useRef({}) // toolId -> 最新请求序号：丢弃过期响应，防 provider/模型联动竞态
       const interactiveActionSeqRef = React.useRef({}) // toolId -> 在途显式动作；后台重挂/轮询不得抢占用户点击
       // 流程右侧调用卡的最短动画跨 innerHTML 轮询续播：scope 隔离主/子会话，key 对应调用 seq。
@@ -2181,8 +2499,61 @@ return {
         return () => { col.style.marginRight = prev }
       }, [embedded, isOpen, dockMode, width])
 
+      // Native disclosures and explicit inspector navigation survive Host HTML replacement.
+      // Keep this local to a workspace/session; no Session events or persisted preferences change.
+      React.useLayoutEffect(() => {
+        const root = panelRef.current
+        const flow = active === 'flow' && root && root.querySelector('[data-flow]')
+        if (!flow) return undefined
+        const scope = currentCwd + '\u0001' + (flow.getAttribute('data-flow-scope') || '')
+        const disclosures = flowDisclosureRef.current
+        const conclusions = flowConclusionSelectionRef.current.get(scope)
+        if (conclusions) for (const node of flow.querySelectorAll('[data-flow-conclusion]')) node.checked = conclusions.has(node.getAttribute('data-node-key'))
+        for (const details of flow.querySelectorAll('details[data-flow-disclosure]')) {
+          const key = scope + '\u0001' + details.getAttribute('data-flow-disclosure')
+          if (disclosures.has(key)) details.open = disclosures.get(key)
+        }
+        const onToggle = (event) => {
+          const details = event.target
+          if (!details.matches || !details.matches('details[data-flow-disclosure]')) return
+          disclosures.set(scope + '\u0001' + details.getAttribute('data-flow-disclosure'), details.open)
+          // Bound local UI state in long-lived panels.
+          if (disclosures.size > 500) disclosures.delete(disclosures.keys().next().value)
+        }
+        flow.addEventListener('toggle', onToggle, true)
+        const pending = flowFocusRef.current
+        if (pending) {
+          flowFocusRef.current = null
+          if (pending.scope === scope) {
+            const rail = flow.querySelector('[data-flow-inspector]')
+            let target = rail && rail.querySelector('.fl-rail-x')
+            if (!rail) target = [...flow.querySelectorAll('[data-action="fdetail"][data-seq]')]
+              .find((node) => node.getAttribute('data-seq') === pending.seq && !node.closest('.fl-rail'))
+            if (target && typeof target.focus === 'function') target.focus({ preventScroll: true })
+          }
+        }
+        const inspector = flow.querySelector('[data-flow-inspector]')
+        const updateInspectorMode = () => {
+          const modal = !!inspector && flow.clientWidth < 1200
+          if (inspector) {
+            inspector.setAttribute('role', modal ? 'dialog' : 'region')
+            if (modal) inspector.setAttribute('aria-modal', 'true')
+            else inspector.removeAttribute('aria-modal')
+          }
+          for (const child of flow.children) if (child !== inspector) child.inert = modal
+        }
+        updateInspectorMode()
+        const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(updateInspectorMode) : null
+        if (observer) observer.observe(flow)
+        return () => {
+          flow.removeEventListener('toggle', onToggle, true)
+          if (observer) observer.disconnect()
+          for (const child of flow.children) child.inert = false
+        }
+      }, [active, html])
+
       // 静默刷新后恢复滚动位置（loadPanel 在 setHtml 前把各滚动容器 scrollTop 记进 htmlScrollRef）
-      React.useEffect(() => {
+      React.useLayoutEffect(() => {
         if (!panelRef.current) return
         const flowIntent = flowScrollIntentRef.current
         const flow = panelRef.current.querySelector('[data-flow][data-flow-scope]')
@@ -2196,7 +2567,7 @@ return {
               body.scrollTop = flowScrollByScopeRef.current.get(scope)
             } else {
               // column-reverse 的视觉底部是 scrollTop=0。
-              body.scrollTop = 0
+              body.scrollTop = body.classList.contains('tb-pane-col') ? body.scrollHeight : 0
             }
           }
           return
@@ -2213,7 +2584,12 @@ return {
         if (saved && saved.tool === activeRef.current) {
           try {
             const scrollers = panelRef.current.querySelectorAll('.tb-pane-body, .tb-code, .fl-pre, .tb-desc')
-            scrollers.forEach((s, i) => { if (i < saved.scrolls.length) s.scrollTop = saved.scrolls[i] })
+            scrollers.forEach((s, i) => {
+              const position = saved.scrolls[i]
+              if (position == null) return
+              s.scrollTop = typeof position === 'number' ? position : position.bottom ? (s.classList.contains('tb-pane-col') ? s.scrollHeight : 0) : position.top
+              if (typeof position === 'object') s.scrollLeft = position.left
+            })
           } catch (e) {}
           return
         }
@@ -2640,11 +3016,18 @@ return {
       const [sessionCwd, setSessionCwd] = React.useState(undefined)
       React.useEffect(() => {
         let alive = true
+        let cancelRetry
+        setSessionCwd(undefined)
         if (!currentSessionId) { setSessionCwd(undefined); return undefined }
-        host.call(RT.rpc('session-info'), { session: currentSessionId })
-          .then((r) => { if (alive && r && r.ok && typeof r.cwd === 'string') setSessionCwd(r.cwd) })
-          .catch(() => {})
-        return () => { alive = false }
+        const resolveCwd = async (attempt) => {
+          try {
+            const r = await host.call(RT.rpc('session-info'), { session: currentSessionId })
+            if (alive && r && r.ok && typeof r.cwd === 'string' && r.cwd) { setSessionCwd(r.cwd); return }
+          } catch (error) {}
+          if (alive && attempt < 3) cancelRetry = ctx.timeout(() => resolveCwd(attempt + 1), 500 * (attempt + 1))
+        }
+        resolveCwd(0)
+        return () => { alive = false; if (typeof cancelRetry === 'function') cancelRetry() }
       }, [currentSessionId])
       const hookCwd = props.useSessions((s) => {
         if (!s || !s.current) return undefined
@@ -2652,6 +3035,20 @@ return {
         return row && typeof row.cwd === 'string' && row.cwd ? row.cwd : undefined
       })
       const currentCwd = props.cwd || sessionCwd || hookCwd
+      const flowBookmarkStorageKey = RT.storageKey('flow.bookmarks.' + encodeURIComponent(currentCwd || ''))
+      React.useEffect(() => {
+        try {
+          const stored = JSON.parse(localStorage.getItem(flowBookmarkStorageKey) || 'null')
+          const items = stored && stored.version === 1 ? stored.items : Array.isArray(stored) ? stored : []
+          setFlowBookmarks(items.filter((item) => item && typeof item.sessionId === 'string' && Number.isFinite(item.seq) && ['msg', 'call'].includes(item.kind)).slice(0, 200))
+        } catch (e) { setFlowBookmarks([]) }
+        setFlowWorkbench(null)
+      }, [flowBookmarkStorageKey])
+      const saveFlowBookmarks = (items) => {
+        const bounded = items.slice(-200)
+        localStorage.setItem(flowBookmarkStorageKey, JSON.stringify({ version: 1, items: bounded }))
+        setFlowBookmarks(bounded)
+      }
       // 并发记录按工作区持久化；Session 切换/原生右侧栏重挂后仍能恢复同一次大流镜。
       const zoomLogCwdRef = React.useRef(currentCwd || '')
       if (currentCwd) zoomLogCwdRef.current = currentCwd
@@ -2710,6 +3107,7 @@ return {
           }
           localStorage.setItem(flowZoomLogStorageKey(), JSON.stringify({
             open: !!(state && state.zoom),
+            scope: state && state.zoomScope === 'run' ? 'run' : 'tree',
             activeId: state && typeof state.zoomRunId === 'string' ? state.zoomRunId : '',
             roundId: state && typeof state.zoomRoundId === 'string' ? state.zoomRoundId : '',
             runs: merged.slice(-20),
@@ -3019,8 +3417,11 @@ return {
         // DOM 暂时缺席（全量重渲染间隙）时用输入镜像兜底，不误解用户的已输入任务
         return input ? String(input.value || '') : String(zoomPromptRef.current || '')
       }
-      // 开工台输入非空 → 暂停静默轮询/事件窗重拉：面板每次全量 innerHTML 重渲染会冲掉正在输入的任务文本
-      const zoomComposerBusy = () => Boolean(flowZoomHostEl() && zoomComposerText().trim())
+      // Legacy HTML consumers retain the guard; stable Composer islands can refresh while editing.
+      const zoomComposerBusy = () => {
+        const flow = flowZoomHostEl()
+        return Boolean(flow && !flow.hasAttribute('data-flow-stable') && zoomComposerText().trim())
+      }
 
       const setFlowZoomLevel = (value) => {
         const levels = [60, 75, 90, 100, 110, 125, 150]
@@ -3036,6 +3437,7 @@ return {
       }
 
       const branchFlowAt = async (seq, sourceSessionId) => {
+        if (flowMutationBlocked()) return
         const source = sourceSessionId || flowScope()
         if (!source || !Number.isFinite(Number(seq))) return
         if (!sessionsClient || typeof sessionsClient.fork !== 'function') { setError('Harness 当前版本不支持会话分支'); return }
@@ -3133,7 +3535,7 @@ return {
         try {
           const context = await fetchSelectedFlowContext()
           await putFlowContextIntoDraft(target, context.text, true)
-          await navigateHarnessSession({ sessionId: target })
+          if (target !== currentSessionId) await navigateHarnessSession({ sessionId: target })
           setFlowSelectedSeqs([])
           setFlowBringPopup(false)
           setFlowTreeOpen({})
@@ -3166,7 +3568,11 @@ return {
       const sendTextToSession = async (sid, text) => {
         await withZoomBinding(sid, async (binding) => {
           const res = await binding.session.prompt([{ type: 'text', text }], 'queue')
-          if (!res || res.ok !== true) throw new Error((res && res.error && res.error.message) || '发送被拒绝')
+          if (!res || res.ok !== true) {
+            const error = new Error((res && res.error && res.error.message) || '未收到发送回执')
+            error.definite = !!(res && res.ok === false)
+            throw error
+          }
         })
       }
       // 模型分支：开工台每条分支一个路由 select（值 'provider/model'，'' = 默认跟随当前）
@@ -3222,7 +3628,9 @@ return {
       // 然后按需 selectModel（含 reasoningEffort）→ prompt，最后登记进看板。
       // 近观 1→N 可「沿用当前会话」（开工台 chip）：当前会话作为分支 1 直接继续，只新建 N−1 个分支，
       // 并带 linkSource 让 Host 把新轮次接进来源会话所属的大流镜历史（延长或派生，原历史不覆盖）。
-      const executeZoomLaunch = async () => {
+      const startZoomLaunch = async () => {
+        const replay = panelRef.current && panelRef.current.querySelector('[data-flow-replay-active="1"]')
+        if (replay) { setFlowUiNotice('回放为只读，请先退出回放再发送。'); return }
         const prompt = zoomComposerText().trim()
         if (!prompt) { setFlowUiNotice('先输入同一个任务再同时开始'); return }
         const lanes = zoomLaneValues()
@@ -3231,12 +3639,16 @@ return {
         const activeSids = board ? String(board.getAttribute('data-zoom-active-sids') || '').split(',').filter(Boolean).slice(0, 4) : []
         const continueExisting = activeSids.length >= 2
         const count = continueExisting ? activeSids.length : Math.max(1, Math.min(4, lanes.length || 2))
+        if (flowLaunchBatch && (flowLaunchBatch.registrationPending || flowLaunchBatch.items.some((item) => item.status !== 'success'))) {
+          setFlowUiNotice('请先处理上次任务的失败或未知结果，再创建下一次任务。')
+          return
+        }
         // 近观（无 data-flow-board）才渲染「沿用当前会话」chip；全景 N→N 续跑天然复用现有分支
         const reuseEl = !continueExisting && board && !board.hasAttribute('data-flow-board') ? board.querySelector('[data-zoom-reuse]') : null
         const reuseCurrent = !!(reuseEl && reuseEl.getAttribute('aria-pressed') === 'true')
         // 以大流镜当前选中的 Session 为准；实时向 Host 查询 cwd，避免原生侧栏 props/useSessions 切换延迟。
         // Harness 当前选中 Session 是工作区归属权威；大流镜 scope 可能仍是切换前的旧会话。
-        const sourceSessionId = harnessSelectedSessionId || currentSessionId || flowScope()
+        const sourceSessionId = flowScope() || harnessSelectedSessionId || currentSessionId
         // 「沿用」的权威目标 = 正在近观的会话（flowScope），而不是 Harness 选中态——避免 follow 关闭时发错会话
         const effSourceId = reuseCurrent ? (flowScope() || sourceSessionId) : sourceSessionId
         let launchCwd = currentCwd
@@ -3276,63 +3688,31 @@ return {
         const created = []
         const failed = []
         try {
-          if (reuseCurrent) {
-            // 先派生 N−1 个新分支（从当前完成轮次），再统一发送——新任务不得进入分叉前缀。
-            // 源会话即分支 1：只按需应用模型路由并发送任务，不改名（保留会话身份）。
-            const spawned = []
-            for (let i = 1; i < count; i++) {
-              try {
-                const sid = forkCurrent
-                  ? await sessionsClient.fork({ sessionId: effSourceId, increaseTitle: true })
-                  : await sessionsClient.create(launchWorkspaceId ? { workspaceId: launchWorkspaceId } : (launchCwd ? { cwd: launchCwd } : {}))
-                const route = lanes[i] || ''
-                if (route) await selectSessionModel(sid, route, efforts[i] || '')
-                await renameSession(sid, zoomBranchTitle(prompt, i, count, route))
-                spawned.push(sid)
-              } catch (e) { failed.push(String((e && e.message) || e)) }
-            }
-            try {
-              const route0 = lanes[0] || ''
-              if (route0) await selectSessionModel(effSourceId, route0, efforts[0] || '')
-              await sendTextToSession(effSourceId, prompt)
-              created.push(effSourceId)
-            } catch (e) { failed.push(String((e && e.message) || e)) }
-            for (const sid of spawned) {
-              try { await sendTextToSession(sid, prompt); created.push(sid) } catch (e) { failed.push(String((e && e.message) || e)) }
-            }
-          } else {
-          for (let i = 0; i < count; i++) {
-            try {
-              const sid = continueExisting
-                ? activeSids[i]
-                : forkCurrent
-                  ? await sessionsClient.fork({ sessionId: sourceSessionId, increaseTitle: true })
-                  : await sessionsClient.create(launchWorkspaceId ? { workspaceId: launchWorkspaceId } : (launchCwd ? { cwd: launchCwd } : {}))
-              const route = lanes[i] || ''
-              if (route) await selectSessionModel(sid, route, efforts[i] || '')
-              if (!continueExisting) await renameSession(sid, zoomBranchTitle(prompt, i, count, route))
-              await sendTextToSession(sid, prompt)
-              created.push(sid)
-            } catch (e) { failed.push(String((e && e.message) || e)) }
+          const batch = {
+            id: 'launch-' + Date.now(), prompt, sourceSessionId: effSourceId, workspace: currentCwd,
+            originScope: flowScope(),
+            forkCurrent, launchCwd, launchWorkspaceId, continueExisting, reuseCurrent,
+            baseHistoryId: continueExisting && board ? (board.getAttribute('data-zoom-run-id') || '') : '',
+            baseRoundId: continueExisting && board ? (board.getAttribute('data-zoom-round-id') || '') : '',
+            sourceSids: continueExisting ? activeSids : (effSourceId ? [effSourceId] : []),
+            linkSource: !continueExisting && board && !board.hasAttribute('data-flow-board') ? effSourceId : '',
+            draftKey: board && board.getAttribute('data-flow-draft-key') || '',
+            items: Array.from({ length: count }, (_unused, index) => ({
+              index, sid: continueExisting ? activeSids[index] : reuseCurrent && index === 0 ? effSourceId : '',
+              route: lanes[index] || '', effort: efforts[index] || '',
+              rename: !continueExisting && !(reuseCurrent && index === 0), stage: 'create', status: 'ready',
+            })),
           }
+          await runFlowLaunchBatch(batch, flowLaunchApi(batch), saveFlowLaunchBatch)
+          for (const item of batch.items) {
+            if (item.status === 'success') created.push(item.sid)
+            else failed.push('分支 ' + (item.index + 1) + '：' + (item.status === 'unknown' ? '结果未知，需核对' : item.error))
           }
-          if (created.length && typeof loadPanelRef.current === 'function') {
-            const joinedSids = continueExisting ? activeSids : created
-            loadPanelRef.current('flow', 'fzoom-joined', { dataset: {
-              sids: joinedSids.join(','),
-              meta: JSON.stringify({
-                prompt, routes: lanes.slice(0, count), efforts: efforts.slice(0, count),
-                sourceSids: continueExisting ? activeSids : (effSourceId ? [effSourceId] : []),
-                baseHistoryId: continueExisting && board ? (board.getAttribute('data-zoom-run-id') || '') : '',
-                baseRoundId: continueExisting && board ? (board.getAttribute('data-zoom-round-id') || '') : '',
-                // 近观 1→N：把新轮次接进来源会话所属的大流镜历史（Host 按成员/来源轮次解析基线）
-                ...(!continueExisting && board && !board.hasAttribute('data-flow-board') && effSourceId ? { linkSource: effSourceId } : {}),
-              }),
-            } }, { silent: true })
-          }
+          await registerFlowLaunch(batch)
           // 空白“新会话”只承担开工入口；分支启动后直接进入第一条实际工作会话。
           // 已有会话上的分叉仍留在父会话，方便继续查看父级与分支对比；「沿用」时当前会话即分支 1，不导航。
-          if (!forkCurrent && !reuseCurrent && created.length) {
+          if (!forkCurrent && !reuseCurrent && created.length
+            && (cwdRef.current || '') === (batch.workspace || '') && flowScope() === batch.originScope) {
             const target = created[0]
             const followState = stateRef.current.flow
             if (followState) flowFollowStateBySessionRef.current.set(target, followState)
@@ -3345,8 +3725,11 @@ return {
             }
           }
           const input = board && board.querySelector('[data-zoom-prompt]')
-          if (input) input.value = ''
-          zoomPromptRef.current = ''
+          if (!failed.length) {
+            if (loadPanelRef.current) await loadPanelRef.current('flow', 'fzoom-composer-close', null, { silent: true })
+            clearFlowDraft(batch.draftKey, prompt)
+            if (input && input.value.trim() === prompt) { input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); zoomPromptRef.current = '' }
+          }
           setFlowUiNotice((reuseCurrent
             ? '已沿用当前会话开工' + (created.length > 1 ? '，新建 ' + (created.length - 1) + ' 个分支' : '')
             : continueExisting
@@ -3355,8 +3738,107 @@ return {
         } catch (e) { setError('同时开始失败: ' + String((e && e.message) || e)) }
         finally { setFlowUiBusy(false) }
       }
+      const executeZoomLaunch = async () => {
+        if (flowLaunchBusyRef.current) return
+        flowLaunchBusyRef.current = true
+        try { await startZoomLaunch() } finally { flowLaunchBusyRef.current = false }
+      }
+      const saveFlowLaunchBatch = (batch) => {
+        if ((cwdRef.current || '') === (batch.workspace || '')) setFlowLaunchBatch({ ...batch, items: batch.items.map((item) => ({ ...item })) })
+        try { localStorage.setItem(RT.storageKey('flow.launch.' + encodeURIComponent(batch.workspace || '')), JSON.stringify(batch)) } catch (e) {}
+      }
+      const registerFlowLaunch = async (batch) => {
+        const known = batch.items.filter((item) => item.sid)
+        if (!known.length || !loadPanelRef.current) return
+        batch.registrationPending = true
+        if ((cwdRef.current || '') !== (batch.workspace || '') || (batch.originScope && flowScope() !== batch.originScope)) {
+          saveFlowLaunchBatch(batch)
+          return
+        }
+        if (!batch.runId || !batch.roundId) {
+          const result = await loadPanelRef.current('flow', 'fzoom-joined', { dataset: {
+            sids: known.map((item) => item.sid).join(','),
+            meta: JSON.stringify({ prompt: batch.prompt, routes: known.map((item) => item.route), efforts: known.map((item) => item.effort),
+              sourceSids: batch.sourceSids, baseHistoryId: batch.baseHistoryId, baseRoundId: batch.baseRoundId, ...(batch.linkSource ? { linkSource: batch.linkSource } : {}) }),
+          } })
+          if (result && result.ok && result.state) {
+            batch.runId = result.state.zoomRunId; batch.roundId = result.state.zoomRoundId
+            batch.registeredSids = known.map((item) => item.sid)
+          }
+        } else {
+          for (const item of known.filter((item) => !(batch.registeredSids || []).includes(item.sid))) {
+            const result = await loadPanelRef.current('flow', 'fzoom-run-add', { dataset: { sid: item.sid, run: batch.runId, round: batch.roundId, route: item.route, effort: item.effort } })
+            if (result && result.ok) batch.registeredSids = [...(batch.registeredSids || []), item.sid]
+          }
+        }
+        batch.registrationPending = known.some((item) => !(batch.registeredSids || []).includes(item.sid))
+        saveFlowLaunchBatch(batch)
+      }
+      const flowLaunchApi = (batch) => ({
+        create: () => batch.forkCurrent
+          ? sessionsClient.fork({ sessionId: batch.sourceSessionId, increaseTitle: true })
+          : sessionsClient.create(batch.launchWorkspaceId ? { workspaceId: batch.launchWorkspaceId } : (batch.launchCwd ? { cwd: batch.launchCwd } : {})),
+        configure: async (item) => {
+          if (item.route) await selectSessionModel(item.sid, item.route, item.effort)
+          if (item.rename) await renameSession(item.sid, zoomBranchTitle(batch.prompt, item.index, batch.items.length, item.route))
+        },
+        send: async (item, text) => {
+          // A durable position makes later receipt reconciliation conservative.
+          try {
+            await withZoomBinding(item.sid, (binding) => {
+              const snapshot = binding.eventSource && binding.eventSource.getSnapshot()
+              const events = flowDurableEvents(snapshot)
+              item.beforeSeq = events ? Math.max(-1, ...events.map((entry) => entry.seq)) : null
+            })
+          } catch (e) { item.beforeSeq = null }
+          saveFlowLaunchBatch(batch)
+          await sendTextToSession(item.sid, text)
+        },
+      })
+      const retryFlowLaunch = async () => {
+        if (!flowLaunchBatch || flowLaunchBusyRef.current) return
+        if (panelRef.current && panelRef.current.querySelector('[data-flow-replay-active="1"]')) { setFlowUiNotice('请先退出只读回放再恢复发送。'); return }
+        flowLaunchBusyRef.current = true; setFlowUiBusy(true)
+        try {
+          await runFlowLaunchBatch(flowLaunchBatch, flowLaunchApi(flowLaunchBatch), saveFlowLaunchBatch)
+          await registerFlowLaunch(flowLaunchBatch)
+        }
+        finally { flowLaunchBusyRef.current = false; setFlowUiBusy(false) }
+      }
+      const reconcileFlowLaunch = async () => {
+        if (!flowLaunchBatch || flowLaunchBusyRef.current) return
+        flowLaunchBusyRef.current = true; setFlowUiBusy(true)
+        try {
+        for (const item of flowLaunchBatch.items) {
+          if (item.status !== 'unknown' || item.stage !== 'send' || !item.sid || item.beforeSeq == null) continue
+          try {
+            await withZoomBinding(item.sid, (binding) => {
+              const snapshot = binding.eventSource && binding.eventSource.getSnapshot()
+              const events = flowDurableEvents(snapshot)
+              const found = events && events.some((entry) =>
+                entry.seq > item.beforeSeq && entry.type === 'user/message' && entry.data && Array.isArray(entry.data.content)
+                  && entry.data.content.filter((part) => part.type === 'text').map((part) => part.text).join('') === flowLaunchBatch.prompt)
+              if (found) { item.status = 'success'; item.error = '' }
+            })
+          } catch (e) {}
+        }
+        saveFlowLaunchBatch(flowLaunchBatch)
+        await registerFlowLaunch(flowLaunchBatch)
+        setFlowUiNotice('已核对可用事件；未找到可靠回执的分支保留未知状态，不会重复发送。')
+        } finally { flowLaunchBusyRef.current = false; setFlowUiBusy(false) }
+      }
+      React.useEffect(() => {
+        try {
+          const batch = JSON.parse(localStorage.getItem(RT.storageKey('flow.launch.' + encodeURIComponent(currentCwd || ''))) || 'null')
+          if (batch && Array.isArray(batch.items)) {
+            batch.items = batch.items.slice(0, 4).map((item) => ({ ...item, status: item.status === 'pending' ? 'unknown' : item.status }))
+            setFlowLaunchBatch(batch)
+          } else setFlowLaunchBatch(null)
+        } catch (e) { setFlowLaunchBatch(null) }
+      }, [currentCwd])
       // 从对比网格某一轮同时派生所有会话，形成新的并发批次（不自动追加消息）。
       const executeZoomRoundFork = async (el) => {
+        if (flowMutationBlocked()) return
         if (!sessionsClient || typeof sessionsClient.fork !== 'function') { setError('Harness 当前版本不支持会话分支'); return }
         let spec = []
         try { spec = JSON.parse(el.getAttribute('data-spec') || '[]') } catch (e) {}
@@ -3389,6 +3871,7 @@ return {
       }
       // 单列本轮 1→N：N 取当前 composer 的并发数量，并继承所选历史的轮次前缀。
       const executeZoomCellFork = async (sourceSid, seq, turn, baseHistoryId, baseRoundId) => {
+        if (flowMutationBlocked()) return
         if (!sourceSid || !Number.isFinite(Number(seq)) || !sessionsClient || typeof sessionsClient.fork !== 'function') return
         const targetCount = Math.max(2, Math.min(4, zoomLaneValues().length || 2))
         setFlowUiBusy(true); setFlowUiNotice('正在从第 ' + turn + ' 轮创建 1→' + targetCount + ' 分支…')
@@ -3411,6 +3894,7 @@ return {
       }
       // 不切换 Harness 当前会话：在当前工作区创建一个空 Session，并直接加入当前并发组。
       const executeZoomAddNewSession = async () => {
+        if (flowMutationBlocked()) return
         if (!sessionsClient || typeof sessionsClient.create !== 'function') { setFlowUiNotice('当前版本不支持新建 Session'); return }
         const sourceSessionId = harnessSelectedSessionId || currentSessionId || flowScope()
         let workspaceId = ''
@@ -3431,6 +3915,7 @@ return {
       }
       // 带入/发送到选中：文本源 = ⇪ 带入暂存优先，其次开工台输入；目标 = 点选集合（排除带入源自身）
       const executeZoomCast = async (send) => {
+        if (send && flowMutationBlocked()) return
         const text = (zoomRelay && zoomRelay.text ? zoomRelay.text : zoomComposerText()).trim()
         const targets = zoomPick.filter((sid) => !zoomRelay || sid !== zoomRelay.source)
         if (!text) { setFlowUiNotice('先输入任务，或点卡片的 ⇪ 带入它的最新结论'); return }
@@ -3457,7 +3942,7 @@ return {
       }
 
       // Zoom 仅缩放流镜画布内容，header/工具栏与滚动容器保持原尺寸。
-      React.useEffect(() => {
+      React.useLayoutEffect(() => {
         const flow = panelRef.current && panelRef.current.querySelector('[data-flow]')
         if (!flow || active !== 'flow') return
         const body = flow.querySelector('.tb-pane-body')
@@ -3466,18 +3951,41 @@ return {
 
       // 导图画布：节点可自由拖动，空白处拖动平移；边线跟随节点。布局保存在 ref 中，
       // 避免 2s 实时刷新把用户正在整理的导图复位。
-      React.useEffect(() => {
+      React.useLayoutEffect(() => {
         const root = panelRef.current
         const viewport = root && root.querySelector('[data-flow-mindmap]')
         if (!viewport || active !== 'flow') return undefined
         const canvas = viewport.querySelector('.fl-mindmap-canvas')
         if (!canvas) return undefined
-        const scope = viewport.getAttribute('data-map-scope') || 'current'
+        const flowRoot = viewport.closest('[data-flow]')
+        const scope = JSON.stringify([currentCwd || '', flowRoot && flowRoot.getAttribute('data-flow-scope') || '', viewport.getAttribute('data-map-scope') || 'current'])
         const keyOf = (node) => scope + '/' + (node.getAttribute('data-map-node') || '')
         const nodes = [...canvas.querySelectorAll('[data-map-node]')]
+        const mapWrap = viewport.closest('.fl-mindmap-wrap') || viewport
+        const ownerWindow = viewport.ownerDocument.defaultView
+        let savedView = flowMindMapViewportRef.current.get(scope)
+        if (!savedView) {
+          try {
+            const saved = JSON.parse(localStorage.getItem(RT.storageKey('flow.map-state')) || 'null')
+            savedView = saved && saved.version === 1 && saved.scopes && saved.scopes[scope]
+          } catch (e) {}
+        }
+        const hasSavedView = !!(savedView && typeof savedView === 'object' && savedView.updatedAt)
+        savedView = savedView && typeof savedView === 'object' ? savedView : {}
+        let scale = Number(savedView.scale) >= .1 && Number(savedView.scale) <= 2 ? Number(savedView.scale) : 1
+        let autoFit = hasSavedView && savedView.autoFit === true
+        let selectedId = typeof savedView.selectedId === 'string' ? savedView.selectedId : ''
+        let saveTimer = null
+        const baseWidth = parseFloat(canvas.style.width) || canvas.offsetWidth
+        const baseHeight = parseFloat(canvas.style.height) || canvas.offsetHeight
         for (const node of nodes) {
-          const saved = flowMindMapPositionsRef.current.get(keyOf(node))
-          if (saved) { node.style.left = saved.x + 'px'; node.style.top = saved.y + 'px' }
+          const id = node.getAttribute('data-map-node') || ''
+          const saved = flowMindMapPositionsRef.current.get(keyOf(node)) || (savedView.positions && savedView.positions[id])
+          if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+            const position = { x: Math.max(0, saved.x), y: Math.max(0, saved.y) }
+            node.style.left = position.x + 'px'; node.style.top = position.y + 'px'
+            flowMindMapPositionsRef.current.set(keyOf(node), position)
+          }
         }
         const updateEdges = () => {
           const base = canvas.getBoundingClientRect()
@@ -3521,16 +4029,126 @@ return {
             path.setAttribute('d', d)
           }
         }
-        updateEdges()
+        const nodeBounds = () => {
+          if (!nodes.length) return { left: 0, top: 0, right: baseWidth, bottom: baseHeight }
+          return nodes.reduce((bounds, node) => {
+            const left = parseFloat(node.style.left) || 0, top = parseFloat(node.style.top) || 0
+            return { left: Math.min(bounds.left, left), top: Math.min(bounds.top, top), right: Math.max(bounds.right, left + node.offsetWidth), bottom: Math.max(bounds.bottom, top + node.offsetHeight) }
+          }, { left: Infinity, top: Infinity, right: 0, bottom: 0 })
+        }
+        const saveView = () => {
+          const positions = Object.create(null)
+          for (const node of nodes) {
+            const position = flowMindMapPositionsRef.current.get(keyOf(node))
+            if (position) positions[node.getAttribute('data-map-node') || ''] = position
+          }
+          const value = { scale, left: viewport.scrollLeft, top: viewport.scrollTop, selectedId, autoFit, positions, updatedAt: Date.now() }
+          flowMindMapViewportRef.current.set(scope, value)
+          try {
+            const old = JSON.parse(localStorage.getItem(RT.storageKey('flow.map-state')) || 'null')
+            const scopes = old && old.version === 1 && old.scopes && typeof old.scopes === 'object' ? old.scopes : {}
+            scopes[scope] = value
+            const recent = Object.fromEntries(Object.entries(scopes).sort((a, b) => Number(b[1].updatedAt || 0) - Number(a[1].updatedAt || 0)).slice(0, 20))
+            localStorage.setItem(RT.storageKey('flow.map-state'), JSON.stringify({ version: 1, scopes: recent }))
+          } catch (e) {}
+        }
+        const queueSave = () => {
+          if (saveTimer != null) ownerWindow.clearTimeout(saveTimer)
+          saveTimer = ownerWindow.setTimeout(() => { saveTimer = null; saveView() }, 180)
+        }
+        const applyScale = () => {
+          canvas.style.zoom = String(scale)
+          viewport.setAttribute('data-map-scale', String(scale))
+          for (const output of mapWrap.querySelectorAll('[data-map-zoom-value]')) output.textContent = Math.round(scale * 100) + '%'
+          for (const control of mapWrap.querySelectorAll('[data-map-zoom]')) {
+            const direction = control.getAttribute('data-map-zoom')
+            control.disabled = direction === 'out' ? scale <= .1 : direction === 'in' ? scale >= 2 : false
+          }
+        }
+        const updateExtent = () => {
+          const bounds = nodeBounds()
+          canvas.style.width = Math.max(baseWidth, bounds.right + 40) + 'px'
+          canvas.style.height = Math.max(baseHeight, bounds.bottom + 40) + 'px'
+          const edges = canvas.querySelector('.fl-mindmap-edges')
+          if (edges) { edges.setAttribute('width', canvas.style.width); edges.setAttribute('height', canvas.style.height) }
+        }
+        const selectNode = (node, focus) => {
+          if (!node) return
+          selectedId = node.getAttribute('data-map-node') || ''
+          for (const item of nodes) {
+            const picked = item === node
+            item.classList.toggle('is-selected', picked)
+            item.setAttribute('data-map-selected', picked ? 'true' : 'false')
+            const select = item.querySelector('[data-map-select]')
+            if (select) select.setAttribute('aria-pressed', picked ? 'true' : 'false')
+          }
+          if (focus) {
+            const control = node.querySelector('[data-map-select]') || node
+            try { control.focus({ preventScroll: true }) } catch (e) { control.focus() }
+          }
+          queueSave()
+        }
+        const fitView = () => {
+          if (!viewport.clientWidth || !viewport.clientHeight) return
+          const bounds = nodeBounds()
+          scale = Math.max(.1, Math.min(1, (viewport.clientWidth - 40) / Math.max(1, bounds.right - bounds.left), (viewport.clientHeight - 40) / Math.max(1, bounds.bottom - bounds.top)))
+          autoFit = true
+          applyScale()
+          viewport.scrollLeft = Math.max(0, (bounds.left + bounds.right) * scale / 2 - viewport.clientWidth / 2)
+          viewport.scrollTop = Math.max(0, (bounds.top + bounds.bottom) * scale / 2 - viewport.clientHeight / 2)
+          updateEdges(); queueSave()
+        }
+        const centerNode = () => {
+          const node = nodes.find((item) => item.getAttribute('data-map-node') === selectedId) || nodes[0]
+          if (!node) return
+          autoFit = false
+          selectNode(node, false)
+          viewport.scrollLeft = Math.max(0, ((parseFloat(node.style.left) || 0) + node.offsetWidth / 2) * scale - viewport.clientWidth / 2)
+          viewport.scrollTop = Math.max(0, ((parseFloat(node.style.top) || 0) + node.offsetHeight / 2) * scale - viewport.clientHeight / 2)
+          queueSave()
+        }
+        const zoomView = (direction) => {
+          const before = scale
+          const levels = [.1, .15, .25, .35, .5, .65, .8, 1, 1.25, 1.5, 2]
+          const centerX = (viewport.scrollLeft + viewport.clientWidth / 2) / before
+          const centerY = (viewport.scrollTop + viewport.clientHeight / 2) / before
+          scale = direction === 'reset' ? 1 : direction === 'in' ? (levels.find((level) => level > before + .005) || 2) : ([...levels].reverse().find((level) => level < before - .005) || .1)
+          autoFit = false
+          applyScale()
+          viewport.scrollLeft = Math.max(0, centerX * scale - viewport.clientWidth / 2)
+          viewport.scrollTop = Math.max(0, centerY * scale - viewport.clientHeight / 2)
+          updateEdges(); queueSave()
+        }
+        const panView = (direction) => {
+          autoFit = false
+          const distance = Math.max(80, Math.round(Math.min(viewport.clientWidth, viewport.clientHeight) * .35))
+          if (direction === 'left' || direction === 'right') viewport.scrollLeft += direction === 'left' ? -distance : distance
+          if (direction === 'up' || direction === 'down') viewport.scrollTop += direction === 'up' ? -distance : distance
+          queueSave()
+        }
+        updateExtent(); applyScale(); updateEdges()
+        selectNode(nodes.find((node) => node.getAttribute('data-map-node') === selectedId) || nodes[0], false)
+        if (autoFit) fitView()
+        else if (hasSavedView) { viewport.scrollLeft = Number(savedView.left) || 0; viewport.scrollTop = Number(savedView.top) || 0 }
+        else {
+          const bounds = nodeBounds()
+          scale = Math.max(.1, Math.min(1, (viewport.clientWidth - 40) / Math.max(1, bounds.right - bounds.left)))
+          applyScale()
+          viewport.scrollLeft = Math.max(0, (bounds.left + bounds.right) * scale / 2 - viewport.clientWidth / 2)
+          viewport.scrollTop = viewport.scrollHeight
+          queueSave()
+        }
         let drag = null
         const onDown = (e) => {
           if (e.button !== 0 || (e.target && e.target.closest && e.target.closest('button,a,input,select,textarea'))) return
           const node = e.target && e.target.closest ? e.target.closest('[data-map-node]') : null
           if (node) {
+            selectNode(node, false)
             const base = canvas.getBoundingClientRect()
             const scale = canvas.offsetWidth ? base.width / canvas.offsetWidth : 1
             drag = { kind: 'node', node, x: e.clientX, y: e.clientY, left: parseFloat(node.style.left) || 0, top: parseFloat(node.style.top) || 0, scale }
           } else {
+            autoFit = false
             drag = { kind: 'pan', x: e.clientX, y: e.clientY, left: viewport.scrollLeft, top: viewport.scrollTop }
             viewport.classList.add('is-panning')
           }
@@ -3544,7 +4162,8 @@ return {
             const y = Math.max(0, drag.top + (e.clientY - drag.y) / drag.scale)
             drag.node.style.left = x + 'px'; drag.node.style.top = y + 'px'
             flowMindMapPositionsRef.current.set(keyOf(drag.node), { x, y })
-            updateEdges()
+            autoFit = false
+            updateExtent(); updateEdges(); queueSave()
           } else {
             viewport.scrollLeft = drag.left - (e.clientX - drag.x)
             viewport.scrollTop = drag.top - (e.clientY - drag.y)
@@ -3555,9 +4174,9 @@ return {
           if (!drag) return
           drag = null
           viewport.classList.remove('is-panning')
+          queueSave()
           try { viewport.releasePointerCapture(e.pointerId) } catch (err) {}
         }
-        const reset = root.querySelector('[data-map-reset]')
         const onReset = () => {
           for (const node of nodes) {
             const x = Number(node.getAttribute('data-map-default-x')) || 0
@@ -3565,21 +4184,65 @@ return {
             node.style.left = x + 'px'; node.style.top = y + 'px'
             flowMindMapPositionsRef.current.delete(keyOf(node))
           }
-          viewport.scrollLeft = 0; viewport.scrollTop = 0; updateEdges()
+          updateExtent(); updateEdges(); fitView()
         }
+        const onMapClick = (e) => {
+          const target = e.target && e.target.closest ? e.target.closest('[data-map-fit],[data-map-center],[data-map-reset],[data-map-zoom],[data-map-pan],[data-map-select]') : null
+          if (!target || !mapWrap.contains(target)) return
+          if (target.hasAttribute('data-map-fit')) fitView()
+          else if (target.hasAttribute('data-map-center')) centerNode()
+          else if (target.hasAttribute('data-map-reset')) onReset()
+          else if (target.hasAttribute('data-map-zoom')) zoomView(target.getAttribute('data-map-zoom'))
+          else if (target.hasAttribute('data-map-pan')) panView(target.getAttribute('data-map-pan'))
+          else selectNode(target.closest('[data-map-node]'), false)
+        }
+        const onMapKeyDown = (e) => {
+          if (e.isComposing || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return
+          const target = e.target
+          if (!target || !(target === viewport || (target.closest && target.closest('[data-map-select]')))) return
+          e.preventDefault(); e.stopPropagation()
+          const direction = e.key.slice(5).toLowerCase()
+          const node = target.closest && target.closest('[data-map-node]')
+          if (!node || e.shiftKey) { panView(direction); return }
+          if (e.ctrlKey || e.metaKey) {
+            const step = 20
+            const x = Math.max(0, (parseFloat(node.style.left) || 0) + (direction === 'left' ? -step : direction === 'right' ? step : 0))
+            const y = Math.max(0, (parseFloat(node.style.top) || 0) + (direction === 'up' ? -step : direction === 'down' ? step : 0))
+            node.style.left = x + 'px'; node.style.top = y + 'px'
+            flowMindMapPositionsRef.current.set(keyOf(node), { x, y })
+            autoFit = false
+            updateExtent(); updateEdges(); queueSave()
+            return
+          }
+          const current = nodes.indexOf(node)
+          const next = nodes[Math.max(0, Math.min(nodes.length - 1, current + (direction === 'left' || direction === 'up' ? -1 : 1)))]
+          selectNode(next, true); centerNode()
+        }
+        const onResize = () => { if (autoFit) fitView(); else updateEdges() }
+        const observer = ownerWindow && typeof ownerWindow.ResizeObserver === 'function' ? new ownerWindow.ResizeObserver(onResize) : null
+        if (observer) observer.observe(viewport)
+        else if (ownerWindow) ownerWindow.addEventListener('resize', onResize)
+        viewport.addEventListener('scroll', queueSave, { passive: true })
         viewport.addEventListener('pointerdown', onDown)
         viewport.addEventListener('pointermove', onMove)
         viewport.addEventListener('pointerup', finish)
         viewport.addEventListener('pointercancel', finish)
-        if (reset) reset.addEventListener('click', onReset)
+        mapWrap.addEventListener('click', onMapClick)
+        mapWrap.addEventListener('keydown', onMapKeyDown)
         return () => {
+          if (saveTimer != null) ownerWindow.clearTimeout(saveTimer)
+          saveView()
+          if (observer) observer.disconnect()
+          else if (ownerWindow) ownerWindow.removeEventListener('resize', onResize)
+          viewport.removeEventListener('scroll', queueSave)
           viewport.removeEventListener('pointerdown', onDown)
           viewport.removeEventListener('pointermove', onMove)
           viewport.removeEventListener('pointerup', finish)
           viewport.removeEventListener('pointercancel', finish)
-          if (reset) reset.removeEventListener('click', onReset)
+          mapWrap.removeEventListener('click', onMapClick)
+          mapWrap.removeEventListener('keydown', onMapKeyDown)
         }
-      }, [active, html])
+      }, [active, html, currentCwd])
 
       // “添加其他 Session”既可点击，也可把候选项拖入目标 Session 区；全程不切换 Harness 会话。
       React.useEffect(() => {
@@ -3665,6 +4328,7 @@ return {
             const sel = d.box.getBoundingClientRect()
             const seqs = new Set()
             for (const card of flow.querySelectorAll('[data-flow-select-seq]')) {
+              if (!card.getClientRects().length) continue // Collapsed system context is not selected implicitly.
               const r = card.getBoundingClientRect()
               if (r.right >= sel.left && r.left <= sel.right && r.bottom >= sel.top && r.top <= sel.bottom) {
                 const seq = Number(card.getAttribute('data-flow-select-seq'))
@@ -3680,7 +4344,7 @@ return {
             const t = e.target
             if (t && typeof t.closest === 'function'
               && !t.closest('[data-flow-select-seq]')
-              && !t.closest('button,a,input,select,textarea,label')) {
+              && !t.closest('button,a,input,select,textarea,label,summary,details,[role="button"],.fl-rail')) {
               if (flowSelectedSeqs.length) { setFlowSelectedSeqs([]); setFlowBringPopup(false) }
               // 详情侧栏经 ✕ 同款 fdetail 切换路径收起（st.expanded === seq → null）
               const railX = flow.querySelector('.fl-rail-x')
@@ -3711,7 +4375,7 @@ return {
           if (!pane.querySelector('.fl-zoom-composer')) return
           const t = e.target
           if (!t || typeof t.closest !== 'function') return
-          if (t.closest('.fl-zoom-composer,[data-action="fzoom-composer"],.tb-flow-add-popup,.tb-flow-bring-popup,.fl-rail,.fl-zoom-history-drawer,button,a,input,select,textarea,label,[data-action],[data-flow-branch],[data-flow-select-seq],[data-map-node],[data-zoom-add-drop]')) return
+          if (t.closest('.fl-zoom-composer,[data-action="fzoom-composer"],.tb-flow-add-popup,.tb-flow-bring-popup,.fl-rail,.fl-zoom-history-drawer,button,a,input,select,textarea,label,summary,[data-flow-disclosure],[data-action],[data-flow-branch],[data-flow-select-seq],[data-map-node],[data-zoom-add-drop]')) return
           if (typeof loadPanelRef.current === 'function') loadPanelRef.current('flow', 'fzoom-composer', null)
         }
         pane.addEventListener('pointerdown', onComposerBlankDown)
@@ -3725,7 +4389,6 @@ return {
         if (active !== 'flow' || !board) {
           if (zoomPick.length) setZoomPick([])
           if (zoomRelay) setZoomRelay(null)
-          zoomPromptRef.current = ''
           return
         }
         board.classList.toggle('fl-zoom-picking', !!zoomRelay)
@@ -3734,7 +4397,8 @@ return {
           card.classList.toggle('fl-zoom-picked', zoomPick.includes(sid))
         }
         const input = board.querySelector('[data-zoom-prompt]')
-        if (input && input.value !== zoomPromptRef.current) input.value = zoomPromptRef.current
+        if (input && board.hasAttribute('data-flow-stable')) zoomPromptRef.current = input.value
+        else if (input && input.value !== zoomPromptRef.current) input.value = zoomPromptRef.current
       }, [active, html, zoomPick, zoomRelay])
 
       function collectFields() {
@@ -3780,6 +4444,7 @@ return {
           const persistFlowRules = toolId === 'flow' && ['fsave-rule', 'fcreate-rule', 'fapply-rule-json', 'ftoggle-rule', 'fdelete-rule', 'freset-rules'].includes(action)
           if (toolId === 'flow') {
             fields.__flowPresentationRules = readFlowRules()
+            fields.__flowBookmarks = JSON.stringify(flowBookmarks)
             fields.__flowPreferences = JSON.stringify(readFlowPreferences())
             fields.__flowZoomLog = JSON.stringify(readFlowZoomLog())
             fields.__flowArchivedSessionIds = JSON.stringify(archivedSessionIds)
@@ -3827,6 +4492,7 @@ return {
           const res = await Promise.race([callP, timeoutP])
           if (seqRef.current[toolId] !== seq) return // 已有更新的请求发出：过期响应直接丢弃（联动切换竞态修复）；DOM 由新请求的响应接管
           if (res && res.ok) {
+            if (toolId === 'flow') setFlowSyncFailure(false)
             if (persistFlowRules) writeFlowRules(JSON.stringify((res.state && res.state.presentationRules) || []))
             retryCountRef.current[toolId] = 0 // 成功：清零一次性重试计数
             stateRef.current[toolId] = res.state
@@ -3838,6 +4504,7 @@ return {
             const currentScope = currentFlow && (currentFlow.getAttribute('data-flow-scope') || '')
             const scopeMatch = /data-flow-scope="([^"]*)"/.exec(res.html)
             const nextScope = scopeMatch ? scopeMatch[1] : ''
+            if (toolId === 'flow' && (!currentFlow || ['fzoom-view', 'fzoom-run', 'fzoom-round', 'fzoom-joined'].includes(action))) flowScrollIntentRef.current = 'latest'
             if (toolId === 'flow' && currentScope && nextScope && currentScope !== nextScope && !flowScrollIntentRef.current) {
               const currentBody = currentFlow.querySelector('.tb-pane-body')
               if (currentBody) flowScrollByScopeRef.current.set(currentScope, currentBody.scrollTop)
@@ -3849,7 +4516,10 @@ return {
               try {
                 const scrolls = []
                 const scrollers = panelRef.current.querySelectorAll('.tb-pane-body, .tb-code, .fl-pre, .tb-desc')
-                for (const s of scrollers) scrolls.push(s.scrollTop)
+                for (const s of scrollers) scrolls.push(toolId === 'flow' ? {
+                  top: s.scrollTop, left: s.scrollLeft,
+                  bottom: s.classList.contains('tb-pane-body') && (s.classList.contains('tb-pane-col') ? s.scrollHeight - s.clientHeight - s.scrollTop < 40 : Math.abs(s.scrollTop) < 40),
+                } : s.scrollTop)
                 htmlScrollRef.current = { tool: toolId, scrolls }
               } catch (e) {}
             }
@@ -3857,7 +4527,15 @@ return {
             // 若先 setHtml 再导航，原生 Session Tab 会经历“旧页聚焦 → 卸载 → 新页重开”；
             // 后面的双定时重开又会重复挂载，表现为明显闪屏。
             const deferFlowNavigationRender = toolId === 'flow' && action === 'fzoom-open' && !!res.navigateSession
-            if (!deferFlowNavigationRender) setHtml(res.html)
+            if (!deferFlowNavigationRender) {
+              if (toolId === 'flow' && action === 'fdetail' && el) {
+                flowFocusRef.current = {
+                  scope: currentCwd + '\u0001' + nextScope,
+                  seq: String((el.dataset && el.dataset.seq) || el.getAttribute && el.getAttribute('data-seq') || ''),
+                }
+              }
+              setHtml(res.html)
+            }
             // Host 只在 Flowglass 已开启“子代理跟随”且用户主动点击进入时返回该指令。
             // 使用 SessionRuntime 导航会让 Harness 的会话列表、会话页和持久选中态一起更新。
             if (toolId === 'flow' && res.navigateSession) {
@@ -3881,8 +4559,7 @@ return {
             }
             // 大流镜 ⇪ 带入：Host 已取源会话最新结论 → 暂存并进入点选模式（点卡选目标后带入/发送）
             if (toolId === 'flow' && res.zoomRelay && typeof res.zoomRelay.text === 'string' && res.zoomRelay.text) {
-              setZoomRelay({ source: String(res.zoomRelay.sourceSessionId || ''), text: res.zoomRelay.text })
-              setFlowUiNotice('已暂存该会话的最新结论 —— 点选目标会话卡片后「带入草稿」或「直接发送」')
+              setFlowWorkbench({ mode: 'relay', text: res.zoomRelay.text, target: currentSessionId || '' })
             }
             // 自动刷新约定：工具 HTML 带 data-autorefresh="ms" → 抽屉静默定时重拉（静默 = 不转圈）
             const am = /data-autorefresh="(\d+)"/.exec(res.html)
@@ -3927,12 +4604,15 @@ return {
             } else {
               setCopied(null)
             }
+            return res
           } else {
+            if (toolId === 'flow') setFlowSyncFailure(true)
             setError((res && res.error) || '面板加载失败')
             retryOnce(toolId)
           }
         } catch (e) {
           if (seqRef.current[toolId] === seq) {
+            if (toolId === 'flow') setFlowSyncFailure(true)
             setError('面板请求异常: ' + String((e && e.message) || e))
             retryOnce(toolId)
           }
@@ -4378,12 +5058,100 @@ return {
         }, 1200)
       }
 
+      const flowMutationBlocked = () => {
+        if (!panelRef.current || !panelRef.current.querySelector('[data-flow-replay-active="1"]')) return false
+        setFlowUiNotice('回放为只读，请先退出回放再执行任务。')
+        return true
+      }
+      const prepareFlowConclusions = async () => {
+        const box = panelRef.current
+        const chosen = box ? [...box.querySelectorAll('[data-flow-conclusion]:checked')].slice(0, 4) : []
+        if (chosen.length < 2) { setFlowUiNotice('请选择 2–4 条已完成结论进行对比。'); return }
+        setFlowUiBusy(true)
+        try {
+          const results = []
+          for (const node of chosen) {
+            const sid = node.getAttribute('data-sid')
+            const seq = Number(node.getAttribute('data-seq'))
+            const round = node.getAttribute('data-round') || '来源轮次未对齐'
+            const response = await host.call(RT.rpc('panel'), {
+              tool: 'flow', action: 'fcontext', fields: { __el: { seqs: String(seq), requireCompleted: '1' } },
+              state: { sid, home: sid, live: false, follow: false, zoom: false }, root: currentCwd || undefined, session: sid,
+            })
+            if (!response || !response.ok || !response.flowContext || !response.flowContext.text
+              || !Array.isArray(response.flowContext.seqs) || response.flowContext.seqs.length !== 1 || response.flowContext.seqs[0] !== seq) throw new Error('已完成结论不可用或节点已变化：' + sid)
+            results.push({ sid, seq, round, text: response.flowContext.text })
+          }
+          const text = results.map((item, index) => '## 分支 ' + (index + 1) + '\n来源：' + item.sid + ' · ' + item.round + ' · 节点 ' + item.seq + '\n\n' + item.text).join('\n\n')
+          setFlowWorkbench({ mode: 'compare', results, text, target: currentSessionId || '' })
+        } catch (e) { setFlowUiNotice('结论读取失败：' + String(e.message || e)) }
+        finally { setFlowUiBusy(false) }
+      }
+      const prepareFlowExport = () => {
+        const flow = panelRef.current && panelRef.current.querySelector('[data-flow]')
+        if (!flow) return
+        const bounds = flow.getBoundingClientRect()
+        const cards = [...flow.querySelectorAll('[data-flow-main-card],.fl-iocard,[data-map-node],.fl-overview-card')]
+          .filter((node) => node.getClientRects().length && !node.closest('.fl-rail'))
+          .map((node) => {
+            const rect = node.getBoundingClientRect()
+            return { kind: node.getAttribute('data-flow-role') || (node.hasAttribute('data-map-node') ? '关系节点' : '工具'),
+              status: node.getAttribute('data-flow-status') || node.getAttribute('data-flow-state') || (node.closest('[data-flow-status]') && node.closest('[data-flow-status]').getAttribute('data-flow-status')) || (node.closest('.fl-tool-row') && node.closest('.fl-tool-row').querySelector('[data-flow-status]') && node.closest('.fl-tool-row').querySelector('[data-flow-status]').getAttribute('data-flow-status')) || 'unknown',
+              x: Math.round(rect.left - bounds.left), y: Math.round(rect.top - bounds.top), width: Math.round(rect.width), height: Math.round(rect.height),
+              visible: rect.bottom > bounds.top && rect.top < bounds.bottom && rect.right > bounds.left && rect.left < bounds.right,
+              summary: String(node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 180) }
+          }).filter((node) => node.visible)
+        setFlowWorkbench({ mode: 'export', format: 'json', includeText: false, width: Math.round(bounds.width), height: Math.round(bounds.height), cards,
+          counts: { loaded: Number(flow.getAttribute('data-flow-visible')) || 0, total: Number(flow.getAttribute('data-flow-total')) || 0 }, view: flow.getAttribute('data-flow-view') || 'session' })
+      }
+      const flowExportText = (workbench) => {
+        const cards = workbench.cards.map(({ summary, visible, ...card }) => ({ ...card, ...(workbench.includeText ? { summary } : {}) }))
+        if (workbench.format === 'svg') {
+          const escape = (value) => String(value).replace(/[&<>\"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char]))
+          return '<svg xmlns="http://www.w3.org/2000/svg" width="' + workbench.width + '" height="' + workbench.height + '" viewBox="0 0 ' + workbench.width + ' ' + workbench.height + '"><rect width="100%" height="100%" fill="#f6f7f9"/><title>Flowglass 当前可见节点快照</title>' + cards.map((card) => '<g><rect x="' + card.x + '" y="' + card.y + '" width="' + card.width + '" height="' + Math.max(card.height, 32) + '" rx="8" fill="white" stroke="#758195"/><text x="' + (card.x + 8) + '" y="' + (card.y + 20) + '" font-family="sans-serif" font-size="12" fill="#263244">' + escape(card.kind + ' · ' + card.status) + '</text>' + (card.summary ? '<text x="' + (card.x + 8) + '" y="' + (card.y + 38) + '" font-family="sans-serif" font-size="11" fill="#465366">' + escape(card.summary.slice(0, Math.max(4, Math.floor(card.width / 12)))) + '</text>' : '') + '</g>').join('') + '</svg>'
+        }
+        return JSON.stringify({ schema: 'flowglass-diagnostic/1', version: '0.6.1', view: workbench.view, counts: workbench.counts, scope: '当前视口中的可见节点', includesSummaries: workbench.includeText, nodes: cards }, null, 2)
+      }
+      const downloadFlowExport = () => {
+        if (!flowWorkbench || flowWorkbench.mode !== 'export') return
+        const format = flowWorkbench.format
+        const url = URL.createObjectURL(new Blob([flowExportText(flowWorkbench)], { type: format === 'svg' ? 'image/svg+xml;charset=utf-8' : 'application/json;charset=utf-8' }))
+        const anchor = document.createElement('a')
+        anchor.href = url; anchor.download = 'flowglass-' + Date.now() + '.' + format; anchor.click()
+        ctx.timeout(() => URL.revokeObjectURL(url), 1000)
+      }
       function onPanelClick(e) {
         if (!active) return
         const t = e.target
+        if (active === 'flow' && t && t.closest) {
+          if (t.matches('[data-flow-conclusion]')) {
+            const scope = currentCwd + '\u0001' + flowScope()
+            const selected = new Set(flowConclusionSelectionRef.current.get(scope) || [])
+            if (t.checked) selected.add(t.getAttribute('data-node-key')); else selected.delete(t.getAttribute('data-node-key'))
+            flowConclusionSelectionRef.current.set(scope, selected)
+            return
+          }
+          const bookmark = t.closest('[data-flow-bookmark]')
+          if (bookmark) {
+            e.preventDefault(); e.stopPropagation()
+            const item = { sessionId: bookmark.getAttribute('data-session') || bookmark.getAttribute('data-sid') || flowScope(),
+              seq: Number(bookmark.getAttribute('data-seq')), kind: bookmark.getAttribute('data-kind') || 'msg', note: '', createdAt: Date.now() }
+            const existing = flowBookmarks.find((saved) => saved.sessionId === item.sessionId && saved.seq === item.seq && saved.kind === item.kind)
+            setFlowWorkbench({ mode: 'bookmarks', editing: existing || item })
+            return
+          }
+          if (t.closest('[data-flow-bookmarks]')) { e.preventDefault(); setFlowWorkbench({ mode: 'bookmarks' }); return }
+          if (t.closest('[data-flow-export]')) { e.preventDefault(); prepareFlowExport(); return }
+          if (t.closest('[data-flow-compare-preview]')) { e.preventDefault(); prepareFlowConclusions(); return }
+          if (t.closest('[data-action="fsearch-clear"]')) {
+            const box = panelRef.current
+            for (const field of box.querySelectorAll('[data-field="flowSearch"],[data-field="flowRole"],[data-field="flowStatus"]')) field.value = field.tagName === 'SELECT' ? 'all' : ''
+          }
+        }
         if (Date.now() < suppressFlowClickUntilRef.current) { e.preventDefault(); return }
         const branch = t && t.closest ? t.closest('[data-flow-branch]') : null
         if (active === 'flow' && branch) {
+          if (panelRef.current.querySelector('[data-flow-replay-active="1"]')) { e.preventDefault(); setFlowUiNotice('回放为只读，请先退出回放再创建分支。'); return }
           e.preventDefault()
           e.stopPropagation()
           const detail = branch.closest('[data-flow-detail-session]')
@@ -4503,8 +5271,48 @@ return {
       }
 
       function onPanelKeyDown(e) {
-        if (!active || e.key !== 'Enter') return
+        if (!active || e.isComposing) return
         const t = e.target
+        if (active === 'flow' && e.key === 'Tab') {
+          const dialog = t && t.closest && t.closest('[data-flow-workbench],[data-flow-inspector][aria-modal="true"]')
+          const controls = dialog && [...dialog.querySelectorAll('button:not([disabled]),input,select,textarea,[tabindex="0"]')].filter((node) => node.getClientRects().length)
+          if (controls && controls.length) {
+            if (e.shiftKey && t === controls[0]) { e.preventDefault(); controls[controls.length - 1].focus() }
+            else if (!e.shiftKey && t === controls[controls.length - 1]) { e.preventDefault(); controls[0].focus() }
+          }
+        }
+        if (active === 'flow' && e.key === 'Escape') {
+          if (flowWorkbench) { e.preventDefault(); e.stopPropagation(); setFlowWorkbench(null); return }
+          const root = panelRef.current
+          if (!root) return
+          const disclosure = t && t.closest && t.closest('details[open]')
+          if (disclosure) {
+            e.preventDefault(); e.stopPropagation()
+            disclosure.open = false
+            const summary = disclosure.querySelector('summary')
+            if (summary) summary.focus()
+            return
+          }
+          const close = root.querySelector('[data-flow-inspector] .fl-rail-x')
+          if (close) {
+            e.preventDefault(); e.stopPropagation()
+            loadPanel('flow', 'fdetail', close)
+          }
+          return
+        }
+        // Legacy and graph cards use role=button. Native buttons already dispatch
+        // one click for Enter/Space, so do not activate them twice.
+        const control = t && t.closest && t.closest('[role="button"][data-action]')
+        if (active === 'flow' && control && t === control && control.tagName !== 'BUTTON'
+          && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault(); e.stopPropagation()
+          control.click()
+          return
+        }
+        if (e.key !== 'Enter') return
+        if (active === 'flow' && t && t.matches && t.matches('[data-field="flowSearch"]')) {
+          e.preventDefault(); loadPanel('flow', 'fsearch'); return
+        }
         // 大流镜开工台：回车即「同时开始」
         if (active === 'flow' && t && t.matches && t.matches('[data-zoom-prompt]') && !e.shiftKey) {
           e.preventDefault()
@@ -4615,6 +5423,20 @@ return {
         try { e.currentTarget.releasePointerCapture(e.pointerId) } catch (err) {}
       }
 
+      React.useEffect(() => {
+        if (!flowWorkbench || !panelRef.current) return undefined
+        const previous = document.activeElement
+        const dialog = panelRef.current.querySelector('[data-flow-workbench]')
+        const first = dialog && dialog.querySelector('button,input,select,textarea')
+        if (first) first.focus()
+        return () => {
+          if (previous && previous.isConnected && previous.focus) previous.focus({ preventScroll: true })
+          else {
+            const fallback = panelRef.current && panelRef.current.querySelector('[data-flow-bookmarks],[data-flow-export]')
+            if (fallback) fallback.focus({ preventScroll: true })
+          }
+        }
+      }, [Boolean(flowWorkbench)])
       if ((!embedded && sidebarActive) || !isOpen) return null
 
       const curW = () => width || 520
@@ -4796,6 +5618,81 @@ return {
         flowUiBusy ? React.createElement('span', { className: 'tb-tab-spin' }) : null,
         flowUiNotice ? React.createElement('span', { className: 'tb-flow-toolbar-note', title: flowUiNotice }, flowUiNotice) : null,
       )
+      const fh = React.createElement
+      const workbenchTitle = flowWorkbench && ({ bookmarks: '节点标记', compare: '分支结论预览', relay: '带入会话', export: '本地导出预览' }[flowWorkbench.mode])
+      const workbenchDialog = !flowWorkbench ? null : fh('div', { className: 'fg-workbench-overlay' },
+        fh('section', { className: 'fg-workbench', 'data-flow-workbench': '1', role: 'dialog', 'aria-modal': 'true', 'aria-label': workbenchTitle },
+          fh('header', { className: 'fg-workbench-head' }, fh('strong', null, workbenchTitle), fh('button', { type: 'button', className: 'tb-btn', onClick: () => setFlowWorkbench(null) }, '关闭')),
+          fh('div', { className: 'fg-workbench-body' },
+            flowWorkbench.mode === 'bookmarks' ? fh(React.Fragment, null,
+              flowWorkbench.editing ? fh('form', { onSubmit: (event) => {
+                event.preventDefault()
+                const item = flowWorkbench.editing
+                try {
+                  saveFlowBookmarks([...flowBookmarks.filter((saved) => !(saved.sessionId === item.sessionId && saved.seq === item.seq && saved.kind === item.kind)), item])
+                  setFlowWorkbench({ mode: 'bookmarks' })
+                } catch (error) { setFlowUiNotice('标记保存失败：' + String(error.message || error)) }
+              } },
+                fh('p', null, 'Session ' + flowWorkbench.editing.sessionId + ' · 节点 ' + flowWorkbench.editing.seq),
+                fh('label', null, '备注（可选）', fh('input', { className: 'tb-input fg-workbench-note', maxLength: 200, value: flowWorkbench.editing.note || '', onChange: (event) => setFlowWorkbench({ ...flowWorkbench, editing: { ...flowWorkbench.editing, note: event.currentTarget.value } }) })),
+                fh('button', { type: 'submit', className: 'tb-btn' }, '保存标记'),
+              ) : null,
+              !flowBookmarks.length ? fh('p', null, '还没有标记。打开节点详情后可标记重要内容。') : flowBookmarks.map((item) => fh('article', { className: 'fg-bookmark-item', key: item.sessionId + '|' + item.kind + '|' + item.seq },
+                fh('strong', null, item.note || '节点 ' + item.seq), fh('small', null, item.sessionId + ' · ' + item.kind),
+                fh('div', { className: 'fg-workbench-actions' },
+                  fh('button', { type: 'button', className: 'tb-btn', onClick: () => {
+                    setFlowWorkbench(null)
+                    loadPanel('flow', 'fbookmark-jump', { dataset: { sid: item.sessionId, seq: String(item.seq), kind: item.kind } })
+                  } }, '定位'),
+                  fh('button', { type: 'button', className: 'tb-btn', onClick: () => setFlowWorkbench({ mode: 'bookmarks', editing: item }) }, '编辑备注'),
+                  fh('button', { type: 'button', className: 'tb-btn', onClick: () => {
+                    try { saveFlowBookmarks(flowBookmarks.filter((saved) => saved !== item)) } catch (error) { setFlowUiNotice('删除标记失败：' + String(error.message || error)) }
+                  } }, '删除标记'),
+                ),
+              )),
+            ) : null,
+            (flowWorkbench.mode === 'compare' || flowWorkbench.mode === 'relay') ? fh(React.Fragment, null,
+              fh('p', null, '以下为已完成结论的确定性摘录。保留各分支来源；内容将在你确认后追加到所选会话草稿。'),
+              fh('pre', { className: 'fg-workbench-preview', tabIndex: 0 }, flowWorkbench.text),
+              fh('label', null, '目标会话', fh('select', { className: 'tb-select', value: flowWorkbench.target, onChange: (event) => setFlowWorkbench({ ...flowWorkbench, target: event.currentTarget.value }) },
+                fh('option', { value: '' }, '选择会话'), flowSessionIds.map((sid) => fh('option', { key: sid, value: sid }, (flowSessionRow(sid) || {}).title || sid)))),
+              fh('button', { type: 'button', className: 'tb-btn', disabled: flowUiBusy || !flowWorkbench.target, onClick: async () => {
+                setFlowUiBusy(true)
+                try { await putFlowContextIntoDraft(flowWorkbench.target, flowWorkbench.text, true); setFlowUiNotice('已追加带来源的结论到目标草稿。'); setFlowWorkbench(null) }
+                catch (error) { setFlowUiNotice('带入失败：' + String(error.message || error)) }
+                finally { setFlowUiBusy(false) }
+              } }, '确认带入草稿'),
+            ) : null,
+            flowWorkbench.mode === 'export' ? fh(React.Fragment, null,
+              fh('p', null, '导出范围：当前视口内 ' + flowWorkbench.cards.length + ' 个可见节点。默认只包含节点类型、状态、位置和计数。'),
+              fh('label', null, '格式', fh('select', { className: 'tb-select', value: flowWorkbench.format, onChange: (event) => setFlowWorkbench({ ...flowWorkbench, format: event.currentTarget.value }) }, fh('option', { value: 'json' }, '诊断摘要 JSON'), fh('option', { value: 'svg' }, '节点快照 SVG'))),
+              fh('label', null, fh('input', { type: 'checkbox', checked: flowWorkbench.includeText, onChange: (event) => setFlowWorkbench({ ...flowWorkbench, includeText: event.currentTarget.checked }) }), '包含当前可见节点摘要（请检查预览）'),
+              fh('pre', { className: 'fg-workbench-preview', tabIndex: 0 }, flowExportText(flowWorkbench)),
+              fh('button', { type: 'button', className: 'tb-btn', onClick: downloadFlowExport }, '保存到本地'),
+            ) : null,
+          ),
+        ),
+      )
+      const launchRecovery = active !== 'flow' || !flowLaunchBatch || (!flowLaunchBatch.registrationPending && flowLaunchBatch.items.every((item) => item.status === 'success')) ? null
+        : React.createElement('section', { className: 'fg-launch-recovery', 'aria-label': '分支发送结果' },
+          React.createElement('strong', null, '分支发送结果'),
+          flowLaunchBatch.registrationPending ? React.createElement('p', null, '部分会话尚未登记到并发记录。返回来源会话后，核对结果可补登记。',
+            flowLaunchBatch.originScope ? React.createElement('button', { type: 'button', className: 'tb-btn', onClick: () => navigateHarnessSession({ sessionId: flowLaunchBatch.originScope }) }, '返回来源会话') : null,
+          ) : null,
+          flowLaunchBatch.items.map((item) => React.createElement('div', { key: item.index, className: 'fg-launch-result' },
+            React.createElement('span', null, '分支 ' + (item.index + 1) + ' · ' + ({ create: '创建', configure: '配置', send: '发送' }[item.stage] || '') + ' · ' + ({ ready: '等待', pending: '进行中', success: '已完成', failed: '失败', unknown: '结果未知' }[item.status] || '状态未知')),
+            item.error ? React.createElement('small', null, item.error) : null,
+            item.sid ? React.createElement('button', { type: 'button', className: 'tb-btn', onClick: () => navigateHarnessSession({ sessionId: item.sid }) }, '查看会话') : null,
+          )),
+          React.createElement('div', { className: 'fg-settings-actions' },
+            React.createElement('button', { type: 'button', className: 'tb-btn', disabled: flowUiBusy || !flowLaunchBatch.items.some((item) => item.status === 'failed'), onClick: retryFlowLaunch }, '仅重试明确失败项'),
+            React.createElement('button', { type: 'button', className: 'tb-btn', disabled: flowUiBusy, onClick: reconcileFlowLaunch }, '核对未知结果'),
+            React.createElement('button', { type: 'button', className: 'tb-btn', disabled: flowUiBusy, title: '停止本次恢复，已创建的会话与消息保留；未知结果仍需在会话中核对。', onClick: () => {
+              try { localStorage.removeItem(RT.storageKey('flow.launch.' + encodeURIComponent(currentCwd || ''))) } catch (e) {}
+              setFlowLaunchBatch(null)
+            } }, '结束恢复'),
+          ),
+        )
 
       // 主题切换按钮：暗色下显示太阳（点击切亮），亮色下显示月亮（点击切暗）；theme 服务缺失时不渲染
       const themeButton = !themeSvc ? null : React.createElement('button', {
@@ -5200,17 +6097,24 @@ return {
             )
       } else {
         body = React.createElement('div', { className: 'tb-frame', ref: panelRef, onClick: onPanelClick, onKeyDown: onPanelKeyDown, onInput: onPanelInput, onPointerDown: onFlowRailResizeDown },
-          error ? React.createElement('div', { className: 'tb-error' }, String(error)) : null,
+          error ? React.createElement('div', { className: 'tb-error', role: 'alert' },
+            String(error),
+            active === 'flow' ? React.createElement('button', { type: 'button', className: 'tb-btn', onClick: () => loadPanel('flow', 'refresh') }, '重新同步') : null,
+          ) : null,
           copied ? React.createElement('div', { className: 'tb-banner tb-banner-info' }, String(copied)) : null,
           active === 'flow' && flowUiNotice ? React.createElement('div', { className: 'tb-banner tb-banner-info', title: flowUiNotice }, String(flowUiNotice)) : null,
+          launchRecovery,
           html
-            ? React.createElement('div', { className: 'tb-panel-html', dangerouslySetInnerHTML: { __html: html } })
+            ? active === 'flow' && typeof document !== 'undefined'
+              ? React.createElement('div', { className: 'tb-panel-html' }, React.createElement(FlowStablePanel, { html, workspace: currentCwd }))
+              : React.createElement('div', { className: 'tb-panel-html', dangerouslySetInnerHTML: { __html: html } })
             : React.createElement('div', { className: 'tb-notice' }, '加载面板…'),
           flowZoomControl,
           flowSelectionBar,
           flowBringDialog,
           flowAddDialog,
           zoomActionBar,
+          workbenchDialog,
           showJumpLatest ? React.createElement('button', {
             type: 'button',
             className: 'tb-jump-latest',

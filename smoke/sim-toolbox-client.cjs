@@ -162,7 +162,8 @@ const evalClient = (src, extra) => {
 const tick = () => new Promise((r) => setTimeout(r, 15))
 
 ;(async () => {
-  const src = read('shared/runtime.js') + '\n' + read('plugins/toolbox/client.js')
+  const { assembleClientSource } = await import('../build/source-assembly.mjs')
+  const src = assembleClientSource(read, 'plugins/toolbox/client.js', { includeRuntime: true })
 
   // 静态断言：双路径都在（DOM 主 + Slot 兜底）
   check('源码含导航区 DOM 注入主路径', src.indexOf('function mountSidebarEntry()') >= 0 && src.indexOf('data-dsh-toolbox-entry') >= 0)
@@ -365,7 +366,7 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
       const at = src.indexOf('空白处单击：取消框选')
       return at >= 0 && src.indexOf("(flowSelectedSeqs.length || flow.querySelector('.fl-rail'))") >= 0
         && src.indexOf("!t.closest('[data-flow-select-seq]')", at) >= 0
-        && src.indexOf("!t.closest('button,a,input,select,textarea,label')", at) >= 0
+        && src.indexOf("!t.closest('button,a,input,select,textarea,label,summary,details,[role=\"button\"],.fl-rail')", at) >= 0
         && src.indexOf('!e.button && !flowUiBusy && (flowSelectedSeqs.length') >= 0
         && src.indexOf('[active, html, flowSelectedSeqs, flowUiBusy]', at) >= 0
         && src.indexOf('setFlowSelectedSeqs([])', at) >= 0 && src.indexOf('setFlowBringPopup(false)', src.indexOf('setFlowSelectedSeqs([])', at)) >= 0
@@ -481,20 +482,20 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
       src.indexOf("board.querySelector('[data-zoom-reuse]')") >= 0
         && src.indexOf("reuseEl.getAttribute('aria-pressed')") >= 0
         && src.indexOf('const reuseCurrent = !!') >= 0
-        && src.indexOf('const spawned = []') >= 0
-        && src.indexOf('sendTextToSession(effSourceId, prompt)') >= 0
-        && src.indexOf('linkSource: effSourceId') >= 0)
+        && src.indexOf('reuseCurrent && index === 0 ? effSourceId') >= 0
+        && src.indexOf('await runFlowLaunchBatch(batch, flowLaunchApi(batch), saveFlowLaunchBatch)') >= 0
+        && src.indexOf("linkSource: !continueExisting && board && !board.hasAttribute('data-flow-board') ? effSourceId") >= 0)
     check('大流镜开工：旧会话 fork / 新会话同工作区 create + 模型思考强度先于 prompt',
       src.indexOf("querySelectorAll('[data-zoom-lane]')") >= 0
         && src.indexOf("querySelectorAll('[data-zoom-effort]')") >= 0
         && src.indexOf("ctx.get('remote.session')") >= 0
         && src.indexOf('remoteSession.selectModel') >= 0
-        && src.indexOf('await selectSessionModel(sid, route, efforts[i]') >= 0
-        && src.indexOf('sessionsClient.fork({ sessionId: sourceSessionId') >= 0
-        && src.indexOf('sessionsClient.create(launchWorkspaceId ? { workspaceId: launchWorkspaceId }') >= 0
+        && src.indexOf('await selectSessionModel(item.sid, item.route, item.effort)') >= 0
+        && src.indexOf('sessionsClient.fork({ sessionId: batch.sourceSessionId') >= 0
+        && src.indexOf('sessionsClient.create(batch.launchWorkspaceId ? { workspaceId: batch.launchWorkspaceId }') >= 0
         && src.indexOf("host.call(RT.rpc('session-info'), { session: sourceSessionId })") >= 0
         && src.indexOf('const harnessSelectedSessionId = hookSession || lsSession || props.sessionId') >= 0
-        && src.indexOf('const sourceSessionId = harnessSelectedSessionId || currentSessionId || flowScope()') >= 0
+        && src.indexOf('const sourceSessionId = flowScope() || harnessSelectedSessionId || currentSessionId') >= 0
         && src.indexOf("const workspacesClient = ctx.get('workspaces')") >= 0
         && src.indexOf('const hookWorkspaceItems = useWorkspacesHook') >= 0
         && src.indexOf('Array.isArray(hookWorkspaceItems)') >= 0
@@ -503,14 +504,15 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
         && src.indexOf("binding.session.prompt([{ type: 'text', text }], 'queue')") >= 0
         && src.indexOf("sessionsClient.using(sid, { source: 'controllerOperation' }") >= 0
         && src.indexOf("await loadPanelRef.current('flow', 'fzoom-joined'") >= 0
-        && src.indexOf("if (!forkCurrent && !reuseCurrent && created.length)") >= 0
+        && src.indexOf("if (!forkCurrent && !reuseCurrent && created.length") >= 0
+        && src.indexOf('flowScope() === batch.originScope') >= 0
         && src.indexOf("await navigateHarnessSession({ sessionId: target })") >= 0
         && css.indexOf('.fl-zoom-lane-group{') >= 0 && css.indexOf('.fl-zoom-badge-model{') >= 0)
     check('大流镜已有分支组发送下一轮时复用 Session，不再新建',
       src.indexOf("board.getAttribute('data-zoom-active-sids')") >= 0
         && src.indexOf('const continueExisting = activeSids.length >= 2') >= 0
-        && src.indexOf('const sid = continueExisting') >= 0
-        && src.indexOf('if (!continueExisting) await renameSession') >= 0
+        && src.indexOf('sid: continueExisting ? activeSids[index]') >= 0
+        && src.indexOf('rename: !continueExisting') >= 0
         && src.indexOf('sourceSids: continueExisting ? activeSids') >= 0
         && src.indexOf("baseHistoryId: continueExisting && board ? (board.getAttribute('data-zoom-run-id')") >= 0)
     check('大流镜同时开始按路径检查能力且错误不再静默',
@@ -528,7 +530,7 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
         && src.indexOf('合并回写而非覆盖') >= 0 && src.indexOf('indexById') >= 0
         && src.indexOf('merged.slice(-20)') >= 0
         && src.indexOf('const deferFlowNavigationRender') >= 0
-        && src.indexOf('if (!deferFlowNavigationRender) setHtml(res.html)') >= 0
+        && src.indexOf('if (!deferFlowNavigationRender) {') >= 0
         && src.indexOf('if ((isFlowFollow || keepNativeFlowOpen) && nativeOpenTab)') >= 0
         && css.indexOf('.fl-zoom-history-drawer{') >= 0 && css.indexOf('.fl-history-node{') >= 0 && css.indexOf('.fl-zoom-current-session{') >= 0
         && css.indexOf('.fl-history-toggle{') >= 0
@@ -595,13 +597,12 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
         && src.indexOf("t.closest('.fl-zoom-composer") >= 0
         && src.indexOf("loadPanelRef.current('flow', 'fzoom-composer', null)") >= 0)
     check('info 说明气泡加宽减少换行', css.indexOf('.fl-info-pop{position:absolute;right:0;top:30px;z-index:20;width:min(660px,84vw)') >= 0)
-    check('大流镜互通：⇪ 带入暂存 + 点选目标 + 带入草稿/直接发送',
-      src.indexOf('setZoomRelay({ source:') >= 0
+    check('带入结论使用来源预览、明确目标和确认追加草稿',
+      src.indexOf("setFlowWorkbench({ mode: 'relay'") >= 0
         && src.indexOf('res.zoomRelay') >= 0
-        && src.indexOf("[data-action=\"fzoom-relay\"]") >= 0
-        && src.indexOf('executeZoomCast') >= 0
-        && src.indexOf('putFlowContextIntoDraft(sid, text, true)') >= 0
-        && css.indexOf('.fl-zoom-branch.fl-zoom-picked .fl-zoom-branch-head') >= 0 && css.indexOf('.fl-zoom-relay{') >= 0)
+        && src.indexOf("flowWorkbench.mode === 'relay'") >= 0
+        && src.indexOf('确认带入草稿') >= 0
+        && src.indexOf('putFlowContextIntoDraft(flowWorkbench.target, flowWorkbench.text, true)') >= 0)
   }
 
   // —— 路径 D（0.1.5 原生右侧栏，bundleId=flow）：两段式注册 + 自有入口 openTab ——
@@ -633,10 +634,22 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     const configWrap = configReg && configReg.component({ view: 'page' })
     const configNode = configWrap && renderHooked(configWrap.type, configWrap.props)
     const configText = configNode ? JSON.stringify(configNode) : ''
-    check('D: 官方详情设置页包含行为、大流镜、轮询与显示规则', configText.indexOf('Flowglass 设置') >= 0
-      && configText.indexOf('切换 Session 时保持展开') >= 0 && configText.indexOf('启用大流镜') >= 0
+    check('D: 官方详情设置页包含行为、并发任务、轮询与显示规则', configText.indexOf('Flowglass 设置') >= 0
+      && configText.indexOf('切换 Session 时保持展开') >= 0 && configText.indexOf('启用并发任务') >= 0
       && configText.indexOf('默认分支数量') >= 0 && configText.indexOf('轮询刷新') >= 0
       && configText.indexOf('工具显示规则') >= 0)
+    const flatten = (node) => node && typeof node === 'object'
+      ? [node, ...(node.children || []).flat(Infinity).flatMap(flatten)] : []
+    const settingNodes = () => flatten(renderHooked(configWrap.type, configWrap.props))
+    check('D: 工具规则初始只显示摘要，没有展开编辑字段', !flatten(configNode).some((n) => n.props.className === 'fg-settings-rule-grid'))
+    flatten(configNode).find((n) => n.props['aria-label'] === '编辑规则 Git').props.onClick()
+    check('D: 编辑只展开一条规则', settingNodes().filter((n) => n.props.className === 'fg-settings-rule-grid').length === 1)
+    settingNodes().find((n) => n.props['aria-label'] === '下移规则 Git').props.onClick()
+    let ruleTitles = settingNodes().filter((n) => n.type === 'article').map((n) => flatten(n).find((x) => x.type === 'strong').children[0])
+    check('D: 键盘可用的上下移保持首条命中顺序', ruleTitles[0] === 'GitHub' && ruleTitles[1] === 'Git')
+    settingNodes().find((n) => n.type === 'button' && n.children[0] === '放弃更改').props.onClick()
+    ruleTitles = settingNodes().filter((n) => n.type === 'article').map((n) => flatten(n).find((x) => x.type === 'strong').children[0])
+    check('D: 放弃恢复保存的顺序并收起编辑', ruleTitles[0] === 'Git' && !settingNodes().some((n) => n.props.className === 'fg-settings-rule-grid'))
     const bodyReg = slots.registrations.find((r) => r.entry && r.entry.name === 'sidebar.right.pane.tab' && r.entry.key === 'dsh-flowglass/native')
     check('D: body 以同一 definition id 注册 sidebar.right.pane.tab', Boolean(bodyReg))
     // body 组件只透传 Slot 标准属性：sessionId 权威 + useSessions + useTabInfo 的 visible

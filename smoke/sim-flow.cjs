@@ -297,7 +297,11 @@ const check = (label, cond, detail) => {
 const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length
 
 ;(async () => {
-  const src = read('shared/runtime.js') + '\n' + read('shared/host.js') + '\n' + read('plugins/flow/tool.js')
+  // Expose the real projection helper to exercise invalidation without weakening
+  // product encapsulation or depending on the log reader's own caching policy.
+  const flowSource = read('plugins/flow/tool.js').replace('    const nodeKeyOf =',
+    '    ctx.__projectionTest = { projectFlowItems, durableProjectionCache }\n    const nodeKeyOf =')
+  const src = read('shared/runtime.js') + '\n' + read('shared/host.js') + '\n' + flowSource
   const plugin = await new Function('ctx', 'harness', 'console', 'return (async () => {\n' + src + '\n})()')(ctx, undefined, console)
   await plugin.apply(ctx)
   const h = handlers.flow
@@ -305,8 +309,8 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
 
   // ================= ① 形态回归（durable 0.1.5 事件） =================
   let r = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-main' })
-  check('打开 → 渲染主干', r.html.indexOf('实时流镜') >= 0)
-  check('说明收敛到 info 浮层', r.html.indexOf('class="fl-info"') >= 0 && r.html.indexOf('• 中列是用户/助手主线') >= 0)
+  check('打开默认当前会话 → 渲染主干', r.state.zoom === false && r.html.includes('aria-current="page">当前会话'))
+  check('说明收敛到更多菜单内的原生折叠区', r.html.includes('data-flow-disclosure="more"') && r.html.includes('data-flow-disclosure="help"') && r.html.includes('• 中列是用户/助手主线'))
   check('自动刷新声明 data-autorefresh=2000', r.html.indexOf('data-autorefresh="2000"') >= 0)
   check('用户/助手消息节点', r.html.indexOf('帮我看下这个目录') >= 0 && r.html.indexOf('好的，我先并行读文件') >= 0)
   check('stream 展开的最终文本成为卡片内容（durable message）', r.html.indexOf('再派个子代理调研') >= 0)
@@ -320,13 +324,30 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
   check('输入线标签=提取关键参数（输入 file_path: a.js）', r.html.indexOf('输入 file_path: a.js') >= 0)
   check('输出线标签=返回结果摘要（file a content）', r.html.indexOf('file a content') >= 0)
   check('工具卡存在（fl-iocard）', r.html.indexOf('fl-iocard') >= 0)
-  check('调用状态 ✓ 与耗时', r.html.indexOf('✓') >= 0)
+  check('调用完成状态与耗时使用可读文案', r.html.includes('已完成 · 100ms'))
   check('子代理入口卡（fl-sub-open）与支线步骤', r.html.indexOf('fl-sub-open') >= 0 && r.html.indexOf('fl-sub-steps') >= 0)
   check('子代理出口卡（fl-sub-close）', r.html.indexOf('fl-sub-close') >= 0)
   check('alpha.4 send_message 归入子代理并可钻取', r.html.indexOf('data-action="fenter" data-seq="13"') >= 0)
   check('子代理 live 徽章（运行中）', r.html.indexOf('运行中') >= 0)
   check('同 step 并行子代理合并成组', r.html.indexOf('并行子代理 ×2') >= 0 && r.html.indexOf('fl-subgrp') >= 0)
-  check('子代理跟随开关默认开启', r.html.indexOf('● 子代理跟随') >= 0 && r.state.follow === true)
+  check('子代理跟随开关默认开启', r.html.includes('data-action="toggle-follow" aria-pressed="true"') && r.state.follow === true)
+  check('消息与工具详情使用原生按钮且分支按钮不嵌套', /<button type="button" class="fl-node-open"[^>]*data-action="fdetail"/.test(r.html)
+    && /<button type="button" class="fl-iocard[^>]*data-action="fdetail"/.test(r.html)
+    && !/<button[^>]*class="fl-node-open"(?:(?!<\/button>)[\s\S])*<button/.test(r.html))
+  check('子代理入口与出口可由键盘聚焦', /class="fl-sub-card fl-sub-open[^>]*role="button" tabindex="0"/.test(r.html)
+    && /class="fl-sub-card fl-sub-close" role="button" tabindex="0"/.test(r.html))
+  SESSIONS['s-system-context'] = [
+    { seq: 1, time: 1000, type: 'user/message', data: { content: [{ type: 'text', text: '可见用户输入' }], source: { kind: 'user' } } },
+    { seq: 2, time: 1001, type: 'user/message', data: { content: [{ type: 'text', text: '保留完整系统上下文' }], source: { kind: 'system' } } },
+  ]
+  let contextView = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-system-context' })
+  check('系统上下文默认折叠且保留节点与原文', contextView.html.includes('data-flow-disclosure="system:2"><summary>系统上下文')
+    && contextView.html.includes('data-flow-main-card="2"') && contextView.html.includes('保留完整系统上下文'))
+  contextView = await h({ action: 'fcontext', fields: { __el: { seqs: '2' } }, state: contextView.state, root: ROOT, session: 's-system-context' })
+  check('折叠不改变框选导出的系统上下文', contextView.flowContext.seqs.join(',') === '2' && contextView.flowContext.text.includes('保留完整系统上下文'))
+  contextView = await h({ action: 'fdetail', fields: { __el: { seq: '2' } }, state: contextView.state, root: ROOT, session: 's-system-context' })
+  check('定位系统上下文会展开来源并显示命名 Inspector', contextView.html.includes('data-flow-disclosure="system:2" open')
+    && contextView.html.includes('data-flow-inspector="2" role="region" aria-label="系统上下文详情"'))
 
   // 声明式工具显示规则：内置规则随包发布，自定义与用户改动只由 Client localStorage 携带。
   let defaults = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-default-presentation-rules' })
@@ -389,7 +410,7 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
   pr = await h({ action: 'fdelete-rule', fields: { __el: { index: '1' } }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
   check('规则可单独删除', pr.state.presentationRules.length === 1 && pr.state.presentationRules.every((rule) => rule.displayName !== 'Git'))
   pr = await h({ action: 'fdetail', fields: { __el: { seq: '2' } }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
-  check('详情标题使用投影名称但保留完整原始命令', pr.html.indexOf('engram-lattice search · 详情') >= 0 && pr.html.indexOf('engram-memory.ps1') >= 0)
+  check('详情标题使用投影名称但保留完整原始命令', pr.html.indexOf('工具 · engram-lattice search') >= 0 && pr.html.indexOf('engram-memory.ps1') >= 0)
   let invalidRuleRejected = false
   try {
     await h({ action: 'fapply-rule-json', fields: { flowPresentationRules: '{bad' }, state: pr.state, root: ROOT, session: 's-presentation-rules' })
@@ -439,21 +460,28 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
   // live 开关
   r = await h({ action: 'toggle-live', fields: {}, state: r.state, root: ROOT, session: 's-main' })
   check('暂停 → 无 autorefresh 声明', r.html.indexOf('data-autorefresh="2000"') < 0)
+  check('暂停同步保留独立可见状态', r.html.includes('data-flow-sync-state="paused">已暂停同步'))
   r = await h({ action: 'toggle-live', fields: {}, state: r.state, root: ROOT, session: 's-main' })
   check('恢复 → autorefresh 回归', r.html.indexOf('data-autorefresh="2000"') >= 0)
 
   // 跟随开关 + 钻取
   r = await h({ action: 'fenter', fields: { __el: { seq: '8' } }, state: r.state, root: ROOT, session: 's-main' })
-  check('进入子流镜仍实时', r.html.indexOf('子代理流镜') >= 0 && r.html.indexOf('data-autorefresh="2000"') >= 0)
+  check('进入子流镜仍实时', r.html.includes('aria-current="page">子代理') && r.html.indexOf('data-autorefresh="2000"') >= 0)
   check('跟随返回 Harness 子会话导航', r.navigateSession && r.navigateSession.sessionId === '228a8697-2b7a-422a-b3c0-1cf61c965d5c' && r.navigateSession.parentSessionId === 's-main')
   r = await h({ action: '', fields: {}, state: r.state, root: ROOT, session: '228a8697-2b7a-422a-b3c0-1cf61c965d5c' })
   check('Harness 切到子 Session 后仍保留返回链', r.html.indexOf('data-action="fback"') >= 0 && r.state.home === 's-main' && r.state.crumbs.length === 1)
   r = await h({ action: 'fback', fields: {}, state: r.state, root: ROOT, session: '228a8697-2b7a-422a-b3c0-1cf61c965d5c' })
   check('返回上级也返回 Harness 导航', r.navigateSession && r.navigateSession.sessionId === 's-main')
+  const crumbView = await h({ action: 'fback', fields: { __el: { depth: '0' } }, state: { ...r.state, sid: 's-long', follow: false,
+    crumbs: [{ sid: 's-main', label: '主任务' }, { sid: 's-finished', label: '中间任务' }] }, root: ROOT, session: 's-main' })
+  check('面包屑可以直接回到祖先并截断返回链', crumbView.state.sid === 's-main' && crumbView.state.crumbs.length === 0 && !crumbView.navigateSession)
 
   // 详情
   r = await h({ action: 'fdetail', fields: { __el: { seq: '3' } }, state: r.state, root: ROOT, session: 's-main' })
   check('点工具卡 → 右侧浮层展开详情（fl-rail）', r.html.indexOf('fl-rail') >= 0 && r.html.indexOf('file a content') >= 0)
+  const toolInspector = r.html.slice(r.html.indexOf('data-flow-inspector="3"'))
+  check('工具详情输入默认展开并位于输出上方，技术信息折叠', toolInspector.includes('<details open class="fl-tool-input"') && toolInspector.indexOf('data-flow-disclosure="input:3"') < toolInspector.indexOf('file a content')
+    && toolInspector.includes('data-flow-disclosure="technical:3"') && toolInspector.includes('关闭详情并返回流程'))
   r = await h({ action: 'fdetail', fields: { __el: { seq: '3' } }, state: r.state, root: ROOT, session: 's-main' })
   check('再点 → 收起详情', r.html.indexOf('fl-rail') < 0)
   r = await h({ action: 'fdetail', fields: { __el: { seq: '2' } }, state: r.state, root: ROOT, session: 's-main' })
@@ -477,7 +505,9 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
     live: liveOverlay('s-live', 2, [attempt('att-1', 1, 1, 3.25, 3030, 3060, { text: 'Hello 流镜世界' })]) })
   check('同一 attempt 增长 → 仍一张卡且内容更新', countCards(lr.html, 'data-flow-role="ai"') === 1 && lr.html.indexOf('Hello 流镜世界') >= 0)
   check('叠加层激活会话流光（fl-live）', lr.html.indexOf('fl-live') >= 0)
-  check('request/header 的模型路由贴卡', lr.html.indexOf('deepseek/reasoner-x') >= 0)
+  check('卡片不再常驻完整模型路由', !lr.html.includes('deepseek/reasoner-x'))
+  const routeDetail = await h({ action: 'fdetail', fields: { __el: { seq: '3.25' } }, state: { ...lr.state }, root: ROOT, session: 's-live', live: liveOverlay('s-live', 2, [attempt('att-1', 1, 1, 3.25, 3030, 3060, { text: 'Hello 流镜世界' })]) })
+  check('模型路由保留在详情技术信息中', routeDetail.html.includes('data-flow-disclosure="technical:3.25"') && routeDetail.html.includes('deepseek/reasoner-x'))
 
   // 结算时序（s-settle 动态推进）：live 在途 → durable message 落盘 + settled firstSeq → 结算替换
   let sr = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-settle',
@@ -527,7 +557,7 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
   const fr = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-fail-attempt' })
   check('assistant/attempt 结算 → 失败卡（真实错误码徽标）', fr.html.indexOf('data-flow-state="failed"') >= 0 && fr.html.indexOf('✗ PI_AI_ERROR') >= 0)
   check('失败卡保留已生成片段', fr.html.indexOf('partial content') >= 0)
-  check('失败卡计时落定（无运行计时器）', fr.html.indexOf('data-flow-timer') < 0 && fr.html.indexOf('⏱') >= 0)
+  check('失败卡计时落定（无运行计时器）', fr.html.indexOf('data-flow-timer') < 0 && fr.html.includes('已中断'))
   check('失败卡无流光脉冲', fr.html.indexOf('fl-live') < 0)
   const ar = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-abort-attempt' })
   check('aborted attempt → 取消卡（已取消标记）', ar.html.indexOf('data-flow-state="abandoned"') >= 0 && ar.html.indexOf('（已取消）') >= 0 && ar.html.indexOf('用户按了停止') >= 0)
@@ -585,23 +615,22 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
 
   // __refresh 静默动作（自动轮询路径；state 遗留 s-long 钻取 → 子代理流镜头）
   r = await h({ action: '__refresh', fields: {}, state: r.state, root: ROOT, session: 's-main' })
-  check('__refresh → 正常渲染（跟随遗留钻取态切子代理流镜头）', r.ok === true && r.html.indexOf('子代理流镜') >= 0 && r.html.indexOf('data-action="fback"') >= 0)
+  check('__refresh → 正常渲染（跟随遗留钻取态切子代理流镜头）', r.ok === true && r.html.includes('aria-current="page">子代理') && r.html.indexOf('data-action="fback"') >= 0)
 
   // ================= ④ 大流镜 Zoom（多会话并发总览） =================
   let z = await h({ action: 'fzoom', fields: {}, state: null, root: ROOT, session: 's-main' })
   check('大流镜：进入总览（两种尺度切换 + 看板标记 + 自动刷新）', z.state.zoom === true
     && z.state.zoomMode === 'panorama'
-    && z.html.indexOf('aria-label="大流镜尺度"') >= 0 && z.html.indexOf('data-action="fzoom-focus-back" title="查看所选并发的全部分支">全景') >= 0
-    && z.html.indexOf('data-action="fzoom-focus-current" title="用完整流镜查看当前选中分支"') >= 0 && z.html.indexOf('>近观</button>') >= 0
+    && z.html.includes('aria-label="观察范围"') && z.html.includes('data-action="fzoom-focus-back" aria-current="page">并发任务')
+    && z.html.includes('data-action="fzoom-focus-current"') && z.html.includes('>查看选中分支</button>')
     && z.html.indexOf('data-action="fzoom-scope"') < 0 && z.html.indexOf('🌳 会话树') < 0
     && z.html.indexOf('data-flow-board="1"') >= 0 && z.html.indexOf('data-autorefresh="2000"') >= 0)
   check('大流镜：血缘树 4 卡（主会话 + 3 后代）', countCards(z.html, 'data-action="fzoom-open"') === 4)
   check('大流镜：首条用户消息作卡标题（触发内容即身份）', z.html.indexOf('帮我看下这个目录') >= 0 && z.html.indexOf('已完成的调研任务') >= 0)
   check('大流镜：无用户消息的会话回退短 id 标题', z.html.indexOf('会话 228a8697') >= 0)
-  check('大流镜：徽章（面板所属 + 子代理层级）', z.html.indexOf('面板所属') >= 0 && z.html.indexOf('子代理 L1') >= 0)
-  check('大流镜：俯视树结构（根卡 + trunk + 分支列）', z.html.indexOf('fl-zoom-tree') >= 0 && z.html.indexOf('fl-zoom-rootcard') >= 0
-    && z.html.indexOf('fl-zoom-trunk') >= 0 && countCards(z.html, 'fl-zoom-branch"') === 3)
-  check('大流镜：分支纵向流程（glyph + 工具徽章，自上而下）', z.html.indexOf('fl-zoom-flow') >= 0 && z.html.indexOf('fl-zoom-step') >= 0 && z.html.indexOf('fl-zoom-tool') >= 0)
+  check('概览来源上下文只显示一次，子代理层级保留在技术信息', countCards(z.html, 'class="fl-overview-source"') === 1 && z.html.includes('子代理 L1') && z.html.includes('data-flow-disclosure="branch:'))
+  check('概览：来源会话与分支收敛为摘要卡', z.html.includes('fl-overview-list') && countCards(z.html, '<article class="fl-overview-card') === 3 && z.html.includes('来源会话') && z.html.includes('3 个分支'))
+  check('概览：优先显示最新结论并保留过程入口', z.html.includes('fl-overview-conclusion') && z.html.includes('调研结论') && countCards(z.html, 'data-action="fzoom-open"') === 4)
   check('大流镜：模型徽章来自会话 request/header 路由', z.html.indexOf('deepseek/reasoner-x') >= 0)
   check('大流镜：历史会话状态点（未上线后代）', z.html.indexOf('历史') >= 0)
   check('大流镜：首轮无运行中徽标（无增长）', z.html.indexOf('fl-zoom-dot-running') < 0 && z.html.indexOf('data-tab-badge=""') >= 0)
@@ -616,13 +645,13 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
   z = await h({ action: 'fzoom-open', fields: { __el: { sid: '228a8697-2b7a-422a-b3c0-1cf61c965d5c' } }, state: z.state, root: ROOT, session: 's-main' })
   check('大流镜：全景点入 Session 直接放大到近观', z.state.zoom === true && z.state.zoomFocusSid === '228a8697-2b7a-422a-b3c0-1cf61c965d5c'
     && z.state.sid === '228a8697-2b7a-422a-b3c0-1cf61c965d5c' && z.state.zoomMode === 'near'
-    && z.html.indexOf('tb-chip tb-chip-on" data-action="fzoom-focus-current"') >= 0
+    && z.html.includes('data-action="fzoom-focus-back">并发任务') && z.html.includes('<span aria-current="page">')
     && z.html.indexOf('fl-zoom-motion-focus') >= 0)
   check('大流镜：切换时跟随导航（子代理寻址）', z.navigateSession && z.navigateSession.kind === 'subagent'
     && z.navigateSession.sessionId === '228a8697-2b7a-422a-b3c0-1cf61c965d5c' && z.navigateSession.parentSessionId === 's-main')
   check('大流镜近观：复用完整单会话流镜并铺满画布', z.state.zoomMode === 'near'
     && z.state.zoomFocusSid === '228a8697-2b7a-422a-b3c0-1cf61c965d5c'
-    && z.html.indexOf('tb-chip tb-chip-on" data-action="fzoom-focus-current"') >= 0
+    && z.html.includes('data-action="fzoom-focus-back">并发任务') && z.html.includes('<span aria-current="page">')
     && z.html.indexOf('fl-zoom-near-flow') >= 0 && z.html.indexOf('data-flow-near-session="228a8697-2b7a-422a-b3c0-1cf61c965d5c"') >= 0
     && z.html.indexOf('class="fl-lane"') >= 0 && z.html.indexOf('fl-zoom-diff-board') < 0 && z.html.indexOf('data-flow-board="1"') < 0)
   z = await h({ action: 'fzoom-open', fields: { __el: { sid: 's-finished' } }, state: z.state, root: ROOT, session: '228a8697-2b7a-422a-b3c0-1cf61c965d5c' })
@@ -649,7 +678,7 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
   z = await h({ action: 'fzoom', fields: {}, state: z.state, root: ROOT, session: 's-main' })
   check('大流镜：头部保留使用说明且不再重复显示设置入口', z.state.zoom === true
     && z.html.indexOf('data-action="fsettings"') < 0
-    && z.html.indexOf('aria-label="大流镜使用说明"') >= 0)
+    && z.html.includes('data-flow-disclosure="help"'))
   z = await h({ action: 'fzoom', fields: {}, state: z.state, root: ROOT, session: 's-main' }) // 退出，恢复后续用例形态
 
   // 默认观察尺度：多卡（并发组/血缘树）默认全景；单卡会话（普通/新会话）默认近观铺满完整流镜
@@ -678,7 +707,7 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
     && directLeaf.state.zoomFocusSid === '228a8697-2b7a-422a-b3c0-1cf61c965d5c'
     && directLeaf.html.indexOf('data-action="fzoom-focus-current" title="用完整流镜查看当前选中分支" disabled') < 0
     && countCards(directLeaf.html, 'data-action="fzoom-open"') === 4
-    && directLeaf.html.indexOf('血缘根') >= 0)
+    && directLeaf.html.includes('class="fl-overview-source"') && directLeaf.html.includes('查看来源会话'))
   directLeaf = await h({ action: 'fzoom-view', fields: { __el: { view: 'detail' } }, state: directLeaf.state, root: ROOT, session: '228a8697-2b7a-422a-b3c0-1cf61c965d5c' })
   check('大流镜：血缘树三分支可切换详细轮次对比', directLeaf.state.zoomView === 'detail'
     && directLeaf.html.indexOf('fl-zoom-diff-board') >= 0
@@ -695,7 +724,7 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
   let namedFleet = await h({ action: 'fzoom', fields: { __flowSessionIndex: fleetIndex }, state: null, root: ROOT, session: 's-fleet-1' })
   check('大流镜：无血缘的 Harness 命名分支可恢复同组全景', namedFleet.state.zoomMode === 'panorama'
     && namedFleet.html.indexOf('data-flow-total="2"') >= 0
-    && countCards(namedFleet.html, 'fl-diff-session-head') === 2 && namedFleet.html.indexOf('fl-compact-diff') >= 0
+    && countCards(namedFleet.html, '<article class="fl-overview-card') === 2 && namedFleet.html.includes('fl-overview-conclusion')
     && namedFleet.html.indexOf('s-fleet-1') >= 0 && namedFleet.html.indexOf('s-fleet-2') >= 0)
   namedFleet = await h({ action: 'fzoom-view', fields: { __flowSessionIndex: fleetIndex, __el: { view: 'detail' } }, state: namedFleet.state, root: ROOT, session: 's-fleet-1' })
   check('大流镜：命名分支全景的精简/详细可实际切换', namedFleet.state.zoomView === 'detail'
@@ -752,6 +781,24 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
       && reuseMap.html.indexOf('data-map-from="r1-s-main" data-map-to="r2-s-fleet-1"') >= 0)
   check('大流镜导图：分叉的新列插到来源列右侧（s-fleet-1 位于 s-main 与 s-live 之间）',
     mapX('r2-s-fleet-1') > mapX('r1-s-main') && mapX('r2-s-fleet-1') < mapX('r1-s-live'))
+  // Forks can inherit many log turns, including an identical earlier prompt.
+  const prefixLength = MAIN_EVENTS.length
+  MAIN_EVENTS.push(
+    { seq: 901, time: 9000, type: 'user/message', data: { content: [{ type: 'text', text: '帮我看下这个目录' }], source: { kind: 'user' } } },
+    { seq: 902, time: 9100, type: 'assistant/message', data: { turn: 7, step: 1, message: { content: [{ type: 'text', text: 'MAP_CURRENT_RESULT' }] }, stream: [] } },
+  )
+  const actualRoundState = structuredClone(reuseSt)
+  actualRoundState.zoomRuns = [{ id: 'map-prefix', prompt: '帮我看下这个目录', rounds: [
+    { id: 'prefix', kind: 'initial', at: 8999, prompt: '初始', sids: ['s-live'], sourceSids: [] },
+    { id: 'actual', kind: 'round', at: 9200, prompt: '帮我看下这个目录', sids: ['s-main'], sourceSids: ['s-live'] },
+  ] }]
+  actualRoundState.zoomRunId = 'map-prefix'; actualRoundState.zoomRoundId = 'actual'
+  const actualRoundMap = await h({ action: 'fzoom-view', fields: { __el: { view: 'map' } }, state: actualRoundState, root: ROOT, session: 's-main' })
+  check('关系图按输入和提交时间匹配继承前缀后的真实轮次，分支锚点指向该回答', actualRoundMap.html.includes('MAP_CURRENT_RESULT') && actualRoundMap.html.includes('data-seq="902"') && !actualRoundMap.html.includes('<p>好的，我先并行读文件'))
+  actualRoundMap.state.zoomRuns[0].rounds[1].prompt = '尚未发送的新任务'
+  const missingRoundMap = await h({ action: 'fzoom-view', fields: { __el: { view: 'map' } }, state: actualRoundMap.state, root: ROOT, session: 's-main' })
+  check('关系图缺少本轮输入时不借用旧回答或提供错误的分叉锚点', missingRoundMap.html.includes('本轮尚无完整回答') && !missingRoundMap.html.includes('从这里发起 1→'))
+  MAIN_EVENTS.splice(prefixLength)
   const sourceOnlyRun = {
     id: 'run-source-only', at: 10, prompt: '来源会话并发', name: '来源会话并发', parentId: '', forkRoundId: '',
     rounds: [
@@ -796,10 +843,10 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
   check('大流镜：一次同时开始形成独立批次且只显示本次 2 个会话', z.state.zoomScope === 'run'
     && z.state.zoomRuns.length === 1 && z.state.zoomRuns[0].sids.length === 2
     && z.state.zoomRuns[0].rounds.length === 2 && z.html.indexOf('1→2') >= 0
-    && countCards(z.html, 'fl-diff-session-head') === 2 && z.html.indexOf('第一轮并发') >= 0
+    && countCards(z.html, '<article class="fl-overview-card') === 2 && z.html.indexOf('第一轮并发') >= 0
     && z.html.indexOf('class="tb-row fl-zoom-logbar"') >= 0
     && z.html.indexOf('发送到当前 2 个会话') >= 0 && countCards(z.html, 'fl-zoom-current-session') === 2
-    && z.html.indexOf('大流镜历史 · 1') >= 0)
+    && z.html.indexOf('任务历史 · 1') >= 0)
   const archivedMemberId = '228a8697-2b7a-422a-b3c0-1cf61c965d5c'
   const archivedView = await h({ action: '__refresh', fields: {
     __flowArchivedSessionIds: JSON.stringify([archivedMemberId]),
@@ -824,27 +871,30 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
     && z.html.indexOf('fl-zoom-diff-board') >= 0 && countCards(z.html, 'data-flow-detail-session=') >= 2
     && z.html.indexOf('class="fl-lane"') >= 0 && z.html.indexOf('data-flow-main-card') >= 0)
   check('大流镜：Git diff 式轮次横排对齐 + 单一共享滚动 + 本轮分支入口', z.html.indexOf('fl-zoom-diff-scroll') >= 0
-    && z.html.indexOf('fl-diff-gutter') >= 0 && (z.html.indexOf('有差异') >= 0 || z.html.indexOf('有缺失') >= 0)
+    && z.html.indexOf('fl-diff-gutter') >= 0 && z.html.includes('未对齐 · 缺少同源输入证据')
     && z.html.indexOf('fl-diff-branch') >= 0)
-  check('大流镜：结果异单独留空格并着色，不直接决定流程一致性', z.html.indexOf('结果 ') >= 0
-    && z.html.indexOf('fl-diff-dim') >= 0 && z.html.indexOf('流程') >= 0 && z.html.indexOf('文件') >= 0)
+  check('没有同源证据的轮次不宣称差异已对齐', z.html.includes('未对齐') && !z.html.includes('fl-diff-shared-input'))
   z = await h({ action: 'fzoom-view', fields: { __el: { view: 'compact' } }, state: z.state, root: ROOT, session: 's-main' })
-  check('大流镜：精简模式也是按轮次对齐的轻量 Git diff', z.state.zoomView === 'compact'
-    && z.html.indexOf('fl-zoom-diff-board') >= 0 && z.html.indexOf('fl-compact-diff') >= 0)
+  check('概览枚举保留 compact 且显示分支最新结果', z.state.zoomView === 'compact' && z.html.includes('fl-overview-list') && z.html.includes('最新结论') && !z.html.includes('fl-zoom-diff-board'))
+  check('概览直接显示执行过程并声明正常时间方向', z.html.includes('最近执行过程') && z.html.includes('fl-zoom-step') && z.html.includes('tb-pane-body tb-pane-col'))
+  z = await h({ action: 'fzoom-composer', fields: {}, state: z.state, root: ROOT, session: 's-main' })
+  z = await h({ action: 'fzoom-composer-close', fields: {}, state: z.state, root: ROOT, session: 's-main' })
+  const closedAgain = await h({ action: 'fzoom-composer-close', fields: {}, state: z.state, root: ROOT, session: 's-main' })
+  check('发送成功关闭开工区是幂等操作且保留当前任务', !z.state.zoomComposerOpen && !closedAgain.state.zoomComposerOpen && z.state.zoomRunId === closedAgain.state.zoomRunId && !z.html.includes('class="fl-zoom-composer"'))
   z = await h({ action: 'fzoom-view', fields: { __el: { view: 'map' } }, state: z.state, root: ROOT, session: 's-main' })
-  check('大流镜：导图视图按会话与轮次生成可拖动节点，并提供明确的 1→N 入口', z.state.zoomView === 'map'
+  check('大流镜：导图保留拓扑但无匹配输入时不提供错误的 1→N 入口', z.state.zoomView === 'map'
     && z.html.indexOf('data-flow-view="map"') >= 0 && z.html.indexOf('data-flow-mindmap="1"') >= 0 && z.html.indexOf('data-map-node=') >= 0
     && z.html.indexOf('fl-map-turn-label') >= 0 && z.html.indexOf('<path data-map-from=') >= 0
     && z.html.indexOf('data-map-node="root" data-map-default-x=') >= 0 && z.html.indexOf('data-map-default-y="24"') >= 0
     && z.html.indexOf(' L ') >= 0
-    && z.html.indexOf('从这里发起 1→2') >= 0 && z.html.indexOf('重置布局') >= 0)
+    && z.html.indexOf('从这里发起 1→2') < 0 && z.html.includes('本轮尚无完整回答') && z.html.includes('data-map-reset="1"') && z.html.includes('data-map-fit="1"'))
   z = await h({ action: 'fzoom-view', fields: { __el: { view: 'compact' } }, state: z.state, root: ROOT, session: 's-main' })
   z = await h({ action: 'fzoom-joined', fields: { __el: {
     sids: 's-live', meta: JSON.stringify({ prompt: '第二轮并发', routes: [''], efforts: [''] }),
   } }, state: z.state, root: ROOT, session: 's-main' })
   check('大流镜：新批次不与旧批次合并并生成并发记录', z.state.zoomRuns.length === 2
-    && countCards(z.html, 'fl-diff-session-head') === 1
-    && z.html.indexOf('大流镜历史 · 2') >= 0
+    && countCards(z.html, '<article class="fl-overview-card') === 1
+    && z.html.indexOf('任务历史 · 2') >= 0
     && z.html.indexOf('大流镜 B ·') < 0)
   const secondRunId = z.state.zoomRunId
   z = await h({ action: 'fzoom-scope', fields: { __el: { scope: 'run' } }, state: z.state, root: ROOT, session: 's-main' })
@@ -865,12 +915,14 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
     && z.html.indexOf('aria-expanded="true"') >= 0 && z.html.indexOf('fl-history-round-node') >= 0)
   z = await h({ action: 'fzoom-run', fields: { __el: { run: firstRunId } }, state: z.state, root: ROOT, session: 's-main' })
   check('大流镜：可从记录切回第一次并发', z.state.zoomRunId === firstRunId
-    && countCards(z.html, 'fl-diff-session-head') === 2 && z.html.indexOf('第一轮并发') >= 0)
+    && countCards(z.html, '<article class="fl-overview-card') === 2 && z.html.indexOf('第一轮并发') >= 0)
+  const restoredTask = await h({ action: '', fields: { __flowZoomLog: JSON.stringify({ scope: 'run', open: true, activeId: z.state.zoomRunId, roundId: z.state.zoomRoundId, view: 'compact', mode: 'panorama', runs: z.state.zoomRuns }) }, state: null, root: ROOT, session: 's-main' })
+  check('面板重挂后保持当前任务范围而非退回整棵会话树', restoredTask.state.zoomScope === 'run' && countCards(restoredTask.html, '<article class="fl-overview-card') === 2)
   z = await h({ action: 'fzoom-open', fields: { __el: { run: firstRunId, sid: '228a8697-2b7a-422a-b3c0-1cf61c965d5c' } }, state: z.state, root: ROOT, session: 's-main' })
   z = await h({ action: 'fzoom-focus-back', fields: {}, state: z.state, root: ROOT, session: '228a8697-2b7a-422a-b3c0-1cf61c965d5c' })
   check('大流镜：跟随分支后缩小仍恢复原并发的全部分支', z.state.zoomRunId === firstRunId
     && z.state.zoomMode === 'panorama' && z.state.zoomFocusSid === '228a8697-2b7a-422a-b3c0-1cf61c965d5c'
-    && countCards(z.html, 'fl-diff-session-head') === 2)
+    && countCards(z.html, '<article class="fl-overview-card') === 2)
   z = await h({ action: 'fzoom-open', fields: { __el: { run: secondRunId, sid: 's-live' } }, state: z.state, root: ROOT, session: 's-main' })
   check('大流镜：从当前并发对话项内嵌所属流镜', z.state.zoomRunId === secondRunId
     && z.state.sid === 's-live' && z.state.zoom === true && z.state.zoomFocusSid === 's-live'
@@ -913,6 +965,111 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
     && topo.zoomRuns.map((x) => x.name).join(',') === '大流镜 A,大流镜 B,大流镜 C'
     && topoShape(topo.zoomRuns[1]) === '1→2→1→2' && topoShape(topo.zoomRuns[2]) === '1→2→2→2',
   JSON.stringify(topo.zoomRuns.map((x) => ({ name: x.name, parentId: x.parentId, rounds: x.rounds.map((r) => ({ source: r.sourceSids.length, out: r.sids.length })) }))))
+
+  // 搜索范围、标记定位、只读回放及有证据的对比。
+  let search = await h({ action: 'fsearch', fields: { flowSearch: 'long-001', flowSearchScope: 'loaded' }, state: null, root: ROOT, session: 's-long' })
+  check('已加载搜索不会暗中扩大历史窗口', search.html.includes('没有匹配的节点') && search.html.includes('当前已加载节点 · 已检查 60 项'))
+  search = await h({ action: 'fsearch', fields: { flowSearch: 'LONG-001', flowSearchScope: 'all' }, state: search.state, root: ROOT, session: 's-long' })
+  check('全会话搜索可定位首屏之外的节点且不区分大小写', search.html.includes('data-flow-main-card="1"') && search.html.includes('全会话已记录日志 · 已检查 130 项 · 命中 1 项'))
+  search = await h({ action: 'fsearch-clear', fields: {}, state: search.state, root: ROOT, session: 's-long' })
+  check('清除筛选恢复分页窗口', search.state.flowSearch === '' && search.html.includes('data-flow-visible="60"') && search.html.includes('data-flow-has-older="1"'))
+  const failedOnly = await h({ action: 'ffilter', fields: { flowStatus: 'failed', flowSearchScope: 'all' }, state: null, root: ROOT, session: 's-fail-attempt' })
+  check('失败筛选与需要关注入口保留真实错误', failedOnly.html.includes('PI_AI_ERROR') && failedOnly.html.includes('需要关注 · 1 项失败') && failedOnly.state.flowStatus === 'failed')
+  const roleOnly = await h({ action: 'ffilter', fields: { flowRole: 'call' }, state: null, root: ROOT, session: 's-main' })
+  check('类型筛选只显示工具且保留工具稳定身份', !roleOnly.html.includes('data-flow-role="ai"') && roleOnly.html.includes('data-flow-node-key="s-main|call|3"'))
+  const bookmark = await h({ action: 'fbookmark-jump', fields: { __el: { sid: 's-long', kind: 'msg', seq: '1' }, __flowBookmarks: JSON.stringify([{ sessionId: 's-long', kind: 'msg', seq: 1, note: '重要起点' }]) }, state: null, root: ROOT, session: 's-main' })
+  check('标记恢复准确会话、节点类型、历史窗口与详情', bookmark.state.sid === 's-long' && bookmark.state.expanded === 1 && bookmark.state.limit >= 130
+    && bookmark.html.includes('data-flow-inspector="1"') && bookmark.html.includes('data-node-key="s-long|msg|1"') && bookmark.html.includes('class="fl-bookmark-btn is-bookmarked"'))
+  const invalidBookmark = await h({ action: 'fbookmark-jump', fields: { __el: { sid: 's-long', kind: 'call', seq: '1' } }, state: null, root: ROOT, session: 's-main' })
+  check('节点类型不匹配时解释标记失效而不误开同 seq 消息', invalidBookmark.state.sid === 's-main' && invalidBookmark.html.includes('此标记的节点已不可用'))
+  let replay = await h({ action: 'freplay', fields: { flowReplaySeq: '3' }, state: null, root: ROOT, session: 's-main',
+    live: liveOverlay('s-main', 999, [attempt('future-attempt', 9, 9, 999, 9999, 10000, { text: '未来实时秘密内容' })]) })
+  check('回放只使用事件前缀，不泄露未来工具结果或实时内容', replay.html.includes('data-flow-replay-active="1"') && replay.html.includes('data-flow-node-key="s-main|call|3"')
+    && !replay.html.includes('file a content') && !replay.html.includes('未来实时秘密内容') && !replay.html.includes('data-flow-branch') && !replay.html.includes('data-flow-timer'))
+  replay = await h({ action: 'fcontext', fields: { __el: { seqs: '3,7' } }, state: replay.state, root: ROOT, session: 's-main' })
+  check('回放框选导出也不带入未来消息或工具结果', replay.flowContext.seqs.join(',') === '3' && !replay.flowContext.text.includes('file a content') && !replay.flowContext.text.includes('再派个子代理调研'))
+  replay = await h({ action: 'freplay', fields: { flowReplaySeq: '10' }, state: replay.state, root: ROOT, session: 's-main' })
+  check('回放不会读取子代理当前日志', !replay.html.includes('child hits') && !replay.html.includes('我开始调研') && !replay.html.includes('data-action="fenter"'))
+  replay = await h({ action: 'freplay', fields: { flowReplaySeq: '10', __el: { step: '-1' } }, state: replay.state, root: ROOT, session: 's-main' })
+  check('回放逐事件定位边界', replay.state.replaySeq === 9)
+  replay = await h({ action: 'freplay-live', fields: {}, state: replay.state, root: ROOT, session: 's-main' })
+  check('返回最新恢复完整流程与分支操作', replay.state.replaySeq === null && replay.html.includes('file a content') && replay.html.includes('data-flow-branch'))
+  const comparisonEvents = (input, result) => [
+    { seq: 1, time: 1000, type: 'user/message', data: { content: [{ type: 'text', text: input }], source: { kind: 'user' } } },
+    { seq: 2, time: 1010, type: 'turn/start', data: { turn: 1 } },
+    { seq: 3, time: 1020, type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: result }] }, stream: [] } },
+    { seq: 4, time: 1030, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+  ]
+  SESSIONS['s-align-a'] = comparisonEvents('同源输入完整内容', '同一个结论')
+  SESSIONS['s-align-b'] = comparisonEvents('同源输入完整内容', '同一个结论')
+  let aligned = await h({ action: 'fzoom-joined', fields: { __el: { sids: 's-align-a,s-align-b', meta: JSON.stringify({ prompt: '对比任务' }) } }, state: null, root: ROOT, session: 's-align-a' })
+  const alignedRunId = aligned.state.zoomRunId
+  const alignedRoundId = aligned.state.zoomRoundId
+  aligned = await h({ action: 'fzoom-view', fields: { __el: { view: 'detail' } }, state: aligned.state, root: ROOT, session: 's-align-a' })
+  check('相同完整输入支持可靠对齐且只显示一次共享输入', countCards(aligned.html, 'class="fl-diff-shared-input"') === 1 && aligned.html.includes('共享输入 · 已对齐')
+    && !aligned.html.includes('data-flow-role="user"') && countCards(aligned.html, 'data-flow-conclusion="1"') === 2)
+  aligned = await h({ action: 'fdifferences', fields: {}, state: aligned.state, root: ROOT, session: 's-align-a' })
+  check('仅看差异隐藏完全相同且已对齐的轮次', aligned.state.flowDifferences === true && !aligned.html.includes('class="fl-diff-gutter'))
+  SESSIONS['s-unaligned-a'] = comparisonEvents('长输入'.repeat(80) + 'A', '一样的结果')
+  SESSIONS['s-unaligned-b'] = comparisonEvents('长输入'.repeat(80) + 'B', '一样的结果')
+  let unaligned = await h({ action: 'fzoom-joined', fields: { __el: { sids: 's-unaligned-a,s-unaligned-b', meta: '{}' } }, state: null, root: ROOT, session: 's-unaligned-a' })
+  unaligned = await h({ action: 'fzoom-view', fields: { __el: { view: 'detail' } }, state: unaligned.state, root: ROOT, session: 's-unaligned-a' })
+  check('截断预览相同不会被误判为同源输入', unaligned.html.includes('未对齐 · 缺少同源输入证据') && !unaligned.html.includes('class="fl-diff-shared-input"'))
+  const recovered = await h({ action: 'fzoom-run-add', fields: { __el: { sid: 's-main', run: alignedRunId, round: alignedRoundId, route: 'deepseek/reasoner-x' } }, state: aligned.state, root: ROOT, session: 's-align-a' })
+  check('恢复发送可向指定已有轮次补入成功会话', recovered.state.zoomRuns.find((run) => run.id === alignedRunId).rounds.find((round) => round.id === alignedRoundId).sids.includes('s-main')
+    && recovered.state.zoomRuns.length === 1)
+  const invalidRecovery = await h({ action: 'fzoom-run-add', fields: { __el: { sid: 's-main', run: 'missing-run', round: alignedRoundId } }, state: recovered.state, root: ROOT, session: 's-align-a' })
+  check('恢复轮次失效时拒绝静默添加到另一轮', invalidRecovery.ok === false && invalidRecovery.error.includes('恢复目标轮次已不可用'))
+  const completed = await h({ action: 'fcontext', fields: { __el: { seqs: '3', requireCompleted: '1' } }, state: null, root: ROOT, session: 's-align-a' })
+  check('结论读取必须准确命中一个已完成助手节点', completed.ok && completed.flowContext.seqs.join(',') === '3' && completed.flowContext.text.includes('同一个结论'))
+  const staleConclusion = await h({ action: 'fcontext', fields: { __el: { seqs: '999', requireCompleted: '1' } }, state: null, root: ROOT, session: 's-align-a' })
+  check('失效结论不以空上下文标题冒充成功摘录', staleConclusion.ok === false && staleConclusion.error.includes('所选结论已不可用'))
+  const userConclusion = await h({ action: 'fcontext', fields: { __el: { seqs: '1', requireCompleted: '1' } }, state: null, root: ROOT, session: 's-align-a' })
+  check('结论接口拒绝用户输入节点', userConclusion.ok === false)
+  const failedConclusion = await h({ action: 'fcontext', fields: { __el: { seqs: '4', requireCompleted: '1' } }, state: null, root: ROOT, session: 's-fail-attempt' })
+  check('结论接口拒绝失败助手节点', failedConclusion.ok === false)
+  const plainState = (value) => !value || (Object.getOwnPropertyNames(value).every((key) => Object.prototype.propertyIsEnumerable.call(value, key) && !key.startsWith('__')))
+  check('正常与早返回错误 state 清理全部临时私有字段以满足 losslessJSON wire',
+    [completed, staleConclusion, invalidRecovery, bookmark, invalidBookmark].every((result) => plainState(result.state)))
+  const { projectFlowItems, durableProjectionCache } = ctx.__projectionTest
+  durableProjectionCache.clear()
+  const cacheEvents = comparisonEvents('缓存输入', '缓存结果')
+  const log = { events: cacheEvents, count: cacheEvents.length, changed: false }
+  let projection = projectFlowItems('cache', log, null, null)
+  const initialCache = durableProjectionCache.get('cache')
+  projection.find((item) => item.role === 'ai').preview = '仅修改本次渲染'
+  projection = projectFlowItems('cache', log, null, null)
+  check('未变化 durable projection 命中缓存且调用者修改不污染后续结果', durableProjectionCache.get('cache') === initialCache && projection.find((item) => item.role === 'ai').preview === '缓存结果')
+  cacheEvents.push({ seq: 5, time: 1040, type: 'user/message', data: { content: [{ type: 'text', text: '新追加输入' }], source: { kind: 'user' } } })
+  projection = projectFlowItems('cache', { ...log, count: 5 }, null, null)
+  check('追加事件使 projection 缓存失效', projection.some((item) => item.full === '新追加输入') && durableProjectionCache.get('cache') !== initialCache)
+  cacheEvents[2].data.message.content[0].text = '同数组同计数的修改'
+  projection = projectFlowItems('cache', { ...log, count: 5 }, null, null)
+  check('changed=false 的同数组原地修改不会返回旧结果', projection.some((item) => item.full === '同数组同计数的修改'))
+  const sameCountReplacement = structuredClone(cacheEvents)
+  sameCountReplacement[2].data.message.content[0].text = '相同计数的新数组'
+  projection = projectFlowItems('cache', { events: sameCountReplacement, count: 5, changed: false }, null, null)
+  check('相同计数的新 durable 数组使缓存失效', projection.some((item) => item.full === '相同计数的新数组'))
+  const beforeChanged = durableProjectionCache.get('cache')
+  projectFlowItems('cache', { events: sameCountReplacement, count: 5, changed: true }, null, null)
+  check('reader changed=true 明确使缓存失效', durableProjectionCache.get('cache') !== beforeChanged)
+  projection = projectFlowItems('cache', { events: sameCountReplacement, count: 5, changed: false }, null, 2)
+  check('回放游标改变不会复用未来结论', !projection.some((item) => item.role === 'ai'))
+  projection = projectFlowItems('cache', { events: sameCountReplacement, count: 5, changed: false }, null, null)
+  check('退出回放重建完整 durable projection', projection.some((item) => item.full === '相同计数的新数组'))
+  const liveLog = { events: LIVE_PREFIX_EVENTS, count: LIVE_PREFIX_EVENTS.length, changed: false }
+  projectFlowItems('cache-live', liveLog, null, null)
+  const durableOnly = durableProjectionCache.get('cache-live')
+  projection = projectFlowItems('cache-live', liveLog, liveOverlay('cache-live', 1, [attempt('cache-att', 1, 1, 3.5, 3030, 3040, { text: '实时增长' })]), null)
+  check('live overlay 绕过缓存并保留原 durable 缓存', projection.some((item) => item.full === '实时增长') && durableProjectionCache.get('cache-live') === durableOnly)
+  const rawLiveEvents = LIVE_PREFIX_EVENTS.concat([{ seq: 4, time: 3040, type: 'assistant/live-chunk', data: { attemptId: 'raw-cache', turn: 1, step: 1, chunk: { type: 'text-delta', text: '原始瞬时内容' } } }])
+  projectFlowItems('raw-live-cache', { events: rawLiveEvents, count: rawLiveEvents.length, changed: false }, null, null)
+  check('含瞬时chunk及Date.now回退的日志不缓存', !durableProjectionCache.has('raw-live-cache'))
+  for (let i = 0; i < 17; i++) projectFlowItems('scope-' + i, log, null, null)
+  check('durable projection 缓存限制16个会话并驱逐旧scope', durableProjectionCache.size === 16 && !durableProjectionCache.has('scope-0') && durableProjectionCache.has('scope-16'))
+  let cachedRules = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-default-presentation-rules' })
+  cachedRules = await h({ action: 'ftoggle-rule', fields: { __el: { index: '0' } }, state: cachedRules.state, root: ROOT, session: 's-default-presentation-rules' })
+  check('展示规则变化不被durable缓存遮蔽', !cachedRules.html.includes('<span class="fl-name">Git status</span>') && cachedRules.html.includes('<span class="fl-name">pwsh</span>'))
 
   console.log(failures ? ('\n共 ' + failures + ' 项失败') : '\n全部通过')
   process.exit(failures ? 1 : 0)

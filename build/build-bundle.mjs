@@ -2,6 +2,7 @@
 // 输出普通 DSH Host + dsh.client 双端包；不生成动态 payload，不调用 dynamicCordisRunner。
 import { PLUGINS } from './plugin-catalog.mjs'
 import { sha256 } from './source-loader.mjs'
+import { assembleClientSource, clientImplFiles } from './source-assembly.mjs'
 import { validateCatalog, normalizeSelection, deriveRuntimeOverrides, BUNDLE_ID_RE, SEMVER_RE, PACKAGE_NAME_RE } from './profile.mjs'
 import { renderNativeHost } from './templates/native-host.mjs'
 import { renderNativeFeatureHost } from './templates/native-feature-host.mjs'
@@ -70,7 +71,7 @@ export const buildBundle = (loader, opts) => {
   const profile = deriveRuntimeOverrides(bundleId, label, { componentBridge: splitComponents })
   const runtimeSource = loader.read('shared/runtime.js')
   const sharedHostSource = loader.read('shared/host.js')
-  const toolboxClientSource = loader.read('plugins/toolbox/client.js')
+  const toolboxClientSource = assembleClientSource(loader.read, 'plugins/toolbox/client.js')
   const hostFeatures = featureEntries.filter((entry) => entry.hostFiles && entry.hostFiles.length).map((entry) => ({
     key: entry.key,
     inject: entry.inject || [],
@@ -79,7 +80,7 @@ export const buildBundle = (loader, opts) => {
   }))
   const clientFeatures = featureEntries.filter((entry) => entry.clientFile).map((entry) => ({
     key: entry.key,
-    source: loader.read(entry.clientFile),
+    source: assembleClientSource(loader.read, entry),
   }))
   const bridgeMethods = featureEntries.flatMap((entry) => nativeClientRpc[entry.key] || [])
   const hasModelTools = featureEntries.some((entry) => entry.modelTools && entry.modelTools.length)
@@ -117,7 +118,7 @@ export const buildBundle = (loader, opts) => {
 
   const sourceHashes = {}
   for (const entry of selected) {
-    for (const file of (entry.hostFiles || []).concat(entry.clientFile ? [entry.clientFile] : [])) sourceHashes[file] = sha256(loader.read(file))
+    for (const file of (entry.hostFiles || []).concat(clientImplFiles(entry))) sourceHashes[file] = sha256(loader.read(file))
   }
   for (const file of ['shared/runtime.js', 'shared/host.js']) sourceHashes[file] = sha256(loader.read(file))
 

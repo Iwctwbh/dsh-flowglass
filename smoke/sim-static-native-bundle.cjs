@@ -114,7 +114,7 @@ const check = (label, cond, detail) => {
     .replace('export const name =', 'const name =')
     .replace('export const inject =', 'const inject =')
     .replace('export async function apply(ctx)', 'async function apply(ctx)')
-  hostSource += '\nreturn { name, inject, apply }'
+  hostSource += '\nreturn { name, inject, apply, makeStaticRegistry }'
   class MockRemoteService {
     constructor(ctx, service, options) { this.ctx = ctx; this.name = service; this.namespace = options && options.namespace; ctx.provide(service, this) }
   }
@@ -127,7 +127,7 @@ const check = (label, cond, detail) => {
     get(name) {
       if (name === 'sessionQuery') return {
         async readSession() { return { session: session.header, events: [] } },
-        async listSessions() { return [{ id: 's1', header: session.header }] },
+        async listSessions() { return [{ id: 's1', header: session.header }, { header: { id: 'cold-session', cwd: 'D:/work/cold' }, live: false, persisted: true }] },
       }
       if (name === 'sessions') return { get: (id) => id === 's1' ? session : undefined }
       return services[name]
@@ -139,6 +139,13 @@ const check = (label, cond, detail) => {
   }
   const module = await new Function('TypertRemoteService', 'Remote', 'console', 'return (async () => {\n' + hostSource + '\n})()')(MockRemoteService, Remote, console)
   await module.apply(ctx)
+  const transport = module.makeStaticRegistry()
+  transport.register({ id: 'relay' }, () => ({ ok: true, html: '<div/>', zoomRelay: { text: 'relay test', sourceSessionId: 'source', ignored: true } }))
+  const relayed = await transport.panel('', { tool: 'relay' })
+  check('原生面板透传带入结论与来源但不透传额外字段', relayed.zoomRelay.text === 'relay test' && relayed.zoomRelay.sourceSessionId === 'source' && !('ignored' in relayed.zoomRelay))
+  transport.register({ id: 'failed' }, () => ({ ok: false, html: '', error: 'no conclusion' }))
+  const rejected = await transport.panel('', { tool: 'failed' })
+  check('原生面板保留工具错误而不伪装成成功', rejected.ok === false && rejected.error === 'no conclusion')
   for (const fn of intervals.splice(0)) fn()
   const info = JSON.parse(files.get('BUILDINFO.json'))
   const remote = services[info.profile.remoteService]
@@ -149,6 +156,8 @@ const check = (label, cond, detail) => {
   check('原生 Remote panel 可渲染 Flow', panel && panel.ok === true && typeof panel.html === 'string' && panel.html.includes('data-flow'), JSON.stringify(panel).slice(0, 300))
   const sessionInfo = await remote.sessionInfo({ session: 's1' })
   check('原生 Remote sessionInfo 可解析 cwd', sessionInfo.ok && sessionInfo.cwd === 'D:/work/native')
+  const coldInfo = await remote.sessionInfo({ session: 'cold-session' })
+  check('未加载会话通过真实 SessionRecord.header.id 解析工作目录', coldInfo.ok && coldInfo.cwd === 'D:/work/cold')
 
   // selfview 共享同一份功能源码，但静态包必须改走原生 Remote 与 tools service。
   const selfviewBuilt = buildBundle(loader, { features: ['selfview'], version: '0.1.0' })

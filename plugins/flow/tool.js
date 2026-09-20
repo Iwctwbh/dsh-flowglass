@@ -30,7 +30,7 @@ return {
     const readLog = async (sid) => {
       if (!sq) return { events: [], count: 0 }
       if (!readers[sid]) readers[sid] = makeSessionLogReader(ctx, sq)
-      try { return await readers[sid](sid) } catch (e) { return { events: [], count: 0 } }
+      try { return await readers[sid](sid) } catch (e) { return { events: [], count: 0, unavailable: true, error: String(e && e.message || e).slice(0, 300) } }
     }
 
     // ---- 工具分类（与 trace 工具同口径：真实清单优先，名字启发式兜底）----
@@ -580,6 +580,74 @@ return {
       return nodes
     }
 
+    // Only cache durable projections. Live overlays carry settle identities and must
+    // always be folded afresh. Callers may settle top-level display fields locally.
+    const durableProjectionCache = new Map()
+    const projectFlowItems = (sid, log, live, replaySeq) => {
+      const events = log.events || []
+      const prefix = () => replaySeq == null ? events : events.filter((event) => Number(event.seq) <= replaySeq)
+      if (live || log.unavailable || events.some((event) => event.type === 'assistant/live-chunk')) return parseItems(prefix(), live)
+      // Some adapters mutate a returned events array without changing its count.
+      // Exact source comparison prevents a same-count edit from reusing old nodes.
+      let sourceJson
+      try { sourceJson = JSON.stringify(events) } catch (e) { return parseItems(prefix(), live) }
+      if (sourceJson.length > 2000000) return parseItems(prefix(), live)
+      const count = log.count == null ? events.length : log.count
+      const tailSeq = events.length ? events[events.length - 1].seq : null
+      const cached = durableProjectionCache.get(sid)
+      let items
+      if (log.changed !== true && cached && cached.events === events && cached.length === events.length && cached.count === count && cached.tailSeq === tailSeq && cached.replaySeq === replaySeq && cached.sourceJson === sourceJson) items = cached.items
+      else {
+        items = parseItems(prefix())
+        durableProjectionCache.delete(sid)
+        durableProjectionCache.set(sid, { events, length: events.length, count, tailSeq, replaySeq, sourceJson, items })
+        while (durableProjectionCache.size > 16 || [...durableProjectionCache.values()].reduce((sum, entry) => sum + entry.sourceJson.length, 0) > 8000000) durableProjectionCache.delete(durableProjectionCache.keys().next().value)
+      }
+      return items.map((item) => ({ ...item }))
+    }
+
+    const nodeKeyOf = (sid, it) => sid + '|' + it.kind + '|' + it.seq
+    const nodeIdentityHtml = (it, st) => ' data-flow-node-key="' + esc(nodeKeyOf(st.sid || '', it)) + '" data-flow-node-kind="' + it.kind + '"'
+    const bookmarkButtonHtml = (it, st) => {
+      const key = nodeKeyOf(st.sid || '', it)
+      const saved = Array.isArray(st.__flowBookmarks) && st.__flowBookmarks.some((b) => b.sessionId === st.sid && b.kind === it.kind && Number(b.seq) === it.seq)
+      return '<button type="button" class="fl-bookmark-btn' + (saved ? ' is-bookmarked' : '') + '" data-flow-bookmark="1" data-node-key="' + esc(key) + '" data-sid="' + esc(st.sid || '') + '" data-kind="' + it.kind + '" data-seq="' + it.seq + '" aria-pressed="' + (saved ? 'true' : 'false') + '" aria-label="' + (saved ? '编辑节点标记' : '标记此节点') + '">' + (saved ? '已标记' : '标记') + '</button>'
+    }
+    const replayEventsOf = (events, st) => st.replaySeq == null ? events : events.filter((e) => Number(e.seq) <= st.replaySeq)
+    const itemMatches = (it, st) => {
+      if (st.flowRole !== 'all' && (it.kind === 'call' ? 'call' : it.role) !== st.flowRole) return false
+      const failed = it.kind === 'call' ? it.status === 'error' : it.failed || (it.interrupted && it.failCode)
+      const running = it.kind === 'call' ? it.status === 'pending' : it.streaming || it.awaitingRetry
+      if (st.flowStatus === 'failed' && !failed) return false
+      if (st.flowStatus === 'running' && !running) return false
+      const query = (st.flowSearch || '').trim().toLocaleLowerCase()
+      return !query || [it.full, it.preview, it.name, it.argsRaw, it.resultText, it.failMsg, it.failCode].filter(Boolean).join('\n').toLocaleLowerCase().includes(query)
+    }
+    const selectFlowNodes = (nodes, st, limit) => {
+      const filtered = !!(st.flowSearch || st.flowRole !== 'all' || st.flowStatus !== 'all')
+      const source = filtered && st.flowSearchScope === 'all' ? nodes : nodes.slice(-limit)
+      const items = source.flatMap((n) => n.t === 'msg' ? [n.it] : n.calls)
+      const matches = filtered ? items.filter((it) => itemMatches(it, st)) : items
+      const result = filtered ? buildNodes(matches) : source
+      return { shown: filtered ? result.slice(0, 200) : result, filtered, matches: matches.length, searched: items.length,
+        truncated: filtered && result.length > 200, hasOlder: !filtered && nodes.length > source.length }
+    }
+    const queryToolbarHtml = (st, selection, events) => {
+      const option = (value, label, current) => '<option value="' + value + '"' + (value === current ? ' selected' : '') + '>' + label + '</option>'
+      const maxSeq = events.reduce((max, e) => Math.max(max, Number(e.seq) || 0), 0)
+      return '<details class="fl-query-bar" data-flow-disclosure="query"' + (selection.filtered ? ' open' : '') + '><summary title="查找与筛选">查找' + (selection.filtered ? ' · ' + selection.matches + ' 项' : '') + '</summary><div class="fl-filter-panel"><div class="fl-filter-row">' +
+        '<label>查找<input class="tb-input" type="search" data-field="flowSearch" value="' + esc(st.flowSearch || '') + '" placeholder="消息、工具或错误" aria-label="查找节点"></label>' +
+        '<label>范围<select class="tb-select" data-field="flowSearchScope" data-action-onchange="fsearch">' + option('loaded', '已加载节点', st.flowSearchScope) + option('all', '全会话日志', st.flowSearchScope) + '</select></label>' +
+        '<label>类型<select class="tb-select" data-field="flowRole" data-action-onchange="ffilter">' + ['all', 'user', 'ai', 'call', 'inject'].map((value, i) => option(value, ['全部类型', '用户', '助手', '工具', '系统上下文'][i], st.flowRole)).join('') + '</select></label>' +
+        '<label>状态<select class="tb-select" data-field="flowStatus" data-action-onchange="ffilter">' + ['all', 'running', 'failed'].map((value, i) => option(value, ['全部状态', '运行中', '失败'][i], st.flowStatus)).join('') + '</select></label>' +
+        '<button type="button" class="tb-btn tb-btn-sm" data-action="fsearch">查找</button><button type="button" class="tb-btn tb-btn-sm" data-action="fsearch-clear">清除筛选</button></div>' +
+        '<p class="fl-search-summary">' + (st.flowSearchScope === 'all' ? '全会话已记录日志' : '当前已加载节点') + (st.replaySeq != null ? ' · 回放时点之前' : '') + ' · 已检查 ' + selection.searched + ' 项' + (selection.filtered ? ' · 命中 ' + selection.matches + ' 项' : '') + (selection.truncated ? ' · 显示前 200 个节点，请缩小条件' : '') + '</p></div></details>' +
+        '<details class="fl-replay-bar" data-flow-disclosure="replay"' + (st.replaySeq != null ? ' open' : '') + '><summary title="只读回放">回放' + (st.replaySeq != null ? ' · seq ' + st.replaySeq : '') + '</summary><div class="fl-filter-panel"><div class="fl-filter-row">' +
+        '<label>事件位置<input class="tb-input" type="number" min="0" max="' + maxSeq + '" step="1" data-field="flowReplaySeq" value="' + (st.replaySeq == null ? maxSeq : st.replaySeq) + '" aria-label="回放事件位置"></label>' +
+        '<button type="button" class="tb-btn tb-btn-sm" data-action="freplay">查看此时点</button><button type="button" class="tb-btn tb-btn-sm" data-action="freplay" data-step="-1">上一个事件</button><button type="button" class="tb-btn tb-btn-sm" data-action="freplay" data-step="1">下一个事件</button>' +
+        '<button type="button" class="tb-btn tb-btn-sm" data-action="freplay-live">返回最新</button></div><p class="tb-note">按已记录事件回放；此时点之后的结果和实时内容不会显示。</p></div></details>'
+    }
+
     // ---- 子代理调用 → 目标会话 id（旧版结果文本 / alpha.4 send_message）----
     const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i
     const childIdOf = (call) => {
@@ -625,10 +693,23 @@ return {
 
     // ---- 渲染 ----
     const statusGlyph = (s, dur) => {
-      if (s === 'ok') return '<span class="fl-status" style="color:var(--tb-done-text,#81c784)">✓ ' + fmtDur(dur) + '</span>'
-      if (s === 'error') return '<span class="fl-status" style="color:var(--tb-danger-text,#f28b82)">✗ ' + fmtDur(dur) + '</span>'
-      return '<span class="fl-spin"></span>'
+      if (s === 'ok') return '<span class="fl-status" style="color:var(--tb-done-text,#81c784)">已完成 · ' + fmtDur(dur) + '</span>'
+      if (s === 'error') return '<span class="fl-status" style="color:var(--tb-danger-text,#f28b82)">失败 · ' + fmtDur(dur) + '</span>'
+      return '<span class="fl-spin" aria-hidden="true"></span><span class="fl-status">运行中</span>'
     }
+
+    const syncStatusHtml = (st) => '<span class="fl-sync-status' + (st.live ? '' : ' is-paused') + '" data-flow-sync-state="' + (st.live ? 'live' : 'paused') + '">' + (st.live ? '已同步' : '已暂停同步') + '</span>'
+    const toolbarMoreHtml = (st, help, technical) => '<details class="fl-toolbar-more" data-flow-disclosure="more"><summary>更多</summary><div class="fl-toolbar-menu">' +
+      '<button type="button" class="tb-btn tb-btn-sm" data-flow-bookmarks="1">标记</button><button type="button" class="tb-btn tb-btn-sm" data-flow-export="1">导出</button>' +
+      (st.zoom ? '<button type="button" class="tb-btn tb-btn-sm" data-flow-compare-preview="1">比较所选结论</button>' : '') +
+      '<button type="button" class="tb-btn tb-btn-sm" data-action="refresh">立即刷新</button>' +
+      '<button type="button" class="tb-chip" data-action="toggle-live" aria-pressed="' + (st.live ? 'true' : 'false') + '">' + (st.live ? '暂停自动同步' : '恢复自动同步') + '</button>' +
+      '<button type="button" class="tb-chip" data-action="toggle-follow" aria-pressed="' + (st.follow ? 'true' : 'false') + '" title="查看分支或子代理时，同时切换 DeepSeek Harness 主会话">查看时同步切换主会话：' + (st.follow ? '开' : '关') + '</button>' +
+      (technical ? '<details class="fl-technical-info" data-flow-disclosure="technical:session"><summary>技术信息</summary><p class="tb-note">' + esc(technical) + '</p></details>' : '') +
+      '<details class="fl-help" data-flow-disclosure="help"><summary>使用说明</summary><p class="tb-note fl-help-text">' + esc(help) + '</p></details>' +
+      '</div></details>'
+    const inspectorBackHtml = (seq) => '<button type="button" class="fl-rail-x fl-rail-back" data-action="fdetail" data-seq="' + seq + '" aria-label="关闭详情并返回流程" title="关闭详情（Escape）">← 返回</button>'
+    const inspectorTechnicalHtml = (seq, text) => '<details class="fl-technical-info" data-flow-disclosure="technical:' + seq + '"><summary>技术信息</summary><p class="tb-note">' + esc(text) + '</p></details>'
 
     // 进出摘要：传入/返回（用户核心诉求——看到传给 skill 什么、skill 返回什么）
     // 传入：从 arguments JSON 提取最有信息量的字段（command/file_path/pattern/prompt…），而非整段 JSON
@@ -659,7 +740,7 @@ return {
     // 调用连线单元（形态约定·手绘参考图：主干卡在左、工具卡在右，中间两条水平连线——
     // 上=输入摘要 + 横线 + ▶ 右出；下=◀ + 横线 + 输出摘要 回左；输出线绿色系、错误红色系、进行中虚线）；
     // 进行中的工具卡高亮脉冲（调用到哪步哪步亮）；点击工具卡展开完整传入/返回（详情挂卡下方）
-    const renderCallWire = (c, expandedSeq, presentationRules) => {
+    const renderCallWire = (c, expandedSeq, presentationRules, st = {}) => {
       const identity = displayIdentity(c, presentationRules)
       const km = identity.meta
       const isExp = expandedSeq === c.seq
@@ -675,11 +756,11 @@ return {
               '<span class="fl-wl-row"><span class="fl-wl-arr">◀</span><span class="fl-wl-line"></span></span></div>') +
         '</div>' +
         '<div class="fl-callside">' +
-          '<div class="fl-iocard' + (pending ? ' fl-live' : '') + (isExp ? ' fl-on' : '') + (o && o.err ? ' fl-err' : '') + '" data-action="fdetail" data-seq="' + c.seq + '" data-flow-select-seq="' + c.seq + '" title="点击在右侧查看完整传入/返回">' +
-            '<div class="fl-iohead">' + (km.label ? '<span class="fl-tag" style="color:' + km.color + ';background:' + km.bg + '">' + esc(km.label) + '</span>' : '') +
+          '<button type="button" class="fl-iocard' + (pending && st.replaySeq == null ? ' fl-live' : '') + (isExp ? ' fl-on' : '') + (o && o.err ? ' fl-err' : '') + '" data-action="fdetail" data-seq="' + c.seq + '" data-flow-select-seq="' + c.seq + '"' + nodeIdentityHtml(c, st) + ' aria-expanded="' + (isExp ? 'true' : 'false') + '" aria-label="查看工具详情：' + esc(identity.name) + '" title="查看完整输入与输出">' +
+            '<span class="fl-iohead">' + (km.label ? '<span class="fl-tag" style="--fg-tool-color:' + km.color + ';color:' + km.color + ';background:' + km.bg + '">' + esc(km.label) + '</span>' : '') +
             '<span class="fl-name">' + esc(identity.name) + '</span>' +
-            (pending ? '<span class="fl-spin"></span><span class="fl-time" data-flow-timer="' + c.time + '" data-flow-timer-prefix="⏱ ">⏱ 0ms</span>' : statusGlyph(c.status, c.dur)) + '</div>' +
-          '</div>' +
+            (pending && st.replaySeq != null ? '<span class="fl-status">此时尚未完成</span>' : pending ? '<span class="fl-spin" aria-hidden="true"></span><span class="fl-time" data-flow-timer="' + c.time + '" data-flow-timer-prefix="运行中 · ">运行中</span>' : statusGlyph(c.status, c.dur)) + '</span>' +
+          '</button>' +
         '</div>'
     }
 
@@ -698,8 +779,8 @@ return {
       (withConn ? '<span class="fl-conn-gap"></span>' : '')
 
     // 孤立调用组（前无助手消息，如连续工具步）：中列只画主干竖线贯穿——无卡的行不放 ▼ 连接符（线本身即连续性）
-    const renderPar = (node, expandedSeq, presentationRules) => {
-      const units = node.calls.map((c) => renderCallWire(c, expandedSeq, presentationRules)).join('')
+    const renderPar = (node, expandedSeq, presentationRules, st) => {
+      const units = node.calls.map((c) => renderCallWire(c, expandedSeq, presentationRules, st)).join('')
       return '<div class="fl-lane"><div></div>' +
         '<div class="fl-lane-main"><span class="fl-lane-line"></span></div>' +
         grpSide(node, units) +
@@ -737,32 +818,35 @@ return {
       return out
     }
 
-    const msgCardInner = (it, expandedSeq, live) => {
+    const msgCardInner = (it, expandedSeq, live, st = {}) => {
       const isUser = it.role === 'user'
       const isAi = it.role === 'ai'
-      const aiRunning = isAi && it.streaming
+      const aiRunning = isAi && it.streaming && st.replaySeq == null
       const color = isUser ? 'var(--tb-done-text,#81c784)' : isAi ? 'var(--tb-active-text,#7fa7f0)' : 'var(--tb-text-3,#777884)'
-      const label = isUser ? '用户' : isAi ? '助手' : '注入'
+      const label = isUser ? '用户' : isAi ? '助手' : '系统上下文'
       // 卡片统一面片底色（fl-node），角色色只落在左侧色条 + 几何符号/tag 上，避免整卡彩色半透明的杂乱感
       // 用户/助手/注入卡均可点开右侧详情浮层看完整内容（与工具卡同一交互）；live=进行中 → 与工具卡同款流光脉冲
       // data-flow-state 暴露折叠器终态（streaming/settled/failed/abandoned）；data-flow-attempt 带实时 attempt 身份
       const branchSeq = it.finalSeq != null ? it.finalSeq : it.seq
       const flowState = it.streaming ? 'streaming' : (it.abandoned ? 'abandoned' : (it.failed || (it.interrupted && it.failCode) ? 'failed' : 'settled'))
-      const branch = isAi && !it.streaming
+      const branch = isAi && !it.streaming && st.replaySeq == null
         ? '<button type="button" class="fl-branch-btn" data-flow-branch data-seq="' + branchSeq + '" title="从这条助手消息在 Harness 中创建新分支" aria-label="在新对话中分支">' +
           '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3v5a3 3 0 0 0 3 3h4"/><path d="M8 5l3-3 3 3"/><path d="M11 2v4"/><path d="M9 9l2 2-2 2"/></svg></button>'
         : ''
-      return '<div class="fl-node' + (expandedSeq === it.seq ? ' fl-on' : '') + (live ? ' fl-live' : '') + '" style="border-left-color:' + color + '" data-flow-main-card="' + it.seq + '" data-flow-role="' + it.role + '" data-flow-state="' + flowState + '"' + (isAi && it.attemptId ? ' data-flow-attempt="' + esc(it.attemptId) + '"' : '') + ' data-flow-select-seq="' + it.seq + '" data-action="fdetail" data-seq="' + it.seq + '" title="点击查看完整消息">' +
-        '<div class="fl-node-head"><span class="fl-glyph" style="color:' + color + '">' + (isUser ? '▲' : isAi ? '◆' : '■') + '</span><span class="fl-tag" style="color:' + color + '">' + label + '</span>' +
-        (isAi && it.route ? '<span class="fl-model">' + esc(it.route) + '</span>' : '') +
-        (fmtTime(it.time) ? '<span class="fl-time">' + fmtTime(it.time) + '</span>' : '') +
-        (aiRunning && it.runStart ? '<span class="fl-time" data-flow-timer="' + it.runStart + '" data-flow-timer-prefix="⏱ ">⏱ 0ms</span>' : (isAi && it.runDur != null ? '<span class="fl-time">⏱ ' + fmtDur(it.runDur) + '</span>' : '')) +
-        (it.tok ? '<span class="fl-time">+' + it.tok + ' tok</span>' : '') + (isAi ? retryBadgeHtml(it) : '') + branch + '</div>' +
-        '<div class="fl-preview"' + (it.interrupted ? ' style="color:var(--tb-danger-text,#f28b82)"' : '') + '>' + esc(it.preview || '（空）') + '</div>' +
+      const card = '<div class="fl-node' + (expandedSeq === it.seq ? ' fl-on' : '') + (live ? ' fl-live' : '') + '" style="border-left-color:' + color + '" data-flow-main-card="' + it.seq + '" data-flow-role="' + it.role + '" data-flow-state="' + flowState + '"' + (isAi && it.attemptId ? ' data-flow-attempt="' + esc(it.attemptId) + '"' : '') + ' data-flow-select-seq="' + it.seq + '"' + nodeIdentityHtml(it, st) + '>' +
+        '<button type="button" class="fl-node-open" data-action="fdetail" data-seq="' + it.seq + '" aria-expanded="' + (expandedSeq === it.seq ? 'true' : 'false') + '" aria-label="查看' + label + '详情" title="查看完整消息">' +
+        '<span class="fl-node-head"><span class="fl-glyph" aria-hidden="true" style="color:' + color + '">' + (isUser ? '▲' : isAi ? '◆' : '■') + '</span><span class="fl-tag" style="color:' + color + '">' + label + '</span>' +
+        (aiRunning && it.runStart ? '<span class="fl-time" data-flow-timer="' + it.runStart + '" data-flow-timer-prefix="生成中 · ">生成中</span>' : (isAi && it.interrupted ? '<span class="fl-time">' + (it.abandoned ? '已取消' : '已中断') + '</span>' : '')) +
+        (isAi ? retryBadgeHtml(it) : '') + '</span>' +
+        '<span class="fl-preview"' + (it.interrupted ? ' style="color:var(--tb-danger-text,#f28b82)"' : '') + '>' + esc(it.preview || '（空）') + '</span></button>' + branch + bookmarkButtonHtml(it, st) +
       '</div>'
+      // 折叠只影响呈现；原始节点、seq 与框选上下文仍完整保留。
+      return !isUser && !isAi
+        ? '<details class="fl-system-context" data-flow-disclosure="system:' + it.seq + '"' + (expandedSeq === it.seq ? ' open' : '') + '><summary>系统上下文<span class="tb-note"> · 1 项</span></summary>' + card + '</details>'
+        : card
     }
 
-    const renderMsg = (it, expandedSeq, withConn, live) => '<div class="fl-lane"><div></div><div class="fl-lane-main">' + connMain(msgCardInner(it, expandedSeq, live), withConn) + '</div><div></div></div>'
+    const renderMsg = (it, expandedSeq, withConn, live, st) => '<div class="fl-lane"><div></div><div class="fl-lane-main">' + connMain(msgCardInner(it, expandedSeq, live, st), withConn) + '</div><div></div></div>'
 
     const copyButtonHtml = '<button type="button" class="fl-copy-btn" data-flow-copy="1" title="复制内容到剪贴板" aria-label="复制内容到剪贴板">' +
       '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M3 11H2.5A1.5 1.5 0 0 1 1 9.5v-7A1.5 1.5 0 0 1 2.5 1h7A1.5 1.5 0 0 1 11 2.5V3"/></svg></button>'
@@ -789,15 +873,14 @@ return {
       return { name, raw, instructions: instructionsMatch[1].trim(), baseDir, resourceNote }
     }
 
-    const skillDetailRail = (c, anim) => {
+    const skillDetailRail = (c, anim, st) => {
       const skill = skillDetailOf(c)
       if (!skill) return null
       const cap = 16000
       const instructions = skill.instructions.length > cap ? skill.instructions.slice(0, cap) + '\n…（截断，共 ' + skill.instructions.length + ' 字符）' : skill.instructions
       const raw = skill.raw.length > cap ? skill.raw.slice(0, cap) + '\n…（截断，共 ' + skill.raw.length + ' 字符）' : skill.raw
-      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '" data-flow-markdown-detail="1"><div class="fl-rail-resize" title="拖拽调宽（自动记忆）"></div>' +
-        '<div class="fl-rail-head"><span class="fl-rail-title">技能 · ' + esc(skill.name) + '</span>' +
-        '<button type="button" class="fl-rail-x" data-action="fdetail" data-seq="' + c.seq + '" title="关闭详情">✕</button></div>' +
+      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '" data-flow-inspector="' + c.seq + '" role="region" aria-label="技能详情" data-flow-markdown-detail="1"><div class="fl-rail-resize" title="拖拽调宽（自动记忆）"></div>' +
+        '<div class="fl-rail-head">' + inspectorBackHtml(c.seq) + bookmarkButtonHtml(c, st) + '<span class="fl-rail-title">技能 · ' + esc(skill.name) + '</span></div>' +
         '<div class="fl-rail-body" data-flow-markdown-body="1" data-flow-markdown-key="' + c.seq + '" data-flow-markdown-streaming="0">' +
           '<div class="fl-skill-hero"><span class="fl-tag">技能</span><strong>' + esc(skill.name) + '</strong>' + statusGlyph(c.status, c.dur) + '</div>' +
           (skill.baseDir ? '<div class="fl-skill-field"><span>基础目录</span><code>' + esc(skill.baseDir) + '</code></div>' : '') +
@@ -810,8 +893,8 @@ return {
 
     // 完整详情 → 右侧浮层（不插入流程流撑高内容：展开/收起零跳跃，滚动位置不动）：
     // 完整输入参数（美化 JSON）+ 完整返回结果（均截断标注，防大参数撑爆 HTML）；头部 ✕ 或再点卡片关闭
-    const detailRail = (c, anim, presentationRules) => {
-      const skill = skillDetailRail(c, anim)
+    const detailRail = (c, anim, presentationRules, st) => {
+      const skill = skillDetailRail(c, anim, st)
       if (skill) return skill
       const identity = displayIdentity(c, presentationRules)
       let input = c.argsRaw || ''
@@ -821,19 +904,20 @@ return {
       const out = c.status === 'pending' ? '（进行中，尚无返回）' : (c.resultText || '（空返回）')
       const outShown = out.length > cap ? out.slice(0, cap) + '\n…（截断，共 ' + out.length + ' 字符）' : out
       // anim=是否新展开（轮询重渲染不重播滑入动画，防闪烁）
-      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '"><div class="fl-rail-resize" title="拖拽调宽（自动记忆）"></div>' +
-        '<div class="fl-rail-head"><span class="fl-rail-title">' + esc(identity.name) + ' · 详情</span>' +
-        '<button type="button" class="fl-rail-x" data-action="fdetail" data-seq="' + c.seq + '" title="关闭详情">✕</button></div>' +
-        '<div class="fl-rail-body">' +
-          '<div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">入 · 完整传入' + (input.length > cap ? '（截断）' : '') + '</span>' + copyButtonHtml + '</div><pre class="fl-pre">' + esc(inShown) + '</pre></div>' +
-          '<div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">出 · 完整返回' + (c.outLen ? '（' + fmtSize(c.outLen) + '）' : '') + '</span>' + copyButtonHtml + '</div><pre class="fl-pre">' + esc(outShown) + '</pre></div>' +
+      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '" data-flow-inspector="' + c.seq + '" role="region" aria-label="工具详情"><div class="fl-rail-resize" title="拖拽调宽（自动记忆）"></div>' +
+        '<div class="fl-rail-head">' + inspectorBackHtml(c.seq) + bookmarkButtonHtml(c, st) + '<span class="fl-rail-title">工具 · ' + esc(identity.name) + '</span></div>' +
+        '<div class="fl-rail-body fl-tool-io">' +
+          '<div class="fl-detail-status">' + statusGlyph(c.status, c.dur) + '</div>' +
+          '<details open class="fl-tool-input" data-flow-disclosure="input:' + c.seq + '"><summary>输入' + (input.length > cap ? '（截断）' : '') + '</summary><div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">完整参数</span>' + copyButtonHtml + '</div><pre class="fl-pre">' + esc(inShown) + '</pre></div></details>' +
+          '<div class="fl-sec' + (c.status === 'error' ? ' fl-detail-error' : '') + '"><div class="fl-sec-head"><span class="fl-sec-label">输出' + (c.outLen ? '（' + fmtSize(c.outLen) + '）' : '') + '</span>' + copyButtonHtml + '</div><pre class="fl-pre">' + esc(outShown) + '</pre></div>' +
+          inspectorTechnicalHtml(c.seq, '工具 ' + c.name + ' · seq ' + c.seq + (fmtTime(c.time) ? ' · 时间 ' + fmtTime(c.time) : '')) +
         '</div>' +
       '</div>'
     }
 
     // 消息详情浮层（用户/助手/注入卡点击）：角色 + 时间/模型/tokens 元信息 + 完整内容（截断标注）
-    const msgRail = (it, anim) => {
-      const label = it.role === 'user' ? '用户消息' : it.role === 'ai' ? '助手消息' : '注入消息'
+    const msgRail = (it, anim, st) => {
+      const label = it.role === 'user' ? '用户消息' : it.role === 'ai' ? '助手消息' : '系统上下文'
       const cap = 8000
       const full = String(it.full || it.preview || '')
       const shown = full.length > cap ? full.slice(0, cap) + '\n…（截断，共 ' + full.length + ' 字符）' : full
@@ -842,21 +926,23 @@ return {
       if (it.route) meta.push('模型 ' + it.route)
       if (it.attemptId) meta.push('attempt ' + String(it.attemptId).slice(0, 12))
       if (it.tok) meta.push('输出 +' + it.tok + ' tok')
+      if (it.runDur != null) meta.push('耗时 ' + fmtDur(it.runDur))
+      meta.push('seq ' + it.seq)
       if (it.finishKind && it.finishKind !== 'stop') meta.push('结束 ' + it.finishKind)
       if (it.failCode) meta.push('错误 ' + it.failCode + (it.failMsg ? '：' + oneLine(it.failMsg, 80) : ''))
       if (it.retries && it.retries.length) meta.push('重试 ' + it.retries.length + ' 次（' + it.retries.map((r) => r.code || '?').join(' → ') + '）')
       // 与外层助手卡同款分支按钮：详情头部可直接从这条消息创建新分支（复用 data-flow-branch 委托）
-      const branch = it.role === 'ai' && !it.streaming
+      const branch = it.role === 'ai' && !it.streaming && st.replaySeq == null
         ? '<button type="button" class="fl-branch-btn" data-flow-branch data-seq="' + (it.finalSeq != null ? it.finalSeq : it.seq) + '" title="从这条助手消息在 Harness 中创建新分支" aria-label="在新对话中分支">' +
           '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3v5a3 3 0 0 0 3 3h4"/><path d="M8 5l3-3 3 3"/><path d="M11 2v4"/><path d="M9 9l2 2-2 2"/></svg></button>'
         : ''
       const markdown = it.role === 'ai'
-      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '"' + (markdown ? ' data-flow-markdown-detail="1"' : '') + '><div class="fl-rail-resize" title="拖拽调宽（自动记忆）"></div>' +
-        '<div class="fl-rail-head"><span class="fl-rail-title">' + label + ' · 详情</span>' + branch +
-        '<button type="button" class="fl-rail-x" data-action="fdetail" data-seq="' + it.seq + '" title="关闭详情">✕</button></div>' +
+      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '" data-flow-inspector="' + it.seq + '" role="region" aria-label="' + label + '详情"' + (markdown ? ' data-flow-markdown-detail="1"' : '') + '><div class="fl-rail-resize" title="拖拽调宽（自动记忆）"></div>' +
+        '<div class="fl-rail-head">' + inspectorBackHtml(it.seq) + bookmarkButtonHtml(it, st) + '<span class="fl-rail-title">' + label + '</span>' + branch + '</div>' +
         '<div class="fl-rail-body"' + (markdown ? ' data-flow-markdown-body="1" data-flow-markdown-key="' + it.seq + '" data-flow-markdown-streaming="' + (it.streaming ? '1' : '0') + '"' : '') + '>' +
-          (meta.length ? '<div class="fl-sec"><span class="fl-sec-label">' + esc(meta.join(' · ')) + '</span></div>' : '') +
+          (it.interrupted ? '<div class="fl-detail-error">' + esc(it.failMsg || (it.abandoned ? '生成已取消' : '生成失败或已中断')) + '</div>' : it.streaming ? '<div class="fl-detail-status">正在生成</div>' : '') +
           '<div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">完整内容' + (full.length > cap ? '（截断）' : '') + '</span>' + (markdown ? markdownPreviewButtonHtml(it.seq) : '') + copyButtonHtml + '</div><pre class="fl-pre"' + (markdown ? ' data-flow-markdown-source="1"' : '') + '>' + esc(shown || '（空）') + '</pre></div>' +
+          inspectorTechnicalHtml(it.seq, meta.join(' · ')) +
         '</div>' +
       '</div>'
     }
@@ -910,17 +996,17 @@ return {
 
     // 子代理分支内容（左列）：入口卡（可点详情）+ 支线步骤（限高滚动）+ 出口卡
     // 运行中 = 调用在途（pending）或子会话仍 live——任一成立入口卡持续 fl-live（流光/脉冲/转圈）
-    const subBranchHtml = async (c) => {
+    const subBranchHtml = async (c, st) => {
       const cid = childIdOf(c)
-      let subLive = c.status === 'pending'
+      let subLive = st.replaySeq == null && c.status === 'pending'
       let sub2 = null
-      if (cid) {
+      if (cid && st.replaySeq == null) {
         try { sub2 = await childRows(cid, 10); if (sub2.live) subLive = true } catch (e) {}
       }
 
       // 有子会话 id 后，整张入口卡就是“进入子流镜”的主点击面；
       // 子代理尚在启动时仍保留详情行为，避免点击无效。
-      let sub = '<div class="fl-sub-card fl-sub-open' + (subLive ? ' fl-live' : '') + '" data-action="' + (cid ? 'fenter' : 'fdetail') + '" data-seq="' + c.seq + '" data-flow-select-seq="' + c.seq + '" title="' + (cid ? '进入该子代理的实时流镜' : '点击查看完整任务传入/返回') + '">' +
+      let sub = '<div class="fl-sub-card fl-sub-open' + (subLive ? ' fl-live' : '') + '" role="button" tabindex="0" data-action="' + (cid && st.replaySeq == null ? 'fenter' : 'fdetail') + '" data-seq="' + c.seq + '" data-flow-select-seq="' + c.seq + '"' + nodeIdentityHtml(c, st) + ' title="' + (cid && st.replaySeq == null ? '查看子代理过程' : '查看完整任务输入与输出') + '">' +
         '<div class="fl-iohead"><span class="fl-tag" style="color:var(--tb-active-text,#7fa7f0);background:rgba(91,141,239,.12)">子代理</span>' +
         '<span class="fl-name">' + esc(c.name) + '</span>' + statusGlyph(c.status, c.dur) + '</div>' +
         '<div class="fl-sub-io"><span class="fl-io-tag">入</span><span class="fl-branch-txt">' + esc(inSummary(c)) + '</span></div>' +
@@ -943,7 +1029,7 @@ return {
       if (steps) sub += '<div class="fl-sub-steps">' + steps + '</div>'
       if (c.status !== 'pending') {
         const o = outSummary(c)
-        sub += '<div class="fl-sub-card fl-sub-close" data-action="fdetail" data-seq="' + c.seq + '" title="点击查看完整任务传入/返回">' +
+        sub += '<div class="fl-sub-card fl-sub-close" role="button" tabindex="0" data-action="fdetail" data-seq="' + c.seq + '" title="查看完整任务输入与输出">' +
           '<div class="fl-sub-io"><span class="fl-io-tag">出</span>' +
           '<span class="fl-time">' + fmtDur(c.dur) + '</span>' +
           (o ? '<span class="fl-args">' + esc(o.text) + '</span>' : '') + '</div>' +
@@ -974,8 +1060,8 @@ return {
     }
 
     // 同步子代理组：每个分支是一个可自行拉伸的小流镜，宽屏自动多列、窄屏回落单列。
-    const subGroupHtml = async (node) => {
-      const branches = await Promise.all(node.calls.map(subBranchHtml))
+    const subGroupHtml = async (node, st) => {
+      const branches = await Promise.all(node.calls.map((c) => subBranchHtml(c, st)))
       return (node.calls.length > 1 ? '<span class="fl-subgrp-tag">并行子代理 ×' + node.calls.length + '</span>' : '') +
         branches.map((html) => '<div class="fl-subbranch">' + html + '</div>').join('')
     }
@@ -985,7 +1071,7 @@ return {
     // 普通流镜与大流镜详细对比共用同一泳道渲染器：返回视觉顺序（旧→新）的行。
     const renderFlowNodeRows = async (nodes, st, liveAiSeq) => {
       const subHtmls = {}
-      await Promise.all(nodes.map(async (n, i) => { if (n.t === 'subs') subHtmls[i] = await subGroupHtml(n) }))
+      await Promise.all(nodes.map(async (n, i) => { if (n.t === 'subs') subHtmls[i] = await subGroupHtml(n, st) }))
       const rows = []
       for (let i = 0; i < nodes.length; i++) {
         const n = nodes[i]
@@ -998,7 +1084,7 @@ return {
           if (!parN && nodes[next] && nodes[next].t === 'par') { parN = nodes[next]; next++ }
           const subCalls = subN ? subN.calls : []
           const aiLive = (parN && parN.calls.some((c) => c.status === 'pending')) || subCalls.some((c) => c.status === 'pending') || n.it.seq === liveAiSeq
-          let main = msgCardInner(n.it, st.expanded, aiLive)
+          let main = msgCardInner(n.it, st.expanded, st.replaySeq == null && aiLive, st)
           let lastI = next - 1
           const allSettled = subCalls.length > 0 && subCalls.every((c) => c.resSeq != null)
           const resultSeq = allSettled ? Math.max(...subCalls.map((c) => c.resSeq)) : null
@@ -1007,7 +1093,7 @@ return {
               const m = nodes[j]
               if (m.t !== 'msg') break
               if (subN.turn != null && m.it.turn != null && m.it.turn !== subN.turn) break
-              main += '<span class="fl-arrow">▼</span>' + msgCardInner(m.it, st.expanded, m.it.seq === liveAiSeq)
+              main += '<span class="fl-arrow">▼</span>' + msgCardInner(m.it, st.expanded, m.it.seq === liveAiSeq, st)
               lastI = j
               if (m.it.seq > resultSeq) break
             }
@@ -1015,11 +1101,11 @@ return {
           h = '<div class="fl-lane">' +
             (subN ? subColHtml(subN, subHtmls[subIdx] || '') : '<div></div>') +
             '<div class="fl-lane-main">' + connMain(main, withConn) + '</div>' +
-            (parN ? grpSide(parN, parN.calls.map((c) => renderCallWire(c, st.expanded, st.presentationRules)).join('')) : '<div></div>') +
+            (parN ? grpSide(parN, parN.calls.map((c) => renderCallWire(c, st.expanded, st.presentationRules, st)).join('')) : '<div></div>') +
           '</div>'
           i = lastI
-        } else if (n.t === 'msg') h = renderMsg(n.it, st.expanded, withConn, n.it.seq === liveAiSeq)
-        else if (n.t === 'par') h = renderPar(n, st.expanded, st.presentationRules)
+        } else if (n.t === 'msg') h = renderMsg(n.it, st.expanded, withConn, n.it.seq === liveAiSeq, st)
+        else if (n.t === 'par') h = renderPar(n, st.expanded, st.presentationRules, st)
         else h = '<div class="fl-lane">' + subColHtml(n, subHtmls[i] || '') + '<div class="fl-lane-main"><span class="fl-lane-line"></span></div><div></div></div>'
         rows.push(h)
       }
@@ -1181,22 +1267,24 @@ return {
       if (hit && hit.key === key) return { ...hit.data, grew }
       const items = parseItems(r.events || [])
       let tools = 0, toolErr = 0, tok = 0, lastTime = 0, title = '', route = '', hasSubagent = false
+      let conclusion = null, currentStep = '', latestError = ''
       const strip = []
       for (const it of items) {
         if (typeof it.time === 'number' && it.time > lastTime) lastTime = it.time
         if (it.kind === 'msg') {
           if (it.role === 'user') { if (!title && it.preview) title = it.preview; strip.push({ g: 'user', txt: it.preview }) }
-          else if (it.role === 'ai') { if (it.tok) tok += it.tok; if (it.route) route = it.route; strip.push({ g: 'ai', txt: it.preview }) }
+          else if (it.role === 'ai') { if (it.tok) tok += it.tok; if (it.route) route = it.route; strip.push({ g: 'ai', txt: it.preview }); if (!it.streaming && !it.failed && !it.interrupted) conclusion = { seq: it.seq, text: String(it.full || it.preview || '') }; if (it.failed || it.interrupted) latestError = it.failMsg || it.preview || '助手生成中断' }
           else strip.push({ g: 'sys', txt: it.preview })
         } else {
           tools++
           if (it.cat === 'subagent') hasSubagent = true
-          if (it.status === 'error') toolErr++
+          if (it.status === 'error') { toolErr++; latestError = it.name + '：' + oneLine(it.resultText || '调用失败', 160) }
+          if (it.status === 'pending') currentStep = it.name
           const identity = displayIdentity(it, rules)
           strip.push({ g: 'tool', name: identity.name, status: it.status, color: identity.meta.color, bg: identity.meta.bg, txt: inSummary(it) })
         }
       }
-      const data = { sid, nodes: items.length, tools, toolErr, tok, lastTime, title, route, hasSubagent, strip: strip.slice(-ZOOM_STRIP), stripTotal: strip.length }
+      const data = { sid, nodes: items.length, tools, toolErr, tok, lastTime, title, route, hasSubagent, conclusion, currentStep, latestError, unavailable: r.unavailable === true, unavailableReason: r.error || '', strip: strip.slice(-ZOOM_STRIP), stripTotal: strip.length }
       zoomCache[sid] = { key, data }
       return { ...data, grew }
     }
@@ -1345,18 +1433,29 @@ return {
         const grouped = new Map()
         try {
           const r = await readLog(c.rec.sid)
+          let pendingInput = []
           for (const it of parseItems(r.events || [])) {
+            if (it.kind === 'msg' && it.role === 'user') { pendingInput.push(it); continue }
             if (!Number.isFinite(Number(it.turn))) continue
             const turn = Number(it.turn)
             let row = grouped.get(turn)
             if (!row) { row = { input: [], tools: [], files: [], result: [], items: [] }; grouped.set(turn, row) }
+            if (pendingInput.length && (it.kind === 'call' || it.role === 'ai')) {
+              row.items.push(...pendingInput)
+              row.input.push(...pendingInput.map((input) => String(input.full || input.preview || '')))
+              pendingInput = []
+            }
             row.items.push(it)
             if (it.kind === 'call') {
-              row.tools.push(it.name + ':' + it.status)
+              row.tools.push(it.name + ':' + it.status + ':' + (it.argsRaw || ''))
               row.files.push(...fileRefs(it.argsRaw || ''))
             }
-            else if (it.role === 'user') row.input.push(oneLine(it.full || it.preview || '', 160))
-            else if (it.role === 'ai') row.result.push(oneLine(it.full || it.preview || '', 200))
+            else if (it.role === 'user') row.input.push(String(it.full || it.preview || ''))
+            else if (it.role === 'ai') row.result.push(String(it.full || it.preview || ''))
+          }
+          if (pendingInput.length) {
+            const turn = Math.max(0, ...grouped.keys()) + 1
+            grouped.set(turn, { input: pendingInput.map((it) => String(it.full || it.preview || '')), tools: [], files: [], result: [], items: pendingInput })
           }
         } catch (e) {}
         for (const turn of grouped.keys()) turnSet.add(turn)
@@ -1374,8 +1473,10 @@ return {
           return new Set(values.map((v) => v[key])).size === 1 ? '同' : '异'
         }
         const dims = { input: dimension('input'), flow: dimension('tools'), files: dimension('files'), result: dimension('result') }
-        // 回答文本天然会不同；整体是否“流程一致”只看输入、调用结构和涉及文件。
-        return { turn, values, dims, same: !values.some((v) => !v) && dims.input === '同' && dims.flow === '同' && dims.files === '同' }
+        // 相同数组位置或 turn 数字不是同源证据；只在完整输入一致时声明对齐。
+        const aligned = values.length > 1 && values.every((v) => v && v.input) && dims.input === '同'
+        return { turn, values, dims, aligned, sharedInput: aligned ? values[0].input : '',
+          same: aligned && dims.flow === '同' && dims.files === '同', identical: aligned && Object.values(dims).every((value) => value === '同') }
       })
       return { rows, branches, perSession }
     }
@@ -1446,12 +1547,12 @@ return {
       if (nearMode && selectedCard) {
         const nearLog = await readLog(selectedCard.rec.sid)
         const nearLive = live && live.sessionId === selectedCard.rec.sid ? live : null
-        const items = parseItems((nearLog && nearLog.events) || [], nearLive)
+        const items = projectFlowItems(selectedCard.rec.sid, nearLog, nearLive, null)
         const nodes = buildNodes(items)
         const limit = Number.isFinite(Number(st.limit)) ? Math.max(60, Math.floor(Number(st.limit) / 60) * 60) : 60
         st.limit = limit
-        const shown = nodes.slice(-limit)
-        nearFlow = { items, nodes, shown, hasOlder: nodes.length > shown.length }
+        const selection = selectFlowNodes(nodes, st, limit)
+        nearFlow = { items, nodes, shown: selection.shown, selection, events: nearLog.events || [], hasOlder: selection.hasOlder }
       }
       const zoomMotion = st.zoomMotion === 'focus' || st.zoomMotion === 'overview' ? st.zoomMotion : ''
       delete st.zoomMotion
@@ -1462,11 +1563,12 @@ return {
       const addSessionMenu = activeRound && activeRound.sids.length < 4
         ? '<button type="button" class="fl-zoom-add-picker" data-zoom-add-picker="1">＋ 添加其他 Session</button>'
         : ''
-      const headOf = (c, isRoot) => {
+      const headOf = (c, isRoot, quiet) => {
         const rec = c.rec
         const sum = c.sum
         const short = rec.sid.replace(/^session-/, '').slice(0, 8)
-        const title = sum && sum.title ? sum.title : '会话 ' + short
+        const indexed = (st.__zoomSessionIndex || []).find((row) => row.id === rec.sid)
+        const title = (indexed && indexed.title) || (rec.header && rec.header.title) || (sum && sum.title) || '会话 ' + short
         const badges = []
         if (isRoot) badges.push('<span class="fl-zoom-badge fl-zoom-badge-home">' + (rec.sid === home ? '面板所属' : '血缘根') + '</span>')
         if (rec.fleet) badges.push('<span class="fl-zoom-badge fl-zoom-badge-fleet">⚡ 并发</span>')
@@ -1484,47 +1586,45 @@ return {
         return '<div class="fl-zoom-head">' +
             '<span class="fl-zoom-dot' + dotCls + '" title="' + statusTxt + '"></span>' +
             '<span class="fl-zoom-title">' + esc(oneLine(title, 42)) + '</span>' +
-            '<span class="fl-zoom-id">' + esc(short) + '</span>' +
-            '<button type="button" class="fl-zoom-relay" data-action="fzoom-relay" data-sid="' + esc(rec.sid) + '" title="把该会话的最新助手结论带入其他会话（点选目标分支后带入草稿或直接发送）">⇪</button>' +
+            '<span class="fl-zoom-status">' + statusTxt + '</span>' +
+            '<button type="button" class="fl-zoom-relay" data-action="fzoom-relay" data-sid="' + esc(rec.sid) + '" aria-label="带入其他会话" title="把该会话的最新助手结论带入其他会话">带入</button>' +
           '</div>' +
+          (quiet ? '<details class="fl-technical-info" data-flow-disclosure="branch:' + esc(rec.sid) + '"><summary>技术信息</summary><p class="tb-note">Session ' + esc(rec.sid) + '</p>' : '') +
           (badges.length ? '<div class="fl-zoom-badges">' + badges.join('') + '</div>' : '') +
-          '<div class="fl-zoom-stats">' + esc(stats) + '</div>'
+          '<div class="fl-zoom-stats">' + esc(stats) + '</div>' + (quiet ? '</details>' : '')
       }
       const openTip = st.follow ? '进入该会话的流镜视角，并切换 Harness' : '进入该会话的流镜视角'
       const zoomHelp = [
-        '• 大流镜是并发任务的容器：全景并排查看/对比全部分支，近观用完整流镜铺满画布。',
-        '• 进入时按内容选默认尺度：多分支（并发组/血缘树）默认全景；单会话（新会话）默认近观。',
-        '• 全景支持 精简 / 详细 / 导图 三种视图；点分支卡自然放大到近观，点「全景」返回。',
-        '• 导图按「会话竖列 × 历史轮次」画整棵分支树：同列竖线 = 沿用继续，跨列斜线 = 分叉，覆盖全部轮次。',
-        '• 全景发送是 N→N 续跑当前组；近观发送是从当前会话发起 1→N。',
-        '• 近观开工台可开「沿用当前会话」：当前会话作为分支 1 直接继续，只新建剩余分支，本轮接进同一条大流镜历史。',
-        '• 「大流镜历史」按轮次保存并发拓扑，从旧轮继续会开新历史分支，原历史不覆盖。',
-        '• 分支头卡 ⇪ 把该会话最新结论带入其他会话（带入草稿或直接发送）。',
-        '• 「显示规则」与普通流镜共用同一份配置，按工具名/命令/子命令改写卡片标题与徽章。',
+        '• 并发任务支持概览、对比、关系图。点击分支查看完整过程，用面包屑返回。',
+        '• 继续任务会向当前分支组发送；查看单个分支时可以从该会话创建并发任务。',
+        '• 「沿用当前会话」会直接继续当前会话，只新建剩余分支。',
+        '• 任务历史按轮次保存关系，从旧轮继续会产生新历史分支。',
+        '• 关系图同列连线表示沿用，跨列连线表示派生。',
+        '• 「带入」将该会话的最新结论带入其他会话。',
       ].join('\n')
       const parts = []
+      const conclusionSelector = (sourceSid, seq, round) => '<label class="fl-conclusion-select"><input type="checkbox" data-flow-conclusion="1" data-sid="' + esc(sourceSid) + '" data-seq="' + seq + '" data-round="' + esc(round || '') + '" data-node-key="' + esc(nodeKeyOf(sourceSid, { kind: 'msg', seq })) + '">选择结论</label>'
       parts.push('<div class="jr-tabpanel tb-root tb-pane' + (zoomMotion ? ' fl-zoom-motion-' + zoomMotion : '') + '" data-flow' + (!nearMode ? ' data-flow-board="1"' : '') + ' data-flow-view="' + esc(zoomView) + '" data-flow-scope="' + esc(sid) + '" data-zoom-active-sids="' + esc(continueBranches.map((c) => c.rec.sid).join(',')) + '" data-zoom-run-id="' + esc(activeRun ? activeRun.id : '') + '" data-zoom-round-id="' + esc(activeRound ? activeRound.id : '') + '" data-flow-has-older="' + (nearFlow && nearFlow.hasOlder ? '1' : '0') + '" data-flow-visible="' + (nearFlow ? nearFlow.shown.length : shownCards.length) + '" data-flow-total="' + (nearFlow ? nearFlow.nodes.length : total) + '" data-autorefresh="' + flowAutorefreshOf(st) + '" data-tab-badge="' + (st.live && runningCount ? String(runningCount) + '活' : '') + '">')
       parts.push('<div class="tb-pane-head">')
-      parts.push('<div class="tb-row">' +
-        '<span class="tb-sec-label">大流镜</span>' +
-        '<span class="fl-zoom-count" aria-label="大流镜尺度">' +
-          '<button type="button" class="tb-chip' + (!nearMode ? ' tb-chip-on' : '') + '" data-action="fzoom-focus-back" title="查看所选并发的全部分支">全景</button>' +
-          '<button type="button" class="tb-chip' + (nearMode ? ' tb-chip-on' : '') + '" data-action="fzoom-focus-current" title="用完整流镜查看当前选中分支"' + (!selectedCard ? ' disabled' : '') + '>近观</button>' +
-        '</span>' +
-        '<span class="tb-note">' + total + ' 会话 · ' + runningCount + ' 运行中</span>' +
-        '<button type="button" class="tb-chip' + (st.zoomComposerOpen ? ' tb-chip-on' : '') + '" data-action="fzoom-composer" aria-expanded="' + (st.zoomComposerOpen ? 'true' : 'false') + '">' + (st.zoomComposerOpen ? '▾' : '▸') + ' 发消息' + (continueCurrentGroup ? ' · 当前 ' + continueBranches.length + ' 个会话' : nearMode && selectedCard ? ' · 1→' + targetBranchCount : '') + '</button>' +
-        '<button type="button" class="tb-chip' + (st.live ? ' tb-chip-on' : '') + '" data-action="toggle-live">' + (st.live ? '● 实时同步中' : '⏸ 已暂停') + '</button>' +
-        '<button type="button" class="tb-chip' + (st.follow ? ' tb-chip-on' : '') + '" data-action="toggle-follow" title="开启后，从总览进入会话会同时切换 DeepSeek Harness 主会话">' + (st.follow ? '● 子代理跟随' : '○ 子代理跟随') + '</button>' +
-        '<button type="button" class="tb-btn tb-btn-sm" data-action="refresh">刷新</button>' +
-        '<span class="fl-info" tabindex="0" aria-label="大流镜使用说明">' +
-          '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7.2v4"/><circle cx="8" cy="4.7" r=".7" fill="currentColor" stroke="none"/></svg>' +
-          '<span class="fl-info-pop">' + esc(zoomHelp) + '</span>' +
-        '</span>' +
-      '</div>')
+      const selectedTitle = selectedCard ? oneLine((selectedCard.sum && selectedCard.sum.title) || '当前分支', 36) : '未选中分支'
+      parts.push('<div class="tb-row fl-context-bar"><nav class="fl-breadcrumbs" aria-label="观察范围">' +
+        '<button type="button" class="tb-chip" data-action="fzoom">当前会话</button><span aria-hidden="true">/</span>' +
+        '<button type="button" class="tb-chip' + (!nearMode ? ' tb-chip-on' : '') + '" data-action="fzoom-focus-back"' + (!nearMode ? ' aria-current="page"' : '') + '>并发任务</button>' +
+        (nearMode ? '<span aria-hidden="true">/</span><span aria-current="page">' + esc(selectedTitle) + '</span>' : '') + '</nav>' +
+        '<span class="fl-execution-status">' + branches.length + ' 个分支 · ' + (runningCount ? runningCount + ' 运行中' : '暂无运行任务') + '</span>' + syncStatusHtml(st) + '</div>')
+      parts.push('<div class="tb-row fl-toolbar">' +
+        '<span class="fl-session-title">' + esc(nearMode ? selectedTitle : oneLine((activeRun && activeRun.prompt) || inferredFleetPrompt || '并发执行过程', 56)) + '</span>' +
+        (!nearMode && selectedCard ? '<button type="button" class="tb-btn tb-btn-sm" data-action="fzoom-focus-current">查看选中分支</button>' : '') +
+        '<button type="button" class="tb-btn tb-btn-sm tb-btn-primary" data-action="fzoom-composer" aria-expanded="' + (st.zoomComposerOpen ? 'true' : 'false') + '">' + (continueCurrentGroup ? '继续任务' : '创建并发任务') + '</button>' +
+        '<button type="button" class="tb-btn tb-btn-sm" data-flow-bookmarks="1">标记</button><button type="button" class="tb-btn tb-btn-sm" data-flow-export="1">导出</button>' +
+        (!nearMode ? '<button type="button" class="tb-btn tb-btn-sm" data-flow-compare-preview="1">比较所选结论</button>' : '') +
+        toolbarMoreHtml(st, zoomHelp, 'Session ' + sid + ' · ' + total + ' 个会话') + '</div>')
+      if (nearFlow) parts.push(queryToolbarHtml(st, nearFlow.selection, nearFlow.events))
       // 开工台（客户端行为，不经 Host RPC：输入/启动按钮由 Client 面板委托读写）：
       // 同一任务 ⚡ 同时开始 —— 旧会话从当前完成轮次分叉，新会话在同一工作区新建；每条
       // 分支可在同一紧凑控件内选模型与思考强度。输入非空时 Client 暂停自动刷新；选择经
       // data-action-onchange 回写 state（重渲染不丢）。
+      parts.push('</div>')
       if (st.zoomComposerOpen) {
         const routes = await buildZoomRoutes()
         const routeOptions = (sel) => '<option value="">默认（跟随当前）</option>' + routes.map((r) => '<option value="' + esc(r.value) + '"' + (r.value === sel ? ' selected' : '') + '>' + esc(r.label) + '</option>').join('')
@@ -1566,15 +1666,15 @@ return {
       // 显示方式与历史保留为轻量工具行；并发路径、目标 Session 与发送输入统一收进上方发送区。
       parts.push('<div class="tb-row fl-zoom-logbar"><span class="tb-note fl-zoom-log-spacer"></span>' +
         '<span class="tb-sec-label">显示</span>' +
-        (nearMode ? '<span class="tb-note">完整流镜 · ' + esc(selectedCard ? oneLine((selectedCard.sum && selectedCard.sum.title) || selectedCard.rec.sid, 24) : '未选中分支') + '</span>' :
-          '<button type="button" class="tb-chip' + (st.zoomView === 'compact' ? ' tb-chip-on' : '') + '" data-action="fzoom-view" data-view="compact">精简</button>' +
-          '<button type="button" class="tb-chip' + (st.zoomView === 'detail' ? ' tb-chip-on' : '') + '" data-action="fzoom-view" data-view="detail">详细</button>' +
-          '<button type="button" class="tb-chip' + (st.zoomView === 'map' ? ' tb-chip-on' : '') + '" data-action="fzoom-view" data-view="map">导图</button>') +
-        '<button type="button" class="tb-btn tb-btn-sm" data-action="fzoom-history">大流镜历史 · ' + st.zoomRuns.length + '</button>' +
+        (nearMode ? '<span class="tb-note">分支过程</span>' :
+          '<button type="button" class="tb-chip' + (st.zoomView === 'compact' ? ' tb-chip-on' : '') + '" data-action="fzoom-view" data-view="compact" aria-pressed="' + (st.zoomView === 'compact' ? 'true' : 'false') + '">概览</button>' +
+          '<button type="button" class="tb-chip' + (st.zoomView === 'detail' ? ' tb-chip-on' : '') + '" data-action="fzoom-view" data-view="detail" aria-pressed="' + (st.zoomView === 'detail' ? 'true' : 'false') + '">对比</button>' +
+          '<button type="button" class="tb-chip' + (st.zoomView === 'map' ? ' tb-chip-on' : '') + '" data-action="fzoom-view" data-view="map" aria-pressed="' + (st.zoomView === 'map' ? 'true' : 'false') + '">关系图</button>') +
+        (!nearMode && zoomView === 'detail' ? '<button type="button" class="tb-chip" data-action="fdifferences" aria-pressed="' + (st.flowDifferences ? 'true' : 'false') + '">' + (st.flowDifferences ? '仅看差异' : '显示全部') + '</button>' : '') +
+        '<button type="button" class="tb-btn tb-btn-sm" data-action="fzoom-history">任务历史 · ' + st.zoomRuns.length + '</button>' +
       '</div>')
-      parts.push('</div>')
       if (st.zoomHistoryOpen) {
-        parts.push('<aside class="fl-zoom-history-drawer"><div class="fl-zoom-history-drawer-head"><strong>大流镜历史</strong><button type="button" data-action="fzoom-history">×</button></div><div class="fl-zoom-history-tree">' +
+        parts.push('<aside class="fl-zoom-history-drawer"><div class="fl-zoom-history-drawer-head"><strong>任务历史</strong><button type="button" data-action="fzoom-history" aria-label="关闭任务历史">×</button></div><div class="fl-zoom-history-tree">' +
           st.zoomRuns.slice().reverse().map((run) => {
             const active = run.id === st.zoomRunId
             const expanded = st.zoomExpandedHistories.includes(run.id)
@@ -1586,7 +1686,7 @@ return {
                 '<div class="fl-history-children">' + round.sids.map((runSid, i) => '<button type="button" class="fl-history-session" data-action="fzoom-open" data-run="' + esc(run.id) + '" data-round="' + esc(round.id) + '" data-sid="' + esc(runSid) + '"><span>└ 对话 ' + (i + 1) + '</span><code>' + esc(runSid.replace(/^session-/, '').slice(0, 8)) + '</code></button>').join('') + '</div></section>').join('') + '</div>' : '') + '</section>'
           }).join('') + '</div></aside>')
       }
-      parts.push('<div class="tb-pane-body">')
+      parts.push('<div class="tb-pane-body tb-pane-col">')
       if (!shownCards.length) {
         parts.push('<div class="tb-notice">' + (st.zoomScope === 'run' ? '还没有并发记录——输入任务后点「⚡ 同时开始」' : '没有可显示的会话') + '</div>')
       } else if (nearFlow && selectedCard) {
@@ -1596,6 +1696,17 @@ return {
         // 普通流镜把 rows.reverse() 作为 tb-pane-body 的直接子项，再由 column-reverse 还原视觉时间序。
         // 近观多了一层 wrapper，不能再 reverse，否则视觉顺序会变成“助手在上、用户在下”。
         parts.push('<div class="fl-zoom-near-flow" data-flow-near-session="' + esc(selectedCard.rec.sid) + '">' + (nearRows.length ? nearRows.join('') : '<div class="tb-notice">当前会话还没有事件</div>') + '</div>')
+      } else if (zoomView === 'compact') {
+        if (rootC) parts.push('<div class="fl-overview-source"><span class="tb-sec-label">来源会话</span><span>' + esc(oneLine((rootC.sum && rootC.sum.title) || rootC.rec.sid, 80)) + '</span><button type="button" class="tb-btn tb-btn-sm" data-action="fzoom-open" data-sid="' + esc(rootC.rec.sid) + '">查看来源会话</button></div>')
+        if (!branches.length) parts.push('<div class="tb-notice">尚无并发分支。使用“创建并发任务”开始比较。</div>')
+        parts.push('<div class="fl-overview-list">' + branches.map((c, i) => '<article class="fl-overview-card' + (c.sum && c.sum.latestError ? ' has-errors' : '') + '" data-flow-detail-session="' + esc(c.rec.sid) + '">' +
+          '<div class="fl-diff-session-label">分支 ' + (i + 1) + '</div>' + headOf(c, false, true) +
+          (c.sum && c.sum.currentStep ? '<p class="fl-current-step">当前步骤：' + esc(c.sum.currentStep) + '</p>' : '') +
+          (c.sum && c.sum.latestError ? '<p class="fl-detail-error">' + esc(c.sum.latestError) + '</p>' : '') +
+          (c.sum && c.sum.strip.length ? '<div class="fl-overview-process"><span class="tb-sec-label">最近执行过程</span>' + zoomFlowHtml(c.sum) + '</div>' : '') +
+          '<div class="fl-overview-conclusion"><span class="tb-sec-label">最新结论</span><p>' + esc(c.sum && c.sum.unavailable ? '会话日志暂不可用，请稍后刷新重试。' + (c.sum.unavailableReason ? '（' + c.sum.unavailableReason + '）' : '') : c.sum && c.sum.conclusion ? oneLine(c.sum.conclusion.text, 260) : c.running ? '正在执行，尚无已完成结论。' : '尚无已完成结论。') + '</p></div>' +
+          '<div class="fl-overview-actions"><button type="button" class="tb-btn tb-btn-sm" data-action="fzoom-open" data-sid="' + esc(c.rec.sid) + '">查看分支过程</button>' +
+          (c.sum && c.sum.conclusion ? conclusionSelector(c.rec.sid, c.sum.conclusion.seq, activeRound && activeRound.id) : '') + '</div></article>').join('') + '</div>')
       } else {
         if ((st.zoomScope === 'run' || inferredFleet || zoomView === 'detail') && branches.length) {
           // 精简/详细共用 Git diff 轮次网格；详细单元格用普通流镜泳道，精简只保留轮次摘要。
@@ -1649,8 +1760,17 @@ return {
                       inserted.set(src, (inserted.get(src) || 0) + 1)
                     } else laneOrder.push(sid)
                   }
-                  const turn = (laneTurn.has(sid) ? laneTurn.get(sid) : (src && laneTurn.has(src) ? laneTurn.get(src) : 0)) + 1
-                  laneTurn.set(sid, turn)
+                  // A fork inherits earlier conversation turns. Topology row numbers
+                  // are not log turn numbers: locate the actual submitted input.
+                  const grouped = mapCompare.perSession.get(sid)
+                  const prompt = String(round.prompt || '').replace(/\s+/g, ' ').trim()
+                  const previous = laneTurn.get(sid) || 0
+                  const candidates = grouped ? [...grouped.entries()].filter(([turn, value]) => turn > previous && prompt && value.input.some((input) => String(input).slice(0, 240).replace(/\s+/g, ' ').trim() === prompt)) : []
+                  const distance = ([, value]) => Math.min(...value.items.filter((it) => it.role === 'user').map((it) => Math.abs(Number(it.time) - Number(round.at))))
+                  candidates.sort((a, b) => distance(a) - distance(b))
+                  const matched = candidates.length === 1 || (candidates.length > 1 && distance(candidates[0]) < distance(candidates[1])) ? candidates[0] : null
+                  const turn = matched ? matched[0] : null
+                  if (turn != null) laneTurn.set(sid, turn)
                   rowNodes.push({ sid, round, ri, rowIdx, src, turn })
                 })
                 nodeRows.push(rowNodes)
@@ -1661,7 +1781,7 @@ return {
               const rootX = Math.round((canvasW - rootW) / 2)
               canvasH = Math.max(520, firstRowY + nodeRows.length * nodeH + Math.max(0, nodeRows.length - 1) * rowGap + 44)
               nodePos.set('root', { x: rootX, y: rootY, w: rootW, h: 84 })
-              nodeHtml.push('<article class="fl-map-node fl-map-root" data-map-node="root" data-map-default-x="' + rootX + '" data-map-default-y="' + rootY + '" style="left:' + rootX + 'px;top:' + rootY + 'px;width:' + rootW + 'px"><strong>⚡ ' + esc(oneLine((activeRun && activeRun.prompt) || '当前并发', 28)) + '</strong><span>' + esc(zoomTopology(activeRun)) + ' · ' + laneOrder.length + ' 个会话</span></article>')
+              nodeHtml.push('<article class="fl-map-node fl-map-root" data-map-node="root" data-map-default-x="' + rootX + '" data-map-default-y="' + rootY + '" style="left:' + rootX + 'px;top:' + rootY + 'px;width:' + rootW + 'px"><button type="button" class="fl-map-select" data-map-select aria-pressed="false" aria-label="选中并发任务">' + esc(oneLine((activeRun && activeRun.prompt) || '当前并发', 28)) + '</button><span>' + esc(zoomTopology(activeRun)) + ' · ' + laneOrder.length + ' 个会话</span></article>')
               nodeRows.forEach((rowNodes2, rowIdx) => {
                 if (!rowNodes2.length) return
                 const ri = rowNodes2[0].ri
@@ -1686,7 +1806,7 @@ return {
                   const title = titleIndex.get(n.sid) || (card && card.sum && card.sum.title) || ''
                   const label = title ? oneLine(title, 16) : '会话 ' + (lane + 1)
                   nodeHtml.push('<article class="fl-map-node" data-map-node="' + nodeId + '" data-map-default-x="' + x + '" data-map-default-y="' + y + '" data-flow-detail-session="' + esc(n.sid) + '" style="left:' + x + 'px;top:' + y + 'px;width:' + nodeW + 'px">' +
-                    '<header><strong>' + esc(label) + '</strong><span>第 ' + n.ri + ' 轮</span></header>' +
+                    '<header><button type="button" class="fl-map-select" data-map-select aria-pressed="false" aria-label="选中' + esc(label) + '第 ' + n.ri + ' 轮">' + esc(label) + '</button><span>第 ' + n.ri + ' 轮</span></header>' +
                     '<p>' + esc(result) + '</p>' +
                     (branchSeq == null ? '' : '<button type="button" class="fl-map-branch" data-flow-branch data-history="' + esc(activeRun.id) + '" data-round="' + esc(n.round.id) + '" data-turn="' + n.ri + '" data-seq="' + branchSeq + '" title="以 ' + esc(label) + ' 的第 ' + n.ri + ' 轮回答为唯一来源，创建 ' + targetBranchCount + ' 个新 Session">从这里发起 1→' + targetBranchCount + '</button>') +
                   '</article>')
@@ -1705,7 +1825,7 @@ return {
             const rootX = Math.round((canvasW - rootW) / 2)
             canvasH = Math.max(520, firstRowY + rows.length * nodeH + Math.max(0, rows.length - 1) * rowGap + 44)
             nodePos.set('root', { x: rootX, y: rootY, w: rootW, h: 84 })
-            nodeHtml.push('<article class="fl-map-node fl-map-root" data-map-node="root" data-map-default-x="' + rootX + '" data-map-default-y="' + rootY + '" style="left:' + rootX + 'px;top:' + rootY + 'px;width:' + rootW + 'px"><strong>⚡ ' + esc(oneLine((activeRun && activeRun.prompt) || '当前并发', 28)) + '</strong><span>' + esc(zoomTopology(activeRun)) + ' · ' + branches.length + ' 个会话</span></article>')
+            nodeHtml.push('<article class="fl-map-node fl-map-root" data-map-node="root" data-map-default-x="' + rootX + '" data-map-default-y="' + rootY + '" style="left:' + rootX + 'px;top:' + rootY + 'px;width:' + rootW + 'px"><button type="button" class="fl-map-select" data-map-select aria-pressed="false" aria-label="选中并发任务">' + esc(oneLine((activeRun && activeRun.prompt) || '当前并发', 28)) + '</button><span>' + esc(zoomTopology(activeRun)) + ' · ' + branches.length + ' 个会话</span></article>')
             for (let r = 0; r < rows.length; r++) {
               const row = rows[r]
               const displayTurn = row.turn === 0 ? 1 : row.turn
@@ -1724,7 +1844,7 @@ return {
                 const branchSeq = lastAi ? (lastAi.finalSeq != null ? lastAi.finalSeq : lastAi.seq) : null
                 const result = oneLine(value.result || '（本轮尚无完整回答）', 92)
                 nodeHtml.push('<article class="fl-map-node" data-map-node="' + nodeId + '" data-map-default-x="' + x + '" data-map-default-y="' + y + '" data-flow-detail-session="' + esc(branches[i].rec.sid) + '" style="left:' + x + 'px;top:' + y + 'px;width:' + nodeW + 'px">' +
-                  '<header><strong>会话 ' + (i + 1) + '</strong><span>第 ' + displayTurn + ' 轮</span></header>' +
+                  '<header><button type="button" class="fl-map-select" data-map-select aria-pressed="false" aria-label="选中分支 ' + (i + 1) + ' 第 ' + displayTurn + ' 轮">分支 ' + (i + 1) + '</button><span>第 ' + displayTurn + ' 轮</span></header>' +
                   '<p>' + esc(result) + '</p>' +
                   (branchSeq == null || !activeRun || !activeRound ? '' : '<button type="button" class="fl-map-branch" data-flow-branch data-history="' + esc(activeRun.id) + '" data-round="' + esc(activeRound.id) + '" data-turn="' + displayTurn + '" data-seq="' + branchSeq + '" title="以会话 ' + (i + 1) + ' 的第 ' + displayTurn + ' 轮回答为唯一来源，创建 ' + targetBranchCount + ' 个新 Session">从这里发起 1→' + targetBranchCount + '</button>') +
                 '</article>')
@@ -1763,8 +1883,13 @@ return {
               const a = nodePos.get(edge.from), b = nodePos.get(edge.to)
               return '<path data-map-from="' + edge.from + '" data-map-to="' + edge.to + '" d="' + connectorPath(a, b, edge.from, edge.to) + '" />'
             }).join('')
-            parts.push('<div class="fl-mindmap-wrap"><div class="fl-mindmap-help"><strong>导图操作</strong><span>拖动节点整理 · 拖动画布平移 · 在任意回答上发起新的 1→' + targetBranchCount + '</span><button type="button" data-map-reset="1">重置布局</button></div>' +
-              '<div class="fl-mindmap-viewport" data-flow-mindmap="1" data-map-scope="' + esc((activeRun && activeRun.id) || 'current') + '"><div class="fl-mindmap-canvas" style="width:' + canvasW + 'px;height:' + canvasH + 'px"><svg class="fl-mindmap-edges" width="' + canvasW + '" height="' + canvasH + '">' + lineHtml + '</svg>' + turnHtml.join('') + nodeHtml.join('') + '</div></div></div>')
+            parts.push('<div class="fl-mindmap-wrap"><div class="fl-mindmap-help"><strong>关系图</strong><span>选择节点后可定位；方向键切换节点，Shift + 方向键平移，Ctrl + 方向键整理位置。</span>' +
+              '<div class="fl-map-controls" role="toolbar" aria-label="关系图视口">' +
+                '<button type="button" data-map-fit="1">适应画布</button><button type="button" data-map-center="1">定位选中</button><button type="button" data-map-reset="1">恢复布局</button>' +
+                '<span class="fl-map-zoom-controls"><button type="button" data-map-zoom="out" aria-label="缩小关系图">−</button><button type="button" data-map-zoom="reset" title="恢复 100%"><output data-map-zoom-value aria-live="polite">100%</output></button><button type="button" data-map-zoom="in" aria-label="放大关系图">+</button></span>' +
+                '<span class="fl-map-pan-controls"><button type="button" data-map-pan="left" aria-label="向左平移画布">←</button><button type="button" data-map-pan="up" aria-label="向上平移画布">↑</button><button type="button" data-map-pan="down" aria-label="向下平移画布">↓</button><button type="button" data-map-pan="right" aria-label="向右平移画布">→</button></span>' +
+              '</div></div>' +
+              '<div class="fl-mindmap-viewport" data-flow-mindmap="1" tabindex="0" role="region" aria-label="关系图画布，方向键平移" data-map-scope="' + esc((activeRun && activeRun.id) || 'current') + '"><div class="fl-mindmap-canvas" style="width:' + canvasW + 'px;height:' + canvasH + 'px"><svg class="fl-mindmap-edges" aria-hidden="true" width="' + canvasW + '" height="' + canvasH + '">' + lineHtml + '</svg>' + turnHtml.join('') + nodeHtml.join('') + '</div></div></div>')
           } else {
           parts.push('<div class="fl-zoom-diff-scroll"><div class="fl-zoom-diff-board" style="grid-template-columns:92px ' + widths.join(' ') + '">')
           parts.push('<div class="fl-diff-corner">轮次</div>')
@@ -1772,10 +1897,12 @@ return {
             const branchIndex = branches.indexOf(c) + 1
             parts.push('<div class="fl-diff-session-head" data-action="fzoom-open" data-sid="' + esc(c.rec.sid) + '" role="button" tabindex="0" title="' + openTip + '"><div class="fl-diff-session-label">会话 ' + branchIndex + '</div>' + headOf(c, false) + '</div>')
           }
+          if (st.flowDifferences && comparison.rows.every((row) => row.identical)) parts.push('<div class="tb-notice" style="grid-column:1 / -1">已对齐的轮次没有差异。切换“显示全部”可查看完整过程。</div>')
           for (const row of comparison.rows) {
+            if (st.flowDifferences && row.identical) continue
             const displayTurn = row.turn === 0 ? 1 : row.turn
-            const label = row.same ? '流程一致' : row.values.some((v) => !v) ? '流程缺失' : '流程有差异'
-            const gutterCls = row.same ? ' fl-diff-same' : row.values.some((v) => !v) ? ' fl-diff-missing' : ' fl-diff-change'
+            const label = !row.aligned ? '未对齐 · 缺少同源输入证据' : row.same ? '流程一致' : row.values.some((v) => !v) ? '流程缺失' : '流程有差异'
+            const gutterCls = !row.aligned ? ' fl-diff-unaligned' : row.same ? ' fl-diff-same' : row.values.some((v) => !v) ? ' fl-diff-missing' : ' fl-diff-change'
             const dim = (name, value) => '<span class="fl-diff-dim fl-diff-dim-' + (value === '同' ? 'same' : value === '异' ? 'change' : 'missing') + '">' + name + ' ' + value + '</span>'
             const roundFork = []
             for (let i = 0; i < branches.length; i++) {
@@ -1783,8 +1910,9 @@ return {
               const lastAi = value && value.items.filter((it) => it.kind === 'msg' && it.role === 'ai' && !it.streaming).slice(-1)[0]
               if (lastAi) roundFork.push({ sid: branches[i].rec.sid, seq: lastAi.finalSeq != null ? lastAi.finalSeq : lastAi.seq })
             }
+            if (row.sharedInput) parts.push('<div class="fl-diff-shared-input" style="grid-column:1 / -1"><span class="tb-sec-label">共享输入 · 已对齐</span><p>' + esc(oneLine(row.sharedInput, 400)) + '</p></div>')
             parts.push('<div class="fl-diff-gutter' + gutterCls + '"><strong>第 ' + displayTurn + ' 轮</strong><span>' + label + '</span>' +
-              '<small>' + dim('输入', row.dims.input) + dim('流程', row.dims.flow) + dim('文件', row.dims.files) + dim('结果', row.dims.result) + '</small>' +
+              (row.aligned ? '<small>' + dim('输入', row.dims.input) + dim('流程', row.dims.flow) + dim('文件', row.dims.files) + dim('结果', row.dims.result) + '</small>' : '') +
               (roundFork.length < 2 || !activeRun || !activeRound ? '' : '<button type="button" class="fl-diff-round-fork" data-zoom-round-fork="1" data-history="' + esc(activeRun.id) + '" data-round="' + esc(activeRound.id) + '" data-turn="' + displayTurn + '" data-spec="' + esc(JSON.stringify(roundFork)) + '" title="以本轮全部 ' + roundFork.length + ' 个会话为来源，创建 ' + targetBranchCount + ' 个新 Session">本轮全部：' + roundFork.length + '→' + targetBranchCount + '</button>') +
               '</div>')
             const baseline = row.values.find((v) => v) || null
@@ -1792,19 +1920,20 @@ return {
             for (let i = 0; i < branches.length; i++) {
               const c = branches[i]
               const value = row.values[i]
+              const branchLabel = '分支 ' + (i + 1) + ' · ' + oneLine((c.sum && c.sum.title) || c.rec.sid, 42)
               if (!value) {
-                parts.push('<div class="fl-diff-cell fl-diff-cell-missing"><span>− 此对话缺少本轮</span></div>')
+                parts.push('<div class="fl-diff-cell fl-diff-cell-missing" data-branch-label="' + esc(branchLabel) + '"><span>− 此对话缺少本轮</span></div>')
                 continue
               }
               const sig = value.input + '\n' + value.tools + '\n' + value.files
-              const changed = !row.same && sig !== baselineSig
+              const changed = row.aligned && !row.same && sig !== baselineSig
               const hasSubagent = value.items.some((it) => it.kind === 'call' && it.cat === 'subagent')
               const lastAi = value.items.filter((it) => it.kind === 'msg' && it.role === 'ai' && !it.streaming).slice(-1)[0]
               const branchSeq = lastAi ? (lastAi.finalSeq != null ? lastAi.finalSeq : lastAi.seq) : null
               let flowHtml
               if (zoomView === 'detail') {
-                const detailState = { ...st, zoom: false, sid: c.rec.sid, home: c.rec.sid, crumbs: [], settings: false, expanded: null }
-                const nodeRows = await renderFlowNodeRows(buildNodes(value.items), detailState, null)
+                const detailState = { ...st, __flowBookmarks: st.__flowBookmarks, zoom: false, sid: c.rec.sid, home: c.rec.sid, crumbs: [], settings: false, expanded: null }
+                const nodeRows = await renderFlowNodeRows(buildNodes(row.sharedInput ? value.items.filter((it) => it.role !== 'user') : value.items), detailState, null)
                 flowHtml = '<div class="fl-turn-cell-flow ' + (hasSubagent ? 'fl-flow-three' : 'fl-flow-two') + '">' + nodeRows.join('') + '</div>'
               } else {
                 const user = value.items.filter((it) => it.kind === 'msg' && it.role === 'user').slice(-1)[0]
@@ -1816,9 +1945,11 @@ return {
                   (aiLast ? '<div><b>◆</b><span>' + esc(oneLine(aiLast.preview || aiLast.full || '', 82)) + '</span></div>' : '') +
                 '</div>'
               }
-              parts.push('<div class="fl-diff-cell' + (row.same ? ' fl-diff-cell-same' : changed ? ' fl-diff-cell-change' : ' fl-diff-cell-base') + '" data-flow-detail-session="' + esc(c.rec.sid) + '">' +
+              parts.push('<div class="fl-diff-cell' + (!row.aligned ? ' fl-diff-cell-unaligned' : row.same ? ' fl-diff-cell-same' : changed ? ' fl-diff-cell-change' : ' fl-diff-cell-base') + '" data-branch-label="' + esc(branchLabel) + '" data-flow-detail-session="' + esc(c.rec.sid) + '">' +
                 '<div class="fl-diff-cell-head"><span class="fl-diff-mark">' + (row.same ? ' ' : changed ? '+' : '±') + '</span>' +
-                  '<span>' + (row.same ? '本轮一致' : changed ? '与基准不同' : '对比基准') + '</span>' +
+                  '<span>' + (!row.aligned ? '未对齐' : row.same ? '本轮一致' : changed ? '与基准不同' : '对比基准') + '</span>' +
+                  '<span class="fl-comparison-status">' + (value.items.some((it) => it.kind === 'call' ? it.status === 'error' : it.failed || it.interrupted) ? '存在失败或中断' : value.items.some((it) => it.kind === 'call' ? it.status === 'pending' : it.streaming) ? '执行尚未完成' : '已记录结果') + '</span>' +
+                  (lastAi && !lastAi.failed && !lastAi.interrupted ? conclusionSelector(c.rec.sid, lastAi.seq, activeRound && activeRound.id) : '') +
                   (branchSeq == null || !activeRun || !activeRound ? '' : '<button type="button" class="fl-diff-branch" data-flow-branch data-history="' + esc(activeRun.id) + '" data-round="' + esc(activeRound.id) + '" data-turn="' + displayTurn + '" data-seq="' + branchSeq + '" title="以会话 ' + (i + 1) + ' 的第 ' + displayTurn + ' 轮回答为唯一来源，创建 ' + targetBranchCount + ' 个新 Session">会话 ' + (i + 1) + '：从第 ' + displayTurn + ' 轮发起 1→' + targetBranchCount + '</button>') +
                 '</div>' + flowHtml + '</div>')
             }
@@ -1854,7 +1985,7 @@ return {
       parts.push('</div>')
       if (nearFlow && st.expanded != null) {
         const target = nearFlow.items.find((it) => it.seq === st.expanded && (it.kind === 'call' || it.kind === 'msg'))
-        if (target) parts.push(target.kind === 'call' ? detailRail(target, st.freshSeq === target.seq, st.presentationRules) : msgRail(target, st.freshSeq === target.seq))
+        if (target) parts.push(target.kind === 'call' ? detailRail(target, st.freshSeq === target.seq, st.presentationRules, st) : msgRail(target, st.freshSeq === target.seq, st))
       }
       delete st.freshSeq
       delete st.freshSettings
@@ -1863,8 +1994,13 @@ return {
     }
 
     const render = async (st, sid, live) => {
-      if (st.zoom) return renderZoom(st, sid, live)
+      if (st.replaySeq != null && st.replaySessionId && st.replaySessionId !== sid) { st.replaySeq = null; st.replaySessionId = '' }
+      if (st.zoom && st.replaySeq == null) return renderZoom(st, sid, live)
+      if (st.replaySeq != null) st.zoom = false
       const r = await readLog(sid)
+      const replaying = st.replaySeq != null
+      const events = replayEventsOf(r.events || [], st)
+      if (replaying) live = null
       // 活跃度：日志条数较上轮渲染增长 = 会话正在工作（用于助手卡流光；静止会话/他人会话不误亮）
       const prevCount = growth[sid]
       const active = prevCount != null && (r.count || 0) > prevCount
@@ -1872,7 +2008,7 @@ return {
       await loadManifestTools()
       // 事件窗在途 attempt（live 叠加层）= 会话正在生成的最直接信号
       const overlayLive = Boolean(live && Array.isArray(live.attempts) && live.attempts.some((a) => a && a.attemptId != null))
-      const items = parseItems(r.events || [], live)
+      const items = projectFlowItems(sid, r, live, st.replaySeq)
       const nodes = buildNodes(items)
       // 会话仍在运行且最新事件是一条助手消息 → 该助手卡持续流光；日志增长作为 sessions 服务缺失时的兜底。
       const lastIt = items.length ? items[items.length - 1] : null
@@ -1880,7 +2016,7 @@ return {
       let hasAgentStatus = false
       try {
         const agentsSvc = ctx.get('agents')
-        if (agentsSvc) {
+        if (agentsSvc && !replaying) {
           hasAgentStatus = true
           const agent = agentsSvc.get(sid)
           sessionLive = !!(agent && agent.status === 'running')
@@ -1901,46 +2037,51 @@ return {
           it.preview = (it.full ? oneLine(it.full, 100) + ' ' : '') + '（生成失败或已中断）'
         }
       }
-      const liveAiSeq = (overlayLive || (hasAgentStatus ? sessionLive : active)) && lastIt && lastIt.kind === 'msg' && lastIt.role === 'ai' && !lastIt.interrupted ? lastIt.seq : null
+      const liveAiSeq = !replaying && (overlayLive || (hasAgentStatus ? sessionLive : active)) && lastIt && lastIt.kind === 'msg' && lastIt.role === 'ai' && !lastIt.interrupted ? lastIt.seq : null
       const PAGE = 60
       const limit = Number.isFinite(Number(st.limit)) ? Math.max(PAGE, Math.floor(Number(st.limit) / PAGE) * PAGE) : PAGE
       st.limit = limit
-      const shown = nodes.slice(-limit)
-      const hasOlder = nodes.length > shown.length
+      const selection = selectFlowNodes(nodes, st, limit)
+      const shown = selection.shown
+      const hasOlder = selection.hasOlder
       const parts = []
-      parts.push('<div class="jr-tabpanel tb-root tb-pane" data-flow data-flow-scope="' + esc(sid) + '" data-flow-has-older="' + (hasOlder ? '1' : '0') + '" data-flow-visible="' + shown.length + '" data-flow-total="' + nodes.length + '" data-autorefresh="' + flowAutorefreshOf(st) + '" data-tab-badge="' + (st.live ? String(nodes.length) : '') + '">')
+      parts.push('<div class="jr-tabpanel tb-root tb-pane" data-flow data-flow-replay-active="' + (replaying ? '1' : '0') + '" data-flow-scope="' + esc(sid) + '" data-flow-has-older="' + (hasOlder ? '1' : '0') + '" data-flow-visible="' + shown.length + '" data-flow-total="' + nodes.length + '" data-autorefresh="' + (replaying ? '0' : flowAutorefreshOf(st)) + '" data-tab-badge="' + (st.live && !replaying ? String(nodes.length) : '') + '">')
       // 固定头
       parts.push('<div class="tb-pane-head">')
       // 钻取态：查看的不是面板所属会话 → 头部给「← 返回」+ 层级标注（crumbs 栈深度）
       const drilled = !!((st.home && sid !== st.home) || (Array.isArray(st.crumbs) && st.crumbs.length))
-      const depth = drilled && Array.isArray(st.crumbs) ? st.crumbs.length : 0
+      const breadcrumbs = st.crumbs.length ? st.crumbs : drilled && st.home ? [{ sid: st.home, label: '当前会话' }] : []
+      const firstUser = items.find((it) => it.kind === 'msg' && it.role === 'user')
+      const sessionTitle = oneLine((!replaying && r.header && (r.header.title || r.header.name)) || (firstUser && firstUser.preview) || (drilled ? '子代理过程' : '会话执行过程'), 64)
+      const pendingTools = items.filter((it) => it.kind === 'call' && it.status === 'pending').length
+      const errors = items.filter((it) => it.kind === 'call' ? it.status === 'error' : it.failed || (it.interrupted && it.failCode)).length
+      const running = overlayLive || sessionLive || pendingTools > 0
+      const executionStatus = (replaying ? '只读回放 · seq ' + st.replaySeq : running ? '运行中' + (pendingTools ? ' · ' + pendingTools + ' 个工具' : '') : '暂无运行任务') + (errors ? ' · ' + errors + ' 项失败' : '')
       const help = [
         '• 中列是用户/助手主线，右列是工具调用（输入 ▶ / 输出 ◀），左列是子代理分支。',
         '• 点击卡片查看完整内容。',
         '• 悬停助手卡可从该节点创建 Harness 分支。',
         '• 画布默认可拖动框选，点击空白处取消框选并收起详情；左下可新建仅所选内容的会话草稿或带入已有会话。',
-        '• Zoom 支持缩放与 Zen 原生全屏。',
-        '• 点击子代理卡进入实时子流镜，“子代理跟随”开启时 Harness 同步切换。',
+        '• 面板大小与全屏由 Harness 侧栏控制。',
+        '• 点击子代理卡查看执行过程；“查看时同步切换主会话”开启时 Harness 同步切换。',
         '• 滚到顶部会每次自动加载更早 60 个节点。',
       ].join('\n')
-      parts.push('<div class="tb-row">' +
-        (drilled ? '<button type="button" class="tb-btn tb-btn-sm" data-action="fback" title="返回上一级流程图">← 返回</button>' : '') +
-        '<span class="tb-sec-label">' + (drilled ? '子代理流镜' : '实时流镜') + '</span>' +
-        '<span class="tb-note">' + esc(sid.replace(/^session-/, '').slice(0, 8)) + ' · ' + items.length + ' 条事件 · ' + nodes.length + ' 节点' + (drilled ? ' · 第 ' + (depth + 1) + ' 层' : '') + '</span>' +
-        '<button type="button" class="tb-chip' + (st.live ? ' tb-chip-on' : '') + '" data-action="toggle-live">' + (st.live ? '● 实时同步中' : '⏸ 已暂停') + '</button>' +
-        '<button type="button" class="tb-chip' + (st.follow ? ' tb-chip-on' : '') + '" data-action="toggle-follow" title="开启后，点击子代理会同时切换 DeepSeek Harness 主会话">' + (st.follow ? '● 子代理跟随' : '○ 子代理跟随') + '</button>' +
-        '<button type="button" class="tb-btn tb-btn-sm" data-action="refresh">刷新</button>' +
-        (flowPreferencesOf(st).zoomEnabled ? '<button type="button" class="tb-btn tb-btn-sm" data-action="fzoom" title="大流镜 Zoom：多会话并发总览，并排对比各会话的流程触发差异，点卡直接进入对应会话">⛶ 大流镜</button>' : '') +
-        '<span class="fl-info" tabindex="0" aria-label="流镜使用说明">' +
-          '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7.2v4"/><circle cx="8" cy="4.7" r=".7" fill="currentColor" stroke="none"/></svg>' +
-          '<span class="fl-info-pop">' + esc(help) + '</span>' +
-        '</span>' +
-      '</div>')
+      parts.push('<div class="tb-row fl-context-bar"><nav class="fl-breadcrumbs" aria-label="观察范围">' +
+        (replaying ? '' : breadcrumbs.map((crumb, index) => '<button type="button" class="tb-chip" data-action="fback" data-depth="' + index + '" title="返回' + esc(crumb.label || '上级会话') + '">' + esc(index === 0 ? (crumb.zoom ? '并发任务' : '当前会话') : (crumb.label || '上级子代理')) + '</button><span aria-hidden="true">/</span>').join('')) +
+        '<span aria-current="page">' + (drilled ? '子代理' : '当前会话') + '</span></nav>' +
+        '<span class="fl-execution-status' + (errors ? ' has-errors' : '') + '">' + executionStatus + '</span>' + (replaying ? '' : syncStatusHtml(st)) + '</div>')
+      parts.push('<div class="tb-row fl-toolbar"><span class="fl-session-title">' + esc(sessionTitle) + '</span>' +
+        (flowPreferencesOf(st).zoomEnabled && !replaying ? '<button type="button" class="tb-btn tb-btn-sm" data-action="fzoom">并发任务</button>' : '') +
+        '<button type="button" class="tb-btn tb-btn-sm" data-flow-bookmarks="1">标记</button><button type="button" class="tb-btn tb-btn-sm" data-flow-export="1">导出</button>' +
+        toolbarMoreHtml(st, help, 'Session ' + sid + ' · ' + items.length + ' 条事件 · ' + nodes.length + ' 个节点') + '</div>')
+      parts.push(queryToolbarHtml(st, selection, r.events || []))
+      if (errors) parts.push('<button type="button" class="fl-attention tb-chip" data-action="ffilter" data-status="failed">需要关注 · ' + errors + ' 项失败</button>')
+      if (st.flowNotice) parts.push('<div class="tb-notice fl-unavailable" role="status">' + esc(st.flowNotice) + '</div>')
       parts.push('</div>')
       // 流程体：tb-pane-body 为 column-reverse——这里以「视觉最新在底」渲染：DOM 先放最新节点，滚动条默认贴底
       parts.push('<div class="tb-pane-body">')
       if (!shown.length) {
-        parts.push('<div class="tb-notice">当前会话还没有事件</div>')
+        parts.push('<div class="tb-notice">' + (r.unavailable ? '会话日志暂不可用。<button type="button" class="tb-btn tb-btn-sm" data-action="refresh">重试</button>' : selection.filtered ? '没有匹配的节点。可清除筛选或改为搜索全会话日志。' : replaying ? '此时点还没有可显示的节点。' : '当前会话还没有事件') + '</div>')
       } else {
         const rows = await renderFlowNodeRows(shown, st, liveAiSeq)
         if (hasOlder) rows.push('<div class="tb-notice fl-older" data-flow-older-hint>' +
@@ -1952,7 +2093,7 @@ return {
       // 详情右侧浮层：展开状态且目标仍在可视事件集内时渲染（工具调用→传入/返回；消息→完整内容）
       if (st.expanded != null) {
         const target = items.find((it) => it.seq === st.expanded && (it.kind === 'call' || it.kind === 'msg'))
-        if (target) parts.push(target.kind === 'call' ? detailRail(target, st.freshSeq === target.seq, st.presentationRules) : msgRail(target, st.freshSeq === target.seq))
+        if (target) parts.push(target.kind === 'call' ? detailRail(target, st.freshSeq === target.seq, st.presentationRules, st) : msgRail(target, st.freshSeq === target.seq, st))
       }
       delete st.freshSeq // 一次性动画标记，不残留进 state
       delete st.freshSettings
@@ -1963,8 +2104,23 @@ return {
     const handler = async ({ action, fields, state, session, live }) => {
       if (!sq) return { ok: false, error: 'sessionQuery 服务不可用', html: '' }
       const st = (state && typeof state === 'object' && state) ? state : { live: true, follow: true, limit: 60, sid: null, home: null, expanded: null, crumbs: [] }
+      const wireState = () => {
+        for (const key of ['__flowPreferences', '__flowBookmarks', '__zoomSessionIndex', '__archivedSessionIds']) {
+          try { delete st[key] } catch (e) {}
+        }
+        return st
+      }
       const flowPreferences = normalizeFlowPreferences(fields && fields.__flowPreferences)
       try { Object.defineProperty(st, '__flowPreferences', { value: flowPreferences, configurable: true }) } catch (e) {}
+      st.flowSearch = typeof st.flowSearch === 'string' ? st.flowSearch.slice(0, 500) : ''
+      st.flowSearchScope = st.flowSearchScope === 'all' ? 'all' : 'loaded'
+      st.flowRole = ['all', 'user', 'ai', 'inject', 'call'].includes(st.flowRole) ? st.flowRole : 'all'
+      st.flowStatus = ['all', 'running', 'failed'].includes(st.flowStatus) ? st.flowStatus : 'all'
+      st.flowDifferences = st.flowDifferences === true
+      st.replaySeq = st.replaySeq != null && Number.isFinite(Number(st.replaySeq)) && Number(st.replaySeq) >= 0 ? Number(st.replaySeq) : null
+      let bookmarks = []
+      try { const parsed = JSON.parse(fields && fields.__flowBookmarks || '[]'); if (Array.isArray(parsed)) bookmarks = parsed.slice(0, 1000) } catch (e) {}
+      try { Object.defineProperty(st, '__flowBookmarks', { value: bookmarks, configurable: true }) } catch (e) {}
       // 显示规则设置已迁到官方插件详情页；旧版本遗留的侧栏打开态在升级后直接收起。
       st.settings = false
       if (typeof st.follow !== 'boolean') st.follow = true
@@ -2032,6 +2188,7 @@ return {
           st.zoomRunId = saved && typeof saved.activeId === 'string' ? saved.activeId : st.zoomRunId
           st.zoomRoundId = saved && typeof saved.roundId === 'string' ? saved.roundId : st.zoomRoundId
           if (saved && typeof saved.open === 'boolean') st.zoom = saved.open
+          if (saved && (saved.scope === 'run' || saved.scope === 'tree')) st.zoomScope = saved.scope
           if (saved && (saved.view === 'compact' || saved.view === 'detail' || saved.view === 'map')) st.zoomView = saved.view
           if (saved && typeof saved.focusSid === 'string') st.zoomFocusSid = saved.focusSid
           if (saved && typeof saved.lastFocusSid === 'string') st.zoomLastFocusSid = saved.lastFocusSid
@@ -2080,7 +2237,7 @@ return {
       const carriedFollow = st.follow === true && st.home && session && st.sid === session
         && (st.crumbs.length > 0 || (st.zoom && st.zoomFocusSid === session))
       const home = carriedFollow ? st.home : (session || st.home || st.sid)
-      if (!home) return { ok: true, html: '<div class="jr-tabpanel tb-root"><div class="tb-notice">未找到当前会话</div></div>', state: st }
+      if (!home) return { ok: true, html: '<div class="jr-tabpanel tb-root"><div class="tb-notice">未找到当前会话</div></div>', state: wireState() }
       st.home = home
       if (!st.sid) st.sid = home
       let navigateSession = null
@@ -2096,7 +2253,44 @@ return {
           settled: Array.isArray(live.settled) ? live.settled.slice(-8) : [],
         }
         : null
-      if (action === 'toggle-live') st.live = !st.live
+      if (action === 'fsearch' || action === 'ffilter') {
+        st.flowSearch = typeof fields.flowSearch === 'string' ? fields.flowSearch.slice(0, 500) : st.flowSearch
+        st.flowSearchScope = fields.flowSearchScope === 'all' ? 'all' : fields.flowSearchScope === 'loaded' ? 'loaded' : st.flowSearchScope
+        if (['all', 'user', 'ai', 'inject', 'call'].includes(fields.flowRole)) st.flowRole = fields.flowRole
+        if (['all', 'running', 'failed'].includes(fields.flowStatus)) st.flowStatus = fields.flowStatus
+        if (el.status === 'failed') { st.flowStatus = 'failed'; st.flowSearchScope = 'all' }
+        st.expanded = null
+      } else if (action === 'fsearch-clear') {
+        st.flowSearch = ''; st.flowRole = 'all'; st.flowStatus = 'all'; st.expanded = null
+      } else if (action === 'fdifferences') st.flowDifferences = !st.flowDifferences
+      else if (action === 'freplay' || action === 'freplay-live') {
+        if (action === 'freplay-live') { st.replaySeq = null; st.replaySessionId = '' }
+        else {
+          const log = await readLog(st.sid)
+          const seqs = (log.events || []).map((e) => Number(e.seq)).filter(Number.isFinite).sort((a, b) => a - b)
+          const max = seqs.length ? seqs[seqs.length - 1] : 0
+          const value = Number(fields.flowReplaySeq)
+          let target = Number.isFinite(value) ? value : st.replaySeq == null ? max : st.replaySeq
+          if (Number(el.step) < 0) target = seqs.filter((seq) => seq < target).pop() || 0
+          if (Number(el.step) > 0) target = seqs.find((seq) => seq > target) || max
+          st.replaySeq = Math.max(0, Math.min(max, target)); st.replaySessionId = st.sid; st.zoom = false
+        }
+        st.expanded = null
+      } else if (action === 'fbookmark-jump') {
+        const targetSid = typeof el.sid === 'string' && /^[\w-]{1,100}$/.test(el.sid) ? el.sid : ''
+        const seq = Number(el.seq)
+        let log = { events: [] }
+        try { if (targetSid && !st.__archivedSessionIds.has(targetSid)) log = await readLog(targetSid) } catch (e) {}
+        const target = parseItems(log.events || []).find((it) => it.seq === seq && it.kind === el.kind)
+        if (!target) st.flowNotice = '此标记的节点已不可用；会话可能已归档、移除，或节点记录已经变化。'
+        else {
+          st.sid = targetSid; st.zoom = false; st.replaySeq = null; st.expanded = seq; st.freshSeq = seq
+          st.flowSearch = ''; st.flowRole = 'all'; st.flowStatus = 'all'; st.flowNotice = ''
+          const nodes = buildNodes(parseItems(log.events || []))
+          const at = nodes.findIndex((n) => n.t === 'msg' ? n.it === target || n.it.seq === seq : n.calls.some((c) => c.seq === seq))
+          st.limit = Math.max(60, Math.ceil((nodes.length - at) / 60) * 60)
+        }
+      } else if (action === 'toggle-live') st.live = !st.live
       else if (action === 'toggle-follow') st.follow = !st.follow
       else if (action === 'fzoom') {
         st.zoom = !st.zoom
@@ -2123,6 +2317,7 @@ return {
       else if (action === 'fzoom-view') {
         st.zoomView = el.view === 'detail' ? 'detail' : el.view === 'map' ? 'map' : 'compact'
       }
+      else if (action === 'fzoom-composer-close') st.zoomComposerOpen = false
       else if (action === 'fzoom-composer') st.zoomComposerOpen = !st.zoomComposerOpen
       else if (action === 'fzoom-reuse') st.zoomReuse = !st.zoomReuse
       else if (action === 'fzoom-history') st.zoomHistoryOpen = !st.zoomHistoryOpen
@@ -2240,11 +2435,12 @@ return {
         }
       }
       else if (action === 'fzoom-run-add' && typeof el.sid === 'string' && /^[\w-]{1,100}$/.test(el.sid)) {
-        const run = st.zoomRuns.find((x) => x.id === st.zoomRunId)
-        const round = run && (run.rounds.find((x) => x.id === st.zoomRoundId) || run.rounds[run.rounds.length - 1])
+        const run = st.zoomRuns.find((x) => x.id === (el.run || st.zoomRunId))
+        const round = run && (el.round ? run.rounds.find((x) => x.id === el.round) : run.rounds.find((x) => x.id === st.zoomRoundId) || run.rounds[run.rounds.length - 1])
+        if ((el.run || el.round) && (!run || !round)) return { ok: false, error: '恢复目标轮次已不可用，请在任务历史中核对。', html: '', state: wireState() }
         if (run && round && !round.sids.includes(el.sid) && round.sids.length < 4) {
-          round.sids.push(el.sid); round.routes.push(''); round.efforts.push('')
-          run.sids = round.sids; run.routes = round.routes; run.efforts = round.efforts
+          round.sids.push(el.sid); round.routes.push(typeof el.route === 'string' ? el.route : ''); round.efforts.push(typeof el.effort === 'string' ? el.effort : '')
+          if (round === run.rounds[run.rounds.length - 1]) { run.sids = round.sids; run.routes = round.routes; run.efforts = round.efforts }
         }
       }
       else if (action === 'fzoom-run-remove' && typeof el.sid === 'string') {
@@ -2260,6 +2456,7 @@ return {
         }
       }
       else if (action === 'fzoom-relay' && typeof el.sid === 'string' && el.sid) {
+        if (st.replaySeq != null) return { ok: false, error: '只读回放中不能带入实时结论，请先返回最新。', html: '', state: wireState() }
         // 会话互通：取源会话最近一条助手结论全文，交 Client 带入/发送到目标会话（沿用「带入会话」机制）
         const r = await readLog(el.sid)
         const items = parseItems(r.events || [])
@@ -2268,7 +2465,7 @@ return {
           const it = items[i]
           if (it.kind === 'msg' && it.role === 'ai' && it.full && !it.streaming) { lastAi = it; break }
         }
-        if (!lastAi) return { ok: false, error: '该会话还没有可带入的助手结论', html: '', state: st }
+        if (!lastAi) return { ok: false, error: '该会话还没有可带入的助手结论', html: '', state: wireState() }
         const text = String(lastAi.full)
         zoomRelay = {
           sourceSessionId: el.sid,
@@ -2354,13 +2551,17 @@ return {
       else if (action === 'fcontext' && typeof el.seqs === 'string') {
         const seqs = el.seqs.split(',').map((v) => Number(v)).filter((v) => Number.isFinite(v))
         const r = await readLog(st.sid)
-        flowContext = flowContextOf(parseItems(r.events || [], liveOverlay), seqs, st.sid)
+        const items = parseItems(replayEventsOf(r.events || [], st), st.replaySeq == null ? liveOverlay : null)
+        if (el.requireCompleted === '1' && (seqs.length !== 1 || !items.some((it) => it.seq === seqs[0] && it.kind === 'msg' && it.role === 'ai' && !it.streaming && !it.failed && !it.interrupted && !it.abandoned))) {
+          return { ok: false, error: '所选结论已不可用或尚未完成，请重新选择已完成的助手节点。', html: '', state: wireState() }
+        }
+        flowContext = flowContextOf(items, seqs, st.sid)
       }
       else if (action === 'fdetail' && el.seq != null) {
         const seq = Number(el.seq)
         st.expanded = st.expanded === seq ? null : seq
         st.freshSeq = st.expanded // 仅新展开的那次渲染播放滑入动画（null=收起不播；轮询不重播）
-      } else if (action === 'fenter' && el.seq != null) {
+      } else if (action === 'fenter' && el.seq != null && st.replaySeq == null) {
         // 钻取：解析当前查看会话的日志，找到该子代理调用的子会话 id 后切入（当前会话压栈）
         const seq = Number(el.seq)
         const r = await readLog(st.sid)
@@ -2368,13 +2569,16 @@ return {
         const cid = call ? childIdOf(call) : null
         if (cid && cid !== st.sid) {
           const parentSid = st.sid
-          st.crumbs.push({ sid: st.sid, label: call.name + ' ' + cid.slice(0, 8) })
+          const firstUser = parseItems(r.events || []).find((it) => it.kind === 'msg' && it.role === 'user')
+          st.crumbs.push({ sid: st.sid, label: oneLine((r.header && (r.header.title || r.header.name)) || (firstUser && firstUser.preview) || '上级会话', 32) })
           st.sid = cid
           st.expanded = null
           if (st.follow) navigateSession = { sessionId: cid, parentSessionId: parentSid, kind: 'subagent' }
         }
-      } else if (action === 'fback') {
-        const prev = st.crumbs.pop()
+      } else if (action === 'fback' && st.replaySeq == null) {
+        const depth = el.depth == null ? st.crumbs.length - 1 : Number(el.depth)
+        const prev = Number.isInteger(depth) && depth >= 0 && depth < st.crumbs.length ? st.crumbs[depth] : !st.crumbs.length && st.home && st.home !== st.sid ? { sid: st.home } : null
+        if (prev) st.crumbs = st.crumbs.slice(0, depth)
         if (prev && prev.sid) {
           st.sid = prev.sid
           st.expanded = null
@@ -2385,15 +2589,10 @@ return {
       const sid = st.sid
       try {
         const html = await render(st, sid, liveOverlay)
-        try { delete st.__flowPreferences } catch (e) {}
-        try { delete st.__zoomSessionIndex } catch (e) {}
-        try { delete st.__archivedSessionIds } catch (e) {}
-        return { ok: true, html, state: st, navigateSession, flowContext, zoomRelay }
+        if (st.replaySeq != null) navigateSession = undefined
+        return { ok: true, html, state: wireState(), navigateSession, flowContext, zoomRelay }
       } catch (e) {
-        try { delete st.__flowPreferences } catch (err) {}
-        try { delete st.__zoomSessionIndex } catch (err) {}
-        try { delete st.__archivedSessionIds } catch (err) {}
-        return { ok: false, error: String((e && e.message) || e), html: '', state: st }
+        return { ok: false, error: String((e && e.message) || e), html: '', state: wireState() }
       }
     }
 

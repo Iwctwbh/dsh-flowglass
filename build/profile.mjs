@@ -1,6 +1,7 @@
 // ===== build/profile.mjs：功能选择、依赖闭包、命名空间与构建配置解析 =====
 // 编译 CLI 的纯计算层：不读盘（文件存在性校验由调用方注入 loader）、不写盘、不含时间。
 import { checkTimerInject } from './source-loader.mjs'
+import { clientImplFiles } from './source-assembly.mjs'
 
 // 连续/尾随连字符会在 camelOf 后折叠成同一 Service 名（a-b 与 a--b），因此一并拒绝。
 export const BUNDLE_ID_RE = /^(?=.{2,40}$)[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
@@ -35,7 +36,7 @@ export const validateCatalog = (plugins, loader) => {
     if (hasClient && p.bundle && p.bundle.scope !== 'process') errors.push(p.key + ': 含 Client 半的 feature 必须 bundle.scope=process')
     // 引用不存在的源文件
     if (loader) {
-      for (const f of (p.hostFiles || []).concat(p.clientFile ? [p.clientFile] : [])) {
+      for (const f of (p.hostFiles || []).concat(clientImplFiles(p))) {
         if (!loader.exists(f)) errors.push(p.key + ': 源文件不存在: ' + f)
       }
       // timer 动词检查

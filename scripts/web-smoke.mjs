@@ -4,12 +4,24 @@
 //   .scratch/dsh-home-rc2/           dsh plugin --profile web add <dsh-flowglass.tgz> + dsh-better-sidebar@0.19.1
 //                                     storages/workspace.json 种子工作区（见下 seedWorkspace）
 //   node …/dsh/lib/bin.js --profile web --no-open --port 3987   （DSH_HOME=.scratch/dsh-home-rc2）
-// 用法：node web-smoke.mjs <带 token 的 Web URL>   （playwright 需可解析；在 .scratch/dsh-rc2-composition 下运行）
+// 用法：node scripts/web-smoke.mjs <带 token 的 Web URL>；依赖入口也可由 PLAYWRIGHT_MODULE_PATH 指定。
 // 断言：流镜入口挂载、Client 半加载、点击入口经 openTab 打开【原生右侧栏】流镜 Tab
 // （宿主链路 rightbarCol→panel→pane→paneBody + 嵌入 Drawer 单实例）、面板渲染当前会话、
 //  better-sidebar 桥被原生接管（无双实例）。独立抽屉/事件窗实时流的协议级行为由
 //  sim-flow / sim-toolbox-client 覆盖。
-import { chromium } from 'playwright'
+import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
+import path from 'node:path'
+import fs from 'node:fs'
+
+const root = fileURLToPath(new URL('../', import.meta.url))
+const require = createRequire(import.meta.url)
+let playwright
+for (const candidate of [process.env.PLAYWRIGHT_MODULE_PATH, 'playwright', path.join(root, '.scratch/dsh-rc2-composition/node_modules/playwright'), path.join(root, '.scratch/pw-test/node_modules/playwright')].filter(Boolean)) {
+  try { playwright = require(candidate); break } catch {}
+}
+if (!playwright) throw new Error('Playwright 未安装；请将 PLAYWRIGHT_MODULE_PATH 指向现有安装。本脚本不会安装依赖。')
+const { chromium } = playwright
 
 const url = process.argv[2] || process.env.DSH_WEB_URL
 if (!url) { console.error('用法: node web-smoke.mjs <带 token 的 Web URL>'); process.exit(2) }
@@ -62,17 +74,19 @@ const diag = await page.evaluate(() => {
     drawerFixed: Boolean(document.querySelector('.jr-drawer:not(.jr-drawer-embedded)')),
     inRightbarCol: chain.some((c) => /rightbarCol/.test(c)),
     hasBetterSidebarChrome: Boolean(document.querySelector('[class*="betterSidebar"], [data-better-sidebar]')),
-    sessionLabel: (() => { const m = /([0-9a-f]{8}) · (\d+) 条事件/.exec(document.body.innerText || ''); return m ? m[1] : null })(),
-    flowPanelAlive: (document.body.innerText || '').indexOf('实时同步中') >= 0,
+    sessionBound: Boolean(scope && scope.querySelector('[data-flow][data-flow-scope]')?.getAttribute('data-flow-scope')),
+    flowPanelAlive: Boolean(scope && scope.querySelector('[data-flow][data-autorefresh]')),
   }
 }).catch(() => null)
 check('点击入口 → 流镜 Tab body 挂载（scope=flow 嵌入 Drawer）', Boolean(diag && diag.scopeCount === 1), JSON.stringify(diag).slice(0, 160))
 check('宿主是 Harness 原生右侧栏（rightbarCol 链路，非 better-sidebar 容器）',
   Boolean(diag && diag.inRightbarCol && !diag.hasBetterSidebarChrome))
 check('嵌入 Drawer 单实例（原生接管，better-sidebar 桥已撤销）', Boolean(diag && diag.scopeCount === 1 && diag.embeddedDrawer && !diag.drawerFixed))
-check('流镜面板在当前会话内渲染（会话标注 + 实时同步开关）', Boolean(diag && diag.flowPanelAlive && diag.sessionLabel), diag ? diag.sessionLabel : '')
+check('流镜面板在当前会话内渲染（稳定会话范围与刷新声明）', Boolean(diag && diag.flowPanelAlive && diag.sessionBound))
 
-await page.screenshot({ path: 'web-smoke.png' }).catch(() => {})
+const outputDir = path.join(root, '.scratch/web-smoke')
+fs.mkdirSync(outputDir, { recursive: true })
+await page.screenshot({ path: path.join(outputDir, 'web-smoke.png') }).catch(() => {})
 await browser.close()
 console.log(failures ? ('>>> ' + failures + ' 项失败') : '>>> web-smoke 全部通过')
 process.exit(failures ? 1 : 0)

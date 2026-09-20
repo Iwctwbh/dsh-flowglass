@@ -146,7 +146,26 @@ const makeSessionLogReader = (ctx, sq) => {
         return { events: cache.events, header: cache.header, count: cache.count, changed: true }
       } catch (e) {}
     }
-    const snap = await sq.readSession(sid)
+    let snap
+    try { snap = await sq.readSession(sid) }
+    catch (error) {
+      // Some Harness builds pass the complete fork log to a constructor that
+      // expects only the inherited seed. Its public raw-event APIs still read
+      // the same logical corpus correctly, without making the session live.
+      if (!String(error && error.message || error).includes('seeded session constructor seed must equal its inherited prefix') || typeof sq.listEvents !== 'function' || typeof sq.readEvent !== 'function') throw error
+      const records = await sq.listEvents(sid)
+      if (!Array.isArray(records) || !records.length) throw error
+      const events = []
+      let header = null
+      for (let offset = 0; offset < records.length; offset += 51) {
+        const window = await sq.readEvent({ sessionId: sid, seq: records[offset].seq, before: 0, after: Math.min(50, records.length - offset - 1) })
+        if (!window || !Array.isArray(window.events) || window.events.length !== Math.min(51, records.length - offset)) throw error
+        for (let i = 0; i < window.events.length; i++) if (window.events[i].seq !== records[offset + i].seq) throw error
+        header = window.session
+        events.push(...window.events)
+      }
+      snap = { session: header, events }
+    }
     const events = (snap && snap.events) || []
     const header = (snap && snap.session) || null
     const hit = cache && cache.sid === sid && cache.count === events.length

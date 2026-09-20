@@ -4,6 +4,8 @@
 // 直接拼接固化，不含任何运行时磁盘查找代码）。
 // 两种模式共用同一份插件实现源码（plugins/<key>/…）与 catalog（build/plugin-catalog.mjs）。
 
+import { assembleClientSource, clientImplFiles } from './source-assembly.mjs'
+
 const SHARED_HOST = 'shared/host.js' // 工具自动拼接的共享辅助（esc/fmtSize/tryRegisterTool/store/logReader/b64）
 const RUNTIME = 'shared/runtime.js' // 两种模式共同的运行配置与命名辅助
 const REGISTRY = 'shared/registry.js' // 工具注册表共享实现（仅 toolbox 框架与编译 Bootstrap 使用）
@@ -65,13 +67,13 @@ return {
 
 // ---- 带 client-impl RPC 的 Host 桩：委托前注册 <rpc>，Client 半经它实时拉磁盘 client.js ----
 // 返回内容 = shared/runtime.js + client.js（§6.3：动态与编译两条路径最终求值同一份 Client 主体）
-const hostStubWithClientRpc = (name, inject, implFiles, rpc, clientRel, rootPrefix) => hostStub(name, inject, implFiles, rootPrefix)
+const hostStubWithClientRpc = (name, inject, implFiles, rpc, clientFiles, rootPrefix) => hostStub(name, inject, implFiles, rootPrefix)
   .replace(
     "        const fn = new Function(",
     `        ctx.effect(() => harness.handle('${rpc}', async () => {
           try {
             const parts = []
-            for (const rel of ${JSON.stringify([RUNTIME])}.concat([${JSON.stringify(clientRel)}])) {
+            for (const rel of ${JSON.stringify(clientFiles)}) {
               const target = await fs.resolve(rel, { cwd: root })
               parts.push(await fs.readText(target))
             }
@@ -157,13 +159,13 @@ export const buildDynamicPayload = (entry, { rootPrefix = '', readSource } = {})
   if (entry.hostFiles && entry.hostFiles.length) {
     const implFiles = hostImplFiles(entry)
     code.host = entry.clientRpc
-      ? hostStubWithClientRpc(entry.name, entry.inject, implFiles, entry.clientRpc, rootPrefix + entry.clientFile, rootPrefix)
+      ? hostStubWithClientRpc(entry.name, entry.inject, implFiles, entry.clientRpc, clientImplFiles(entry, { includeRuntime: true }).map((file) => rootPrefix + file), rootPrefix)
       : hostStub(entry.name, entry.inject, implFiles, rootPrefix)
   }
   if (entry.clientFile) {
     code.client = entry.clientRpc
       ? clientLoaderStub(entry.clientRpc, entry.key)
-      : readSource(RUNTIME) + '\n' + readSource(entry.clientFile)
+      : assembleClientSource(readSource, entry, { includeRuntime: true })
   }
   return { plugin: { kind: 'new', idPrefix: entry.idPrefix }, name: entry.name, purpose: entry.purpose, code }
 }

@@ -64,8 +64,10 @@ const runHost = async (overrides, env) => {
   check('B panel RPC 不误命中 A 工具', panB && panB.ok === false)
 
   // ======== Client：双 bundle DOM/storage/事件隔离 ========
-  const clientSrcA = overridesSrc(PA) + '\n' + runtimeSrc + '\n' + read('plugins/toolbox/client.js')
-  const clientSrcB = overridesSrc(PB) + '\n' + runtimeSrc + '\n' + read('plugins/toolbox/client.js')
+  const { assembleClientSource } = await import('../build/source-assembly.mjs')
+  const clientSource = assembleClientSource(read, 'plugins/toolbox/client.js', { includeRuntime: true })
+  const clientSrcA = overridesSrc(PA) + '\n' + clientSource
+  const clientSrcB = overridesSrc(PB) + '\n' + clientSource
 
   // 共享 mock 环境（同一页面）：document + localStorage（带原型，模拟 Storage）+ window 事件捕获
   const listeners = {}

@@ -78,6 +78,7 @@ const makeStaticRegistry = () => {
           root: typeof root === 'string' && root ? root : undefined,
           session: call && typeof call.session === 'string' && call.session ? call.session : undefined,
         })
+        if (res && res.ok === false) return { ok: false, error: String(res.error || '工具操作失败') }
         if (!res || typeof res.html !== 'string') return { ok: false, error: '工具返回了无效面板内容' }
         const out = { ok: true, html: res.html, state: res.state == null ? null : res.state }
         if (typeof res.copy === 'string' && res.copy) out.copy = res.copy
@@ -94,6 +95,9 @@ const makeStaticRegistry = () => {
             ...(typeof res.flowContext.sourceSessionId === 'string' ? { sourceSessionId: res.flowContext.sourceSessionId } : {}),
             ...(Array.isArray(res.flowContext.seqs) ? { seqs: res.flowContext.seqs.filter((v) => typeof v === 'number') } : {}),
           }
+        }
+        if (res.zoomRelay && typeof res.zoomRelay.text === 'string' && typeof res.zoomRelay.sourceSessionId === 'string') {
+          out.zoomRelay = { text: res.zoomRelay.text, sourceSessionId: res.zoomRelay.sourceSessionId }
         }
         return out
       } catch (error) { return { ok: false, error: String(error && error.message || error) } }
@@ -167,7 +171,7 @@ class NativeToolboxRemote extends TypertRemoteService {
     if (query && typeof query.listSessions === 'function') {
       try {
         const rows = await query.listSessions()
-        const hit = (rows || []).find((row) => row && row.id === sid)
+        const hit = (rows || []).find((row) => row && (row.id === sid || (row.header && row.header.id === sid)))
         const cwd = hit && hit.header && hit.header.cwd
         if (typeof cwd === 'string' && cwd) return { ok: true, cwd }
       } catch (error) {}
