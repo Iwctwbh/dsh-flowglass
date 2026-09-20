@@ -112,7 +112,7 @@ export const buildBundle = (loader, opts) => {
     ['package.json', renderPackageJson({
       packageName,
       version,
-      description: isFlowglass ? '流镜（DSH 原生静态插件）' : label + '（DSH 原生静态工具箱）',
+      description: isFlowglass ? '可视化会话执行流、工具调用、子代理与多会话并发分支。' : label + '（DSH 原生静态工具箱）',
       bundleId,
       repositoryDirectory: opts.repositoryDirectory,
       hasModelTools,

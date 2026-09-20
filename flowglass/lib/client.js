@@ -93,9 +93,9 @@ const TOOLBOX_RUNTIME = (() => {
       invocation: { kind: 'direct' },
       parameters: [{
         name: 'request', wire: 'request', source: 'json',
-        codec: { mode: 'strict', typeSymbol: "dsh-flowglass#JsonRequest", schema: json },
+        codec: { mode: 'strict', typeSymbol: "dsh-flowglass#JsonRequest", schema: json, create: () => json },
       }],
-      result: { mode: 'strict', typeSymbol: "dsh-flowglass#JsonResult", schema: json },
+      result: { mode: 'strict', typeSymbol: "dsh-flowglass#JsonResult", schema: json, create: () => json },
     })
     const remoteContribution = Object.freeze({
       package: "dsh-flowglass",
@@ -203,7 +203,8 @@ return {
       if (!sessionsClient) throw new Error('sessions 服务不可用')
       const target = String(request.sessionId)
       const parent = request.parentSessionId ? String(request.parentSessionId) : ''
-      if (request.kind === 'subagent' && parent && typeof sessionsClient.openSubagent === 'function') {
+      let navigationTarget = target
+      if (request.kind === 'subagent' && parent) {
         let address = typeof sessionsClient.subagentAddress === 'function' ? sessionsClient.subagentAddress(target) : null
         if (!address && typeof sessionsClient.refreshSubagents === 'function') {
           try { await sessionsClient.refreshSubagents(parent) } catch (e) {}
@@ -217,7 +218,16 @@ return {
             : null
           if (entry && entry.mode) address = { parentSessionId: parent, childSessionId: target, mode: entry.mode }
         }
-        if (address) { sessionsClient.openSubagent(address); return }
+        if (address) navigationTarget = address
+      }
+      const uiWorkspace = ctx.get('uiWorkspace')
+      if (uiWorkspace && typeof uiWorkspace.openSession === 'function') {
+        uiWorkspace.openSession(navigationTarget)
+        return
+      }
+      if (navigationTarget !== target && typeof sessionsClient.openSubagent === 'function') {
+        sessionsClient.openSubagent(navigationTarget)
+        return
       }
       if (typeof sessionsClient.open !== 'function') throw new Error('sessions.open 不可用')
       sessionsClient.open(target)
@@ -1158,6 +1168,10 @@ return {
     }
     // 原生 openTab 句柄（sidebarRightTabs 注入回调内置位；null = 原生不可用）
     let nativeOpenTab = null
+    // 原生流镜 Tab 的展开意图跨 Session 保留。Harness 的右侧栏页面按 Session 重挂，
+    // 旧 Tab 在切换过程中可能先隐藏/卸载；用目标 Session 区分“导航重挂”与用户主动关闭。
+    let nativeFlowVisible = false
+    let nativeFlowReopenSession = ''
 
     function useIntegrationActive() {
       const [, force] = React.useState(0)
@@ -1655,11 +1669,19 @@ return {
       const [busyTool, setBusyTool] = React.useState(null)
       const [showJumpLatest, setShowJumpLatest] = React.useState(false)
       const flowRulesStorageKey = RT.storageKey('flow.presentation-rules')
+      const flowDefaultPresentationRules = JSON.stringify([
+        { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['git', 'git.exe'], displayName: 'Git', actions: [], badge: 'Git', color: '#f05032' },
+        { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['gh', 'gh.exe', 'github', 'github.exe'], displayName: 'GitHub', actions: [], badge: 'GitHub', color: '#8b949e' },
+        { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['pnpm', 'pnpm.cmd', 'pnpm.exe'], displayName: 'pnpm', actions: [], badge: 'pnpm', color: '#f69220' },
+        { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['npm', 'npm.cmd', 'npm.exe'], displayName: 'npm', actions: [], badge: 'npm', color: '#cb3837' },
+        { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['dsh', 'dsh.cmd', 'dsh.exe'], displayName: 'DSH', actions: [], badge: 'DSH', color: '#7fa7f0' },
+        { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['python', 'python.exe', 'python3', 'python3.exe', 'py', 'py.exe'], displayName: 'Python', actions: [], badge: 'Python', color: '#3776ab' },
+      ])
       const readFlowRules = () => {
         try {
           const raw = localStorage.getItem(flowRulesStorageKey)
-          return typeof raw === 'string' && raw.trim() ? raw : '[]'
-        } catch (e) { return '[]' }
+          return typeof raw === 'string' ? raw : flowDefaultPresentationRules
+        } catch (e) { return flowDefaultPresentationRules }
       }
       const writeFlowRules = (raw) => {
         try { localStorage.setItem(flowRulesStorageKey, raw) } catch (e) {}
@@ -2890,7 +2912,7 @@ return {
         setFlowUiBusy(true); setFlowUiNotice('正在创建分支会话…')
         try {
           const childId = await sessionsClient.fork({ sessionId: source, atSeq: Number(seq), increaseTitle: true })
-          sessionsClient.open(childId)
+          await navigateHarnessSession({ sessionId: childId })
           const reopen = () => { try { if (nativeOpenTab) nativeOpenTab() } catch (e) {} }
           try { ctx.timeout(reopen, 0); ctx.timeout(reopen, 180) } catch (e) {}
           setFlowUiNotice('已创建分支会话')
@@ -2914,42 +2936,46 @@ return {
         return res.flowContext
       }
 
-      // 跨会话草稿写入（DSH 0.1.5 基线）：会话标准 props 收进 Session Controller 绑定，
-      // 经 ctx.uiSession 的 adapter.resolve(sessionId) 解析 { props.inputActions, hooks.input }。
-      // 旧 Harness 的 sessions.provideInfo 回退已删除（0.1.5 无该接口；不可解析时明确报错）。
-      // sessions.create() 的解析保证：promise 落定时 binding 可同步寻址——仍保留短重试，
-      // 容错列表投影尚未刷到的瞬间。
-      const resolveSessionProvideInfo = (sessionId) => {
+      // 跨会话草稿写入：alpha.2 的 Session 必须先 retain，并通过 bindingSource
+      // 投影标准 props/hooks；0.1.5 继续使用 adapter.resolve 兼容路径。
+      const withSessionProvideInfo = async (sessionId, operation) => {
         const uiSession = ctx.get('uiSession')
-        if (!uiSession || !uiSession.adapter || typeof uiSession.adapter.resolve !== 'function') {
+        if (!uiSession || !uiSession.adapter) {
           throw new Error('当前 Harness 不支持跨会话草稿写入（缺少 uiSession 绑定服务）')
         }
-        const binding = uiSession.adapter.resolve(sessionId)
-        return binding ? { props: binding.props, hooks: binding.hooks } : undefined
-      }
-
-      const resolveSessionProvideInfoWithRetry = async (sessionId) => {
-        let last = undefined
-        for (let i = 0; i < 3; i++) {
-          last = resolveSessionProvideInfo(sessionId)
-          if (last) return last
-          await new Promise((r) => setTimeout(r, 120))
+        if (sessionsClient && typeof sessionsClient.using === 'function'
+          && typeof uiSession.adapter.bindingSource === 'function') {
+          return sessionsClient.using(sessionId, { source: 'controllerOperation' }, (reference) => {
+            const source = uiSession.adapter.bindingSource(reference)
+            const binding = source && typeof source.getSnapshot === 'function' ? source.getSnapshot() : undefined
+            if (!binding || binding.key == null) throw new Error('目标会话的 UI 绑定不可用')
+            return operation({ props: binding.props, hooks: binding.hooks })
+          })
         }
-        return last
+        if (typeof uiSession.adapter.resolve !== 'function') {
+          throw new Error('当前 Harness 不支持跨会话草稿写入（缺少 uiSession 解析器）')
+        }
+        for (let i = 0; i < 3; i++) {
+          const binding = uiSession.adapter.resolve(sessionId)
+          if (binding) return operation({ props: binding.props, hooks: binding.hooks })
+          await new Promise((resolve) => setTimeout(resolve, 120))
+        }
+        throw new Error('目标会话的 UI 绑定不可用')
       }
 
       const putFlowContextIntoDraft = async (sessionId, text, append) => {
-        const info = await resolveSessionProvideInfoWithRetry(sessionId)
-        const actions = info && info.props && info.props.inputActions
-        const input = info && info.hooks && info.hooks.input
-        if (!actions || typeof actions.setDraft !== 'function') throw new Error('目标会话的输入区不可用')
-        let next = text
-        if (append && input && typeof input.getSnapshot === 'function') {
-          const snap = input.getSnapshot()
-          const previous = snap && typeof snap.draft === 'string' ? snap.draft : ''
-          if (previous.trim()) next = previous.replace(/\s+$/, '') + '\n\n' + text
-        }
-        actions.setDraft(next)
+        await withSessionProvideInfo(sessionId, (info) => {
+          const actions = info && info.props && info.props.inputActions
+          const input = info && info.hooks && info.hooks.input
+          if (!actions || typeof actions.setDraft !== 'function') throw new Error('目标会话的输入区不可用')
+          let next = text
+          if (append && input && typeof input.getSnapshot === 'function') {
+            const snap = input.getSnapshot()
+            const previous = snap && typeof snap.draft === 'string' ? snap.draft : ''
+            if (previous.trim()) next = previous.replace(/\s+$/, '') + '\n\n' + text
+          }
+          actions.setDraft(next)
+        })
       }
 
       const createSelectedFlowSession = async () => {
@@ -2960,7 +2986,7 @@ return {
           const context = await fetchSelectedFlowContext()
           const sessionId = await sessionsClient.create(currentCwd ? { cwd: currentCwd } : {})
           await putFlowContextIntoDraft(sessionId, context.text, false)
-          sessionsClient.open(sessionId)
+          await navigateHarnessSession({ sessionId })
           setFlowSelectedSeqs([])
           setFlowBringPopup(false)
           setFlowTreeOpen({})
@@ -2977,7 +3003,7 @@ return {
         try {
           const context = await fetchSelectedFlowContext()
           await putFlowContextIntoDraft(target, context.text, true)
-          sessionsClient.open(target)
+          await navigateHarnessSession({ sessionId: target })
           setFlowSelectedSeqs([])
           setFlowBringPopup(false)
           setFlowTreeOpen({})
@@ -2998,12 +3024,20 @@ return {
         }
         return undefined
       }
+      const withZoomBinding = async (sid, operation) => {
+        if (sessionsClient && typeof sessionsClient.using === 'function') {
+          return sessionsClient.using(sid, { source: 'controllerOperation' }, (reference) => operation(reference.binding))
+        }
+        const binding = await resolveZoomBinding(sid)
+        if (!binding) throw new Error('会话不可用或未上线')
+        return operation(binding)
+      }
       // 直接发送 = 目标会话排队执行一条用户消息（ISession.prompt mode 'queue'：运行中排队、空闲立即开工）
       const sendTextToSession = async (sid, text) => {
-        const b = await resolveZoomBinding(sid)
-        if (!b) throw new Error('会话不可用或未上线')
-        const res = await b.session.prompt([{ type: 'text', text }], 'queue')
-        if (!res || res.ok !== true) throw new Error((res && res.error && res.error.message) || '发送被拒绝')
+        await withZoomBinding(sid, async (binding) => {
+          const res = await binding.session.prompt([{ type: 'text', text }], 'queue')
+          if (!res || res.ok !== true) throw new Error((res && res.error && res.error.message) || '发送被拒绝')
+        })
       }
       // 模型分支：开工台每条分支一个路由 select（值 'provider/model'，'' = 默认跟随当前）
       const zoomLaneValues = () => {
@@ -3031,10 +3065,11 @@ return {
         if (!res || res.ok !== true) throw new Error((res && res.error && res.error.message) || 'selectModel 被拒绝')
       }
       const renameSession = async (sid, title) => {
-        const b = await resolveZoomBinding(sid)
-        if (!b || !b.session || typeof b.session.rename !== 'function') return
-        const res = await b.session.rename(String(title).slice(0, 120))
-        if (res && res.ok === false) throw new Error((res.error && res.error.message) || '会话重命名失败')
+        await withZoomBinding(sid, async (binding) => {
+          if (!binding.session || typeof binding.session.rename !== 'function') return
+          const res = await binding.session.rename(String(title).slice(0, 120))
+          if (res && res.ok === false) throw new Error((res.error && res.error.message) || '会话重命名失败')
+        })
       }
       const zoomBranchTitle = (prompt, index, count, route) => {
         const task = String(prompt || '并发任务').replace(/\s+/g, ' ').trim().slice(0, 42)
@@ -4074,8 +4109,15 @@ return {
           if (followState) stateRef.current.flow = followState
           if (sidChanged) {
             flowHarnessNavTargetRef.current = null
-            if (isFlowFollow && nativeOpenTab) {
-              try { ctx.timeout(() => { try { nativeOpenTab() } catch (e) {} }, 0) } catch (e) {}
+            const keepNativeFlowOpen = nativeFlowVisible
+              && (!nativeFlowReopenSession || nativeFlowReopenSession === sid)
+            if ((isFlowFollow || keepNativeFlowOpen) && nativeOpenTab) {
+              try {
+                ctx.timeout(() => {
+                  try { nativeOpenTab() } catch (e) {}
+                  if (nativeFlowReopenSession === sid) nativeFlowReopenSession = ''
+                }, 0)
+              } catch (e) {}
             }
             if (!isFlowFollow) {
               // 用户手动切换 Session：不沿用之前 Flowglass 的临时返回链。
@@ -5162,11 +5204,24 @@ return {
       // 内调用 hook 导致渲染间 hook 顺序漂移。
       const info = props.useTabInfo()
       const visible = !(info && info.tab && info.tab.visible === false)
+      const useSessions = typeof props.useSessions === 'function' ? props.useSessions : () => undefined
+      const selectedSessionId = useSessions((state) => state && state.current ? String(state.current) : '')
+      const boundSessionId = String(props.sessionId || '')
+      if (visible) {
+        nativeFlowVisible = true
+        nativeFlowReopenSession = ''
+      } else if (nativeFlowVisible && selectedSessionId && boundSessionId && selectedSessionId !== boundSessionId) {
+        // Session 导航会把旧页面标成不可见；这是重挂信号，不是用户关闭。
+        nativeFlowReopenSession = selectedSessionId
+      } else if (nativeFlowReopenSession !== boundSessionId) {
+        // 同一 Session 内切走/关闭流镜时立即撤销保持展开意图。
+        nativeFlowVisible = false
+      }
       return React.createElement(Drawer, {
         embedded: true,
         visible,
         sessionId: props.sessionId,
-        useSessions: typeof props.useSessions === 'function' ? props.useSessions : () => undefined,
+        useSessions,
         useWorkspaces: typeof props.useWorkspaces === 'function' ? props.useWorkspaces : () => undefined,
       })
     }
@@ -5232,6 +5287,8 @@ return {
           if (disposeBody) { try { disposeBody() } catch (e) {} disposeBody = null }
           if (disposeType) { try { disposeType() } catch (e) {} disposeType = null }
           nativeOpenTab = null
+          nativeFlowVisible = false
+          nativeFlowReopenSession = ''
           integration.setNative(false)
         }
         const applyNative = () => {
@@ -5338,6 +5395,7 @@ return {
 
 
     async function apply(ctx) {
+      try {
       const disposeRemote = await ctx.remote.$mount(remoteContribution)
       ctx.effect(() => () => { void disposeRemote() })
       ctx.effect(() => () => { for (const dispose of [...styleDisposers]) dispose() })
@@ -5364,6 +5422,10 @@ return {
         if (typeof disposer === 'function') ctx.effect(() => disposer)
       }
       console.log(TOOLBOX_RUNTIME.logTag() + ' 原生静态 Client 已加载（无动态批准）')
+      } catch (error) {
+        console.error(TOOLBOX_RUNTIME.logTag() + ' 原生静态 Client 加载失败', error)
+        throw error
+      }
     }
 
     exports.name = name

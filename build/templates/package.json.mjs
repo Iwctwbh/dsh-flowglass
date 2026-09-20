@@ -51,10 +51,10 @@ export const renderPackageJson = ({ packageName, version, description, bundleId,
     // Host 半的 lib/index.js 直接 import 该协议包（TypertRemoteService/Remote），
     // 由宿主 Harness 提供实体，这里只声明关系。基线 DSH 0.1.5-rc.1+：
     // 0.1.5 通道（含 rc.2+）与后续 0.1.x/0.2.0 正式版兼容。
-    '@deepseek-ai/dsh-typert-protocol': '^0.1.5-rc.1',
+    '@deepseek-ai/dsh-typert-protocol': '^0.1.5-rc.1 || ^0.1.6-alpha.2',
     ...(hasModelTools ? { '@deepseek-ai/dsh-tools': '^0.1.5-rc.1' } : {}),
     ...(bundleId === 'flow' ? {
-      '@deepseek-ai/dsh-client-ui-primitives': '^0.1.5-rc.1',
+      '@deepseek-ai/dsh-client-ui-primitives': '^0.1.5-rc.1 || ^0.1.6-alpha.2',
       'dsh-better-sidebar': '>=0.19.0',
       'react-dom': '^18.3.1',
     } : {}),

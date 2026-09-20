@@ -77,6 +77,14 @@ return {
     // 规则只投影卡片标题/徽章，不改日志中的工具名、参数或结果。Client 以 localStorage
     // 为事实源并在每次 panel 请求中携带 JSON；Host 在使用前收窄，未知字段一律忽略。
     const MAX_PRESENTATION_RULES = 24
+    const DEFAULT_PRESENTATION_RULES = [
+      { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['git', 'git.exe'], displayName: 'Git', actions: [], badge: 'Git', color: '#f05032' },
+      { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['gh', 'gh.exe', 'github', 'github.exe'], displayName: 'GitHub', actions: [], badge: 'GitHub', color: '#8b949e' },
+      { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['pnpm', 'pnpm.cmd', 'pnpm.exe'], displayName: 'pnpm', actions: [], badge: 'pnpm', color: '#f69220' },
+      { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['npm', 'npm.cmd', 'npm.exe'], displayName: 'npm', actions: [], badge: 'npm', color: '#cb3837' },
+      { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['dsh', 'dsh.cmd', 'dsh.exe'], displayName: 'DSH', actions: [], badge: 'DSH', color: '#7fa7f0' },
+      { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['python', 'python.exe', 'python3', 'python3.exe', 'py', 'py.exe'], displayName: 'Python', actions: [], badge: 'Python', color: '#3776ab' },
+    ]
     const textField = (value, name, max) => {
       if (typeof value !== 'string' || !value.trim()) throw new Error('显示规则缺少 ' + name)
       const out = value.trim()
@@ -1562,7 +1570,7 @@ return {
         // 近观多了一层 wrapper，不能再 reverse，否则视觉顺序会变成“助手在上、用户在下”。
         parts.push('<div class="fl-zoom-near-flow" data-flow-near-session="' + esc(selectedCard.rec.sid) + '">' + (nearRows.length ? nearRows.join('') : '<div class="tb-notice">当前会话还没有事件</div>') + '</div>')
       } else {
-        if ((st.zoomScope === 'run' || inferredFleet) && branches.length) {
+        if ((st.zoomScope === 'run' || inferredFleet || zoomView === 'detail') && branches.length) {
           // 精简/详细共用 Git diff 轮次网格；详细单元格用普通流镜泳道，精简只保留轮次摘要。
           const comparison = await buildZoomTurnCompare(branches)
           const widths = zoomView === 'detail'
@@ -2032,7 +2040,7 @@ return {
       st.zoomEfforts = st.zoomLanes.map((_, i) => (typeof st.zoomEfforts[i] === 'string' ? st.zoomEfforts[i] : ''))
       if (fields && Object.prototype.hasOwnProperty.call(fields, '__flowPresentationRules')) {
         st.presentationRules = normalizePresentationRules(fields.__flowPresentationRules)
-      } else if (!Array.isArray(st.presentationRules)) st.presentationRules = []
+      } else if (!Array.isArray(st.presentationRules)) st.presentationRules = normalizePresentationRules(DEFAULT_PRESENTATION_RULES)
       const el = fields && fields.__el ? fields.__el : {}
       // home=面板所属会话（钻取不改变归属）；sid=当前查看的会话（默认=home）。
       // 跟随模式下 Harness 已经把当前 session 切到 st.sid，但 crumbs 表明这仍是

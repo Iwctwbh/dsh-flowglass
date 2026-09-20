@@ -9,7 +9,7 @@
 // ⑥工具箱长名称在可见 chrome 统一使用「工具箱」，完整名称保留在 tooltip/aria-label；
 // ⑦DSH 0.1.5 原生右侧栏（bundleId=flow）：sidebarRightTabs 两段式注册（page type + body Slot）、
 //   自有入口 openTab、原生接管时撤销 better-sidebar 桥、注册失败恢复固定右侧兜底、旧 drawer 偏好忽略、
-//   原生 Tab body 透传 Slot 标准属性（sessionId/useSessions/useTabInfo→visible）。
+//   原生 Tab body 透传 Slot 标准属性（sessionId/useSessions/useTabInfo→visible），切 Session 保持已展开流镜。
 const fs = require('fs')
 const path = require('path')
 const ROOT = path.resolve(__dirname, '..')
@@ -350,15 +350,20 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
       && src.indexOf('Array.from(rawFlowSessionIds)') >= 0 && src.indexOf('Object.keys(rawFlowSessionsById)') >= 0)
     check('Better Sidebar 嵌入态直接订阅 sessionsClient.list 补齐完整会话树', src.indexOf('serviceSessionsSnapshot') >= 0
       && src.indexOf('list.subscribe(sync)') >= 0 && src.indexOf('serviceSessionsSnapshot.ids') >= 0)
-    check('跨会话草稿写入单路径：uiSession 绑定（provideInfo 回退已按 0.1.5 基线删除）', src.indexOf("ctx.get('uiSession')") >= 0
+    check('跨会话草稿写入支持 alpha.2 retain/bindingSource，并保留 0.1.5 resolve 兼容', src.indexOf("ctx.get('uiSession')") >= 0
+      && src.indexOf('sessionsClient.using') >= 0 && src.indexOf('uiSession.adapter.bindingSource') >= 0
       && src.indexOf('uiSession.adapter.resolve') >= 0
-      && src.indexOf('resolveSessionProvideInfo') >= 0
+      && src.indexOf('withSessionProvideInfo') >= 0
       && src.indexOf("typeof sessionsClient.provideInfo === 'function'") < 0
       && src.indexOf('sessionsClient.provideInfo(sessionId)') < 0)
     check('Better Sidebar 会话回退严格限定 Flowglass，完整 Toolbox 不启用', src.indexOf("if (RT.bundleId !== 'flow') return undefined") >= 0
       && src.indexOf("RT.bundleId === 'flow' && serviceSessionsSnapshot") >= 0)
     check('Flowglass 显示规则以 localStorage 持久化、随 panel 请求携带且设置打开时暂停 live 刷新',
       src.indexOf("RT.storageKey('flow.presentation-rules')") >= 0
+        && src.indexOf('flowDefaultPresentationRules') >= 0
+        && src.indexOf("displayName: 'GitHub'") >= 0
+        && src.indexOf("displayName: 'Python'") >= 0
+        && src.indexOf("return typeof raw === 'string' ? raw : flowDefaultPresentationRules") >= 0
         && src.indexOf('fields.__flowPresentationRules') >= 0
         && src.indexOf("['fsave-rule', 'fcreate-rule', 'fapply-rule-json', 'ftoggle-rule', 'fdelete-rule', 'freset-rules']") >= 0
         && src.indexOf('writeFlowRules(JSON.stringify((res.state && res.state.presentationRules) || []))') >= 0
@@ -462,7 +467,8 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
         && src.indexOf('Array.isArray(hookWorkspaceItems)') >= 0
         && src.indexOf('workspacesClient.list.getSnapshot()') >= 0
         && src.indexOf('w.sessionIds.some((sid) => String(sid) === sourceSessionId)') >= 0
-        && src.indexOf("b.session.prompt([{ type: 'text', text }], 'queue')") >= 0
+        && src.indexOf("binding.session.prompt([{ type: 'text', text }], 'queue')") >= 0
+        && src.indexOf("sessionsClient.using(sid, { source: 'controllerOperation' }") >= 0
         && src.indexOf("await loadPanelRef.current('flow', 'fzoom-joined'") >= 0
         && src.indexOf("if (!forkCurrent && !reuseCurrent && created.length)") >= 0
         && src.indexOf("await navigateHarnessSession({ sessionId: target })") >= 0
@@ -490,7 +496,7 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
         && src.indexOf('merged.slice(-20)') >= 0
         && src.indexOf('const deferFlowNavigationRender') >= 0
         && src.indexOf('if (!deferFlowNavigationRender) setHtml(res.html)') >= 0
-        && src.indexOf('if (isFlowFollow && nativeOpenTab)') >= 0
+        && src.indexOf('if ((isFlowFollow || keepNativeFlowOpen) && nativeOpenTab)') >= 0
         && css.indexOf('.fl-zoom-history-drawer{') >= 0 && css.indexOf('.fl-history-node{') >= 0 && css.indexOf('.fl-zoom-current-session{') >= 0
         && css.indexOf('.fl-history-toggle{') >= 0
         && css.indexOf('.fl-zoom-diff-board{') >= 0
@@ -599,6 +605,13 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     const hiddenWrap = bodyReg.component({ useTabInfo: () => ({ tab: { visible: false } }), sessionId: 's-1', useSessions: () => undefined })
     const hiddenNode = hiddenWrap.type(hiddenWrap.props)
     check('D: tab.visible=false → Drawer 进入不可见暂停态', hiddenNode && hiddenNode.props && hiddenNode.props.visible === false)
+    check('D: 原生流镜仅在已展开时跨 Session 重新聚焦，主动关闭不会自启',
+      src.indexOf('let nativeFlowVisible = false') >= 0
+        && src.indexOf("let nativeFlowReopenSession = ''") >= 0
+        && src.indexOf('selectedSessionId !== boundSessionId') >= 0
+        && src.indexOf('const keepNativeFlowOpen = nativeFlowVisible') >= 0
+        && src.indexOf('(isFlowFollow || keepNativeFlowOpen) && nativeOpenTab') >= 0
+        && src.indexOf('nativeFlowVisible = false', src.indexOf('function FlowglassNativeTabBody')) >= 0)
     // 无 DOM → footer Entry 兜底：原生激活时点击走 openTab（自动展开），不开独立抽屉
     const entryReg = slots.registrations.find((r) => r.entry && r.entry.name === 'sidebar.footer.action')
     check('D: 无 DOM 时 footer Entry 仍注册（原生激活不隐藏入口）', Boolean(entryReg))
@@ -710,10 +723,13 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
       && src.indexOf('liveOverlayRef.current') >= 0)
     check('事件窗 revision 驱动防抖静默刷新', src.indexOf('setLiveRevision') >= 0
       && src.indexOf('liveRevision') >= 0 && src.indexOf("loadPanelRef.current('flow', '__refresh', null, { silent: true })") >= 0)
-    check('跨会话草稿写入走 uiSession 绑定（provideInfo 回退已删除）', src.indexOf('uiSession.adapter.resolve') >= 0
-      && src.indexOf('sessionsClient.provideInfo') < 0)
+    check('跨会话草稿写入走 alpha.2 SessionReference 绑定', src.indexOf('sessionsClient.using') >= 0
+      && src.indexOf('uiSession.adapter.bindingSource') >= 0 && src.indexOf('sessionsClient.provideInfo') < 0)
+    check('alpha.2 会话导航优先走 uiWorkspace，旧 sessions.open 仅作兼容回退', src.indexOf('uiWorkspace.openSession(navigationTarget)') >= 0
+      && src.indexOf("ctx.get('uiWorkspace')") >= 0 && src.indexOf('sessionsClient.open(target)') >= 0)
     check('原生 body 权威属性（sessionId/useSessions/useTabInfo→visible）', src.indexOf('function FlowglassNativeTabBody') >= 0
       && src.indexOf('props.useTabInfo') >= 0 && src.indexOf('visible = !(info && info.tab && info.tab.visible === false)') >= 0
+      && src.indexOf('nativeFlowReopenSession = selectedSessionId') >= 0
       && src.indexOf('useWorkspaces: typeof props.useWorkspaces') >= 0)
     check('Flowglass 不再暴露显示方式选择或独立悬浮入口',
       src.indexOf('FlowDisplayModeSelect') < 0 && src.indexOf("RT.storageKey('flow.display')") < 0

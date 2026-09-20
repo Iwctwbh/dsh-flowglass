@@ -29,15 +29,16 @@ const check = (label, cond, detail) => {
     pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-session')
       && pkg.dsh.client.inject.includes('@deepseek-ai/dsh-api-remotes')
       && pkg.dsh.client.inject.includes('@deepseek-ai/dsh-api-session-controller')
+      && pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-workspace')
       && pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-sidebar-right')
       && !pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-runtime'))
   check('Host Typert 协议声明为 peer（0.1.5-rc.1+ 基线）',
-    pkg.peerDependencies['@deepseek-ai/dsh-typert-protocol'] === '^0.1.5-rc.1')
+    pkg.peerDependencies['@deepseek-ai/dsh-typert-protocol'] === '^0.1.5-rc.1 || ^0.1.6-alpha.2')
   check('Flow 包声明 optional better-sidebar peer（>=0.19）',
     pkg.peerDependencies['dsh-better-sidebar'] === '>=0.19.0'
       && pkg.peerDependenciesMeta['dsh-better-sidebar'].optional === true)
   check('Flow 包声明官方 Markdown renderer 与 portal peer',
-    pkg.peerDependencies['@deepseek-ai/dsh-client-ui-primitives'] === '^0.1.5-rc.1'
+    pkg.peerDependencies['@deepseek-ai/dsh-client-ui-primitives'] === '^0.1.5-rc.1 || ^0.1.6-alpha.2'
       && pkg.peerDependencies['react-dom'] === '^18.3.1')
   const client = files.get('lib/client.js')
   const host = files.get('lib/index.js')
@@ -45,6 +46,9 @@ const check = (label, cond, detail) => {
     client.includes("const inject = ['slots', 'remote', 'timer', 'sessions']")
       && client.includes('const sessionsClient = ctx.sessions')
       && !client.includes("ctx.get('sessions') || ctx.sessions"))
+  check('Remote strict codec 同时支持旧 schema 与 alpha.2 create() 工厂',
+    client.includes('schema: json, create: () => json')
+      && files.get('lib/remote.js').includes('schema: json, create: () => json'))
   check('Flow Client 含 Sidebar Tab 与嵌入布局适配',
     client.includes("FLOW_TAB_ID = 'dsh-flowglass:flow'")
       && client.includes("ctx.inject(['betterSidebar']")
@@ -71,15 +75,17 @@ const check = (label, cond, detail) => {
       && client.includes('labels: FLOW_MARKDOWN_LABELS')
       && client.includes('codeLabels: FLOW_MARKDOWN_LABELS.code'))
   check('动态批准明确为 false', JSON.parse(files.get('BUILDINFO.json')).dynamicApprovalRequired === false)
-  check('Flow 跟随指令穿过静态 Host 注册表', host.includes('out.navigateSession') && client.includes('sessionsClient.openSubagent(address)'))
+  check('Flow 跟随指令穿过静态 Host 注册表并优先走 alpha.2 uiWorkspace', host.includes('out.navigateSession')
+    && client.includes('uiWorkspace.openSession(navigationTarget)') && client.includes('sessionsClient.openSubagent(navigationTarget)'))
   check('Flow Client 保留跟随返回链，且历史加载无顶部 loading 浮层', client.includes('flowFollowStateBySessionRef') && !client.includes('tb-flow-older-loading'))
   check('Flow Client 恢复工具面板「回到最新」浮标', client.includes('tb-jump-latest') && client.includes('showJumpLatest') && client.includes('↓ 回到最新'))
   check('Flow Client 含透明 Zoom+Zen/默认框选/真实分支/工作区会话树 popup', client.includes('tb-flow-zoom-float') && client.includes('jr-flow-zen')
     && client.includes('requestFullscreen') && client.includes('fullscreenchange')
     && client.includes('tb-flow-selection-bar') && client.includes('tb-flow-bring-popup') && client.includes('tb-flow-session-tree') && client.includes('fl-marquee')
     && client.includes('sessionsClient.fork') && client.includes('sessionsClient.create') && client.includes('inputActions'))
-  check('跨会话草稿写入走 uiSession 绑定（provideInfo 回退已按 0.1.5 基线删除）', client.includes("ctx.get('uiSession')")
-    && client.includes('uiSession.adapter.resolve') && client.includes('resolveSessionProvideInfo')
+  check('跨会话草稿写入走 alpha.2 retain/bindingSource，并保留 0.1.5 resolve 兼容', client.includes("ctx.get('uiSession')")
+    && client.includes('sessionsClient.using') && client.includes('uiSession.adapter.bindingSource')
+    && client.includes('uiSession.adapter.resolve') && client.includes('withSessionProvideInfo')
     && !client.includes("typeof sessionsClient.provideInfo === 'function'"))
   check('框选矩形转换为 Flow 根局部坐标', client.includes('.fl-marquee{position:absolute') && client.includes('originX: origin.left') && client.includes('left - drag.originX'))
   check('框选超过移动阈值才起框，保留卡片单击', client.includes('box: null, moved: false') && client.includes('if (!drag.moved && (width > 3 || height > 3))'))

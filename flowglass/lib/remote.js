@@ -10,9 +10,9 @@ const descriptor = (method, implementation) => ({
   invocation: { kind: 'direct' },
   parameters: [{
     name: 'request', wire: 'request', source: 'json',
-    codec: { mode: 'strict', typeSymbol: "dsh-flowglass#JsonRequest", schema: json },
+    codec: { mode: 'strict', typeSymbol: "dsh-flowglass#JsonRequest", schema: json, create: () => json },
   }],
-  result: { mode: 'strict', typeSymbol: "dsh-flowglass#JsonResult", schema: json },
+  result: { mode: 'strict', typeSymbol: "dsh-flowglass#JsonResult", schema: json, create: () => json },
 })
 
 export default Object.freeze({

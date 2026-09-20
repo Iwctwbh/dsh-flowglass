@@ -11,9 +11,9 @@ const descriptor = (method, implementation) => ({
   invocation: { kind: 'direct' },
   parameters: [{
     name: 'request', wire: 'request', source: 'json',
-    codec: { mode: 'strict', typeSymbol: ${JSON.stringify(packageName + '#JsonRequest')}, schema: json },
+    codec: { mode: 'strict', typeSymbol: ${JSON.stringify(packageName + '#JsonRequest')}, schema: json, create: () => json },
   }],
-  result: { mode: 'strict', typeSymbol: ${JSON.stringify(packageName + '#JsonResult')}, schema: json },
+  result: { mode: 'strict', typeSymbol: ${JSON.stringify(packageName + '#JsonResult')}, schema: json, create: () => json },
 })
 
 export default Object.freeze({

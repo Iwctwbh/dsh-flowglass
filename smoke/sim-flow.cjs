@@ -183,6 +183,15 @@ const PRESENTATION_RULE_EVENTS = [
   { seq: 3, time: 13020, type: 'tool/result', data: { message: { content: [{ type: 'tool-result', toolCallId: 'memory-1', content: [{ type: 'text', text: '# Search: flowglass' }] }] } } },
 ]
 
+const DEFAULT_PRESENTATION_RULE_EVENTS = [
+  { seq: 1, time: 13100, type: 'tool/call', data: { turn: 1, step: 1, name: 'pwsh', callId: 'default-git', arguments: JSON.stringify({ command: 'git status' }) } },
+  { seq: 2, time: 13101, type: 'tool/call', data: { turn: 1, step: 2, name: 'bash', callId: 'default-github', arguments: JSON.stringify({ command: 'gh pr status' }) } },
+  { seq: 3, time: 13102, type: 'tool/call', data: { turn: 1, step: 3, name: 'pwsh', callId: 'default-pnpm', arguments: JSON.stringify({ command: 'pnpm.cmd test' }) } },
+  { seq: 4, time: 13103, type: 'tool/call', data: { turn: 1, step: 4, name: 'bash', callId: 'default-npm', arguments: JSON.stringify({ command: 'npm run lint' }) } },
+  { seq: 5, time: 13104, type: 'tool/call', data: { turn: 1, step: 5, name: 'pwsh', callId: 'default-dsh', arguments: JSON.stringify({ command: 'dsh.exe --version' }) } },
+  { seq: 6, time: 13105, type: 'tool/call', data: { turn: 1, step: 6, name: 'bash', callId: 'default-python', arguments: JSON.stringify({ command: 'python3 -m pytest' }) } },
+]
+
 const SKILL_DETAIL_EVENTS = [
   { seq: 1, time: 14000, type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: '加载记忆技能' }] }, stream: [] } },
   { seq: 2, time: 14010, type: 'tool/call', data: { turn: 1, step: 2, name: 'skill', callId: 'skill-1', arguments: '{"name":"engram-memory"}' } },
@@ -219,6 +228,7 @@ const SESSIONS = {
   's-toolcall-only': TOOLCALL_ONLY_EVENTS,
   's-legacy-chunk': LEGACY_CHUNK_EVENTS,
   's-presentation-rules': PRESENTATION_RULE_EVENTS,
+  's-default-presentation-rules': DEFAULT_PRESENTATION_RULE_EVENTS,
   's-skill-detail': SKILL_DETAIL_EVENTS,
   's-long': LONG_EVENTS,
 }
@@ -318,10 +328,27 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
   check('同 step 并行子代理合并成组', r.html.indexOf('并行子代理 ×2') >= 0 && r.html.indexOf('fl-subgrp') >= 0)
   check('子代理跟随开关默认开启', r.html.indexOf('● 子代理跟随') >= 0 && r.state.follow === true)
 
-  // 声明式工具显示规则：默认不改名；设置面板按需保存后只投影标题/徽章。
+  // 声明式工具显示规则：内置规则随包发布，自定义与用户改动只由 Client localStorage 携带。
+  let defaults = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-default-presentation-rules' })
+  check('首次使用内置六条工具显示规则', defaults.state.presentationRules.length === 6
+    && defaults.html.indexOf('<span class="fl-name">Git status</span>') >= 0
+    && defaults.html.indexOf('<span class="fl-name">GitHub pr</span>') >= 0
+    && defaults.html.indexOf('<span class="fl-name">pnpm test</span>') >= 0
+    && defaults.html.indexOf('<span class="fl-name">npm run</span>') >= 0
+    && defaults.html.indexOf('<span class="fl-name">DSH --version</span>') >= 0
+    && defaults.html.indexOf('<span class="fl-name">Python -m</span>') >= 0)
+  defaults = await h({ action: 'ftoggle-rule', fields: { __el: { index: '0' } }, state: defaults.state, root: ROOT, session: 's-default-presentation-rules' })
+  check('内置默认规则可单独关闭', defaults.state.presentationRules[0].enabled === false
+    && defaults.html.indexOf('<span class="fl-name">Git status</span>') < 0
+    && defaults.html.indexOf('<span class="fl-name">pwsh</span>') >= 0)
+  defaults = await h({ action: 'fdelete-rule', fields: { __el: { index: '1' } }, state: defaults.state, root: ROOT, session: 's-default-presentation-rules' })
+  check('内置默认规则可单独删除', defaults.state.presentationRules.length === 5
+    && defaults.state.presentationRules.every((rule) => rule.displayName !== 'GitHub'))
+
+  // 未命中内置规则的命令仍保留原始工具名；设置面板可导入并编辑自定义规则。
   let pr = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-presentation-rules' })
   check('显示规则按钮默认可见', pr.html.indexOf('data-action="fsettings"') >= 0)
-  check('无规则时保留原始 pwsh 标题', pr.html.indexOf('<span class="fl-name">pwsh</span>') >= 0)
+  check('内置规则未命中时保留原始 pwsh 标题', pr.html.indexOf('<span class="fl-name">pwsh</span>') >= 0)
   pr = await h({ action: 'fsettings', fields: {}, state: pr.state, root: ROOT, session: 's-presentation-rules' })
   check('显示规则设置以友好列表打开且暂停自动刷新', pr.html.indexOf('工具显示规则') >= 0 && pr.html.indexOf('class="fl-rule-list"') >= 0
     && pr.html.indexOf('添加规则') >= 0 && pr.html.indexOf('JSON 源码') >= 0 && pr.html.indexOf('data-autorefresh="2000"') < 0
@@ -653,6 +680,11 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
     && directLeaf.html.indexOf('data-action="fzoom-focus-current" title="用完整流镜查看当前选中分支" disabled') < 0
     && countCards(directLeaf.html, 'data-action="fzoom-open"') === 4
     && directLeaf.html.indexOf('血缘根') >= 0)
+  directLeaf = await h({ action: 'fzoom-view', fields: { __el: { view: 'detail' } }, state: directLeaf.state, root: ROOT, session: '228a8697-2b7a-422a-b3c0-1cf61c965d5c' })
+  check('大流镜：血缘树三分支可切换详细轮次对比', directLeaf.state.zoomView === 'detail'
+    && directLeaf.html.indexOf('fl-zoom-diff-board') >= 0
+    && countCards(directLeaf.html, 'fl-diff-session-head') === 3
+    && directLeaf.html.indexOf('data-flow-main-card') >= 0)
   directLeaf = await h({ action: 'fzoom-focus-current', fields: {}, state: directLeaf.state, root: ROOT, session: '228a8697-2b7a-422a-b3c0-1cf61c965d5c' })
   check('大流镜：侧栏叶子 Session 可实际切换近观', directLeaf.state.zoomMode === 'near'
     && directLeaf.html.indexOf('data-flow-near-session="228a8697-2b7a-422a-b3c0-1cf61c965d5c"') >= 0)

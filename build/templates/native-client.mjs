@@ -43,9 +43,9 @@ ${runtimeSource}
       invocation: { kind: 'direct' },
       parameters: [{
         name: 'request', wire: 'request', source: 'json',
-        codec: { mode: 'strict', typeSymbol: ${JSON.stringify(packageName + '#JsonRequest')}, schema: json },
+        codec: { mode: 'strict', typeSymbol: ${JSON.stringify(packageName + '#JsonRequest')}, schema: json, create: () => json },
       }],
-      result: { mode: 'strict', typeSymbol: ${JSON.stringify(packageName + '#JsonResult')}, schema: json },
+      result: { mode: 'strict', typeSymbol: ${JSON.stringify(packageName + '#JsonResult')}, schema: json, create: () => json },
     })
     const remoteContribution = Object.freeze({
       package: ${JSON.stringify(packageName)},
@@ -85,6 +85,7 @@ ${toolboxClientSource}
 ${factories}
 
     async function apply(ctx) {
+      try {
       const disposeRemote = await ctx.remote.$mount(remoteContribution)
       ctx.effect(() => () => { void disposeRemote() })
       ctx.effect(() => () => { for (const dispose of [...styleDisposers]) dispose() })
@@ -111,6 +112,10 @@ ${bridgeMappings}
         if (typeof disposer === 'function') ctx.effect(() => disposer)
       }
       console.log(TOOLBOX_RUNTIME.logTag() + ' 原生静态 Client 已加载（无动态批准）')
+      } catch (error) {
+        console.error(TOOLBOX_RUNTIME.logTag() + ' 原生静态 Client 加载失败', error)
+        throw error
+      }
     }
 
     exports.name = name
