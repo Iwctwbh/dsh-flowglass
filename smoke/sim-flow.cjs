@@ -311,7 +311,7 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
   let r = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-main' })
   check('打开默认当前会话 → 渲染主干', r.state.zoom === false && r.html.includes('aria-current="page">当前会话'))
   check('说明收敛到更多菜单内的原生折叠区', r.html.includes('data-flow-disclosure="more"') && r.html.includes('data-flow-disclosure="help"') && r.html.includes('• 中列是用户/助手主线'))
-  check('自动刷新声明 data-autorefresh=2000', r.html.indexOf('data-autorefresh="2000"') >= 0)
+  check('自动刷新声明 data-autorefresh=1000', r.html.indexOf('data-autorefresh="1000"') >= 0)
   check('用户/助手消息节点', r.html.indexOf('帮我看下这个目录') >= 0 && r.html.indexOf('好的，我先并行读文件') >= 0)
   check('stream 展开的最终文本成为卡片内容（durable message）', r.html.indexOf('再派个子代理调研') >= 0)
   check('已完成助手主线卡提供 Harness 分支按钮（finalSeq 锚点）', r.html.indexOf('data-flow-branch') >= 0 && r.html.indexOf('data-flow-branch data-seq="2"') >= 0)
@@ -459,14 +459,14 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
 
   // live 开关
   r = await h({ action: 'toggle-live', fields: {}, state: r.state, root: ROOT, session: 's-main' })
-  check('暂停 → 无 autorefresh 声明', r.html.indexOf('data-autorefresh="2000"') < 0)
+  check('暂停 → 无 autorefresh 声明', r.html.indexOf('data-autorefresh="1000"') < 0)
   check('暂停同步保留独立可见状态', r.html.includes('data-flow-sync-state="paused">已暂停同步'))
   r = await h({ action: 'toggle-live', fields: {}, state: r.state, root: ROOT, session: 's-main' })
-  check('恢复 → autorefresh 回归', r.html.indexOf('data-autorefresh="2000"') >= 0)
+  check('恢复 → autorefresh 回归', r.html.indexOf('data-autorefresh="1000"') >= 0)
 
   // 跟随开关 + 钻取
   r = await h({ action: 'fenter', fields: { __el: { seq: '8' } }, state: r.state, root: ROOT, session: 's-main' })
-  check('进入子流镜仍实时', r.html.includes('aria-current="page">子代理') && r.html.indexOf('data-autorefresh="2000"') >= 0)
+  check('进入子流镜仍实时', r.html.includes('aria-current="page">子代理') && r.html.indexOf('data-autorefresh="1000"') >= 0)
   check('跟随返回 Harness 子会话导航', r.navigateSession && r.navigateSession.sessionId === '228a8697-2b7a-422a-b3c0-1cf61c965d5c' && r.navigateSession.parentSessionId === 's-main')
   r = await h({ action: '', fields: {}, state: r.state, root: ROOT, session: '228a8697-2b7a-422a-b3c0-1cf61c965d5c' })
   check('Harness 切到子 Session 后仍保留返回链', r.html.indexOf('data-action="fback"') >= 0 && r.state.home === 's-main' && r.state.crumbs.length === 1)
@@ -624,7 +624,7 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
     && z.html.includes('aria-label="观察范围"') && z.html.includes('data-action="fzoom-focus-back" aria-current="page">并发任务')
     && z.html.includes('data-action="fzoom-focus-current"') && z.html.includes('>查看选中分支</button>')
     && z.html.indexOf('data-action="fzoom-scope"') < 0 && z.html.indexOf('🌳 会话树') < 0
-    && z.html.indexOf('data-flow-board="1"') >= 0 && z.html.indexOf('data-autorefresh="2000"') >= 0)
+    && z.html.indexOf('data-flow-board="1"') >= 0 && z.html.indexOf('data-autorefresh="1000"') >= 0)
   check('大流镜：血缘树 4 卡（主会话 + 3 后代）', countCards(z.html, 'data-action="fzoom-open"') === 4)
   check('大流镜：首条用户消息作卡标题（触发内容即身份）', z.html.indexOf('帮我看下这个目录') >= 0 && z.html.indexOf('已完成的调研任务') >= 0)
   check('大流镜：无用户消息的会话回退短 id 标题', z.html.indexOf('会话 228a8697') >= 0)
@@ -640,7 +640,7 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
   ])
   z = await h({ action: '__refresh', fields: {}, state: z.state, root: ROOT, session: 's-main' })
   check('大流镜：日志增长 → 运行中状态点 + 角标报活', z.html.indexOf('fl-zoom-dot-running') >= 0 && z.html.indexOf('1 运行中') >= 0 && z.html.indexOf('data-tab-badge="1活"') >= 0)
-  check('大流镜：运行中卡持续实时刷新', z.html.indexOf('data-autorefresh="2000"') >= 0)
+  check('大流镜：运行中卡持续实时刷新', z.html.indexOf('data-autorefresh="1000"') >= 0)
   // 从全景点卡就是放大进入 Session：直接切到近观，同时跟随 Harness。
   z = await h({ action: 'fzoom-open', fields: { __el: { sid: '228a8697-2b7a-422a-b3c0-1cf61c965d5c' } }, state: z.state, root: ROOT, session: 's-main' })
   check('大流镜：全景点入 Session 直接放大到近观', z.state.zoom === true && z.state.zoomFocusSid === '228a8697-2b7a-422a-b3c0-1cf61c965d5c'

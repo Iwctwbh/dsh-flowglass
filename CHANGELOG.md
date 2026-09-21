@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 - 2026-09-21
 
 - 三列流程最右侧并行调用组使用无背景的虚线外框、虚线组标签与调用间分隔，文件修改等连续并行卡片清楚但不过度突出。
 - 默认界面与详情字号使用 85% 缩放，与真实 deepseek-harness 普通文本的视觉尺寸对齐；默认轮询间隔改为 1 秒，并一次性将旧版保存的默认 2 秒刷新为 1 秒。
@@ -26,4 +26,4 @@
 - 对重复的持久事件投影增加有界缓存；live、原始瞬时 chunk 和超大日志绕过，覆盖内容修改、回放和驱逐回归。
 - 修复临时 Host 状态残留导致旧版 losslessJSON RPC 校验失败的问题。
 
-实现与限制见 [实施记录](docs/flowglass-ux-implementation.md)，原离线验证见 [基线记录](docs/flowglass-ux-baseline.md)，后续真实实例修复见 [3080 验收记录](docs/flowglass-live-fixes-2026-09-20.md)。已更新本机 3080 的安装文件，尚未发布新版本。
+实现与限制见 [实施记录](docs/flowglass-ux-implementation.md)，原离线验证见 [基线记录](docs/flowglass-ux-baseline.md)，后续真实实例修复见 [3080 验收记录](docs/flowglass-live-fixes-2026-09-20.md)。本版本同步发布 `dsh-flowglass@0.7.0` 与 `dsh-dynamic-toolbox@0.7.0`。

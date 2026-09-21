@@ -188,7 +188,7 @@ const check = (label, cond, detail) => {
     id: 'dynamic-toolbox',
     name: 'dsh-dynamic-toolbox',
     label: '工具箱',
-    version: '0.5.0',
+     version: '0.7.0',
   })
   check('官方静态工具箱构建成功', toolboxBuilt.ok, toolboxBuilt.errors && toolboxBuilt.errors.join('；'))
   if (toolboxBuilt.ok) {
@@ -205,7 +205,7 @@ const check = (label, cond, detail) => {
     check('工具箱核心不再内嵌 Host 功能，Flowglass 仍内嵌 flow',
       !toolboxBuilt.files.get('lib/index.js').includes('const create_jira') && host.includes('const create_flow'))
     const selfviewComponent = toolboxBuilt.files.get('lib/features/selfview.js')
-    const toolboxClient = toolboxBuilt.files.get('lib/client.js')
+     const toolboxClient = toolboxBuilt.files.get('lib/client.js').replace(/\r\n/g, '\n')
     check('selfview 组件通过核心 Bridge 注册 RPC，并独立注册模型工具',
       selfviewComponent.includes('TOOLBOX_RUNTIME.bridgeService')
         && selfviewComponent.includes("from '@deepseek-ai/dsh-tools'")
