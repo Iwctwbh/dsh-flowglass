@@ -50,7 +50,10 @@ try {
         const overflows = [...document.querySelectorAll('.fl-lane,.fl-msg,.fl-iocard,.fl-zoom-branch,.fl-zoom-card,.tb-pane-header,.fl-rail')].filter(visible).filter((el) => { if (scrollableDiagram && el.closest('.fl-lane')) return false; const r = el.getBoundingClientRect(); return r.left < paneRect.left - 2 || r.right > paneRect.right + 2 }).map((el) => ({ cls: el.className, width: Math.round(el.getBoundingClientRect().width) })).slice(0, 8)
         const inaccessible = [...document.querySelectorAll('.fl-msg[data-action],.fl-iocard[data-action],.fl-node-open[data-action]')].filter(visible).filter((el) => (el.tagName !== 'BUTTON' && el.getAttribute('role') !== 'button') || el.tabIndex < 0).length
         const infiniteAnimations = [...document.querySelectorAll('[data-flow] *')].filter(visible).filter((el) => [getComputedStyle(el), getComputedStyle(el, '::before'), getComputedStyle(el, '::after')].some((style) => style.animationName !== 'none' && style.animationIterationCount === 'infinite')).length
-        return { dom: flow?.querySelectorAll('*').length || 0, nodes: nodes.length, flowWidth: Math.round(paneRect?.width || 0), bodyClient: body?.clientWidth, bodyScroll: body?.scrollWidth, scrollableDiagram, threeColumns, overflows, inaccessible, infiniteAnimations, systemContexts: document.querySelectorAll('.fl-system-context').length, expandedContexts: document.querySelectorAll('.fl-system-context[open]').length }
+        const parallelGroups = [...document.querySelectorAll('.fl-lane-side.fl-grp')]
+        const parallelSeparators = [...document.querySelectorAll('.fl-lane-side.fl-grp>.fl-wp~.fl-wp')]
+        const parallelEmphasis = parallelGroups.every((group) => { const style = getComputedStyle(group); return style.borderTopStyle === 'dashed' && style.borderLeftStyle === 'dashed' && parseFloat(style.borderTopWidth) >= 1 && parseFloat(style.borderLeftWidth) >= 1 && style.boxShadow === 'none' && style.backgroundColor === 'rgba(0, 0, 0, 0)' }) && parallelSeparators.every((separator) => { const style = getComputedStyle(separator); return style.borderTopStyle === 'dashed' && parseFloat(style.borderTopWidth) >= 1 })
+        return { dom: flow?.querySelectorAll('*').length || 0, nodes: nodes.length, flowWidth: Math.round(paneRect?.width || 0), bodyClient: body?.clientWidth, bodyScroll: body?.scrollWidth, scrollableDiagram, threeColumns, overflows, inaccessible, infiniteAnimations, parallelGroups: parallelGroups.length, parallelSeparators: parallelSeparators.length, parallelEmphasis, systemContexts: document.querySelectorAll('.fl-system-context').length, expandedContexts: document.querySelectorAll('.fl-system-context[open]').length }
       })
       const key = `${name}-${width}-${variation.theme}-${variation.font}`
       const row = { name, width, height, ...variation, payloadBytes: Buffer.byteLength(JSON.stringify(output)), hostP95Ms: Number(samples[Math.ceil(samples.length * .95) - 1].toFixed(2)), sampleCount: samples.length, sourceEventCount: output.sourceEventCount, ...measurement }
@@ -64,6 +67,7 @@ try {
         if (variation.motion === 'reduce' && measurement.infiniteAnimations) failures.push(key + ': reduced motion still animates')
         if (name === 'long' && measurement.nodes > 60) failures.push(key + ': default history exceeds 60 nodes')
         if (name === 'normal' && (!measurement.systemContexts || measurement.expandedContexts)) failures.push(key + ': system context is not collapsed by default')
+        if (name === 'normal' && (!measurement.parallelGroups || !measurement.parallelSeparators || !measurement.parallelEmphasis)) failures.push(key + ': right-lane parallel calls lack a distinct frame or separator')
       }
       if ((width === 360 || width === 1440) && variation.font === 14 && ['normal', 'failed', 'concurrent', 'compare', 'detail'].includes(name)) await page.locator('#fixture').screenshot({ path: path.join(outputDir, key + '.png') })
     }

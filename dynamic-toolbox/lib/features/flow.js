@@ -710,7 +710,7 @@ return {
       zoomEnabled: true,
       defaultBranchCount: 2,
       defaultZoomView: 'compact',
-      refreshMs: 2000,
+      refreshMs: 1000,
     })
     const normalizeFlowPreferences = (raw) => {
       let value = raw
@@ -725,7 +725,7 @@ return {
         zoomEnabled: p.zoomEnabled !== false,
         defaultBranchCount: branchCount === 3 || branchCount === 4 ? branchCount : 2,
         defaultZoomView: p.defaultZoomView === 'detail' || p.defaultZoomView === 'map' ? p.defaultZoomView : 'compact',
-        refreshMs: [0, 1000, 2000, 5000, 10000].includes(refreshMs) ? refreshMs : 2000,
+        refreshMs: [0, 1000, 2000, 5000, 10000].includes(refreshMs) ? refreshMs : 1000,
       }
     }
     const flowPreferencesOf = (st) => st && st.__flowPreferences ? st.__flowPreferences : DEFAULT_FLOW_PREFERENCES

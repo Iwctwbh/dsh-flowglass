@@ -1079,7 +1079,7 @@ return {
       '[data-flow] :is(.fl-lane-main::before,.fl-lane-line,.fl-zoom-trunk,.fl-zoom-branch::before,.fl-zoom-branch::after,.fl-zoom-flow::before,.fl-zoom-step::before){background:var(--fg-wire);opacity:1}',
       '[data-flow] .fl-lane-main::before{width:1px;left:50%;bottom:-8px}',
       '[data-flow] .fl-lane-line{width:1px}',
-      '[data-flow] :is(.fl-grp,.fl-subgrp){border-color:var(--fg-border)}',
+      '[data-flow] .fl-subgrp{border-color:var(--fg-border)}',
       '[data-flow] :is(.fl-retry-ok,.fl-zoom-step-ok){color:var(--fg-success)}',
       '[data-flow] .fl-retry-wait{color:var(--fg-warning)}',
       '[data-flow] :is(.fl-retry-fail,.fl-zoom-step-err){color:var(--fg-danger)}',
@@ -1236,6 +1236,10 @@ return {
       '[data-flow]:not([data-flow-board]) .fl-lane-side>.fl-wp{display:flex!important}',
       '[data-flow]:not([data-flow-board]) .fl-subcol{grid-column:1!important;grid-row:1!important;order:initial!important;margin:0!important;min-height:112px;grid-template-columns:minmax(0,1fr)}',
       '[data-flow]:not([data-flow-board]) .fl-sub-card::after{display:block!important}',
+      // 右侧并行调用组使用轻量虚线层级；放在三列强制布局之后，避免后者清掉左边框。
+      '[data-flow]:not([data-flow-board]) .fl-lane-side.fl-grp{border:1px dashed var(--fg-border);background:transparent;box-shadow:none;padding:13px 10px 10px}',
+      '[data-flow] .fl-lane-side.fl-grp>.fl-wp~.fl-wp,[data-flow] .fl-lane-side.fl-grp>.fl-wp~.fl-wp+.fl-callside{margin-top:4px;padding-top:10px;border-top:1px dashed var(--fg-border)}',
+      '[data-flow] .fl-lane-side.fl-grp>.fl-grp-tag{top:-9px;right:9px;padding:1px 7px;color:var(--fg-accent);background:var(--fg-canvas);border:1px dashed var(--fg-accent);border-radius:999px;font-weight:700}',
       '.fg-settings{--fg-font-size:var(--dsh-content-font-size,14px);container:flowglass-settings/inline-size;min-width:0;font-family:var(--dsw-font-family,inherit);font-size:var(--fg-font-size);color:var(--fg-text)}',
       '.fg-settings :is(.fg-settings-head,.fg-settings-section-head,.fg-settings-rule-head,.fg-settings-actions){flex-wrap:wrap}',
       '.fg-settings :is(.fg-settings-title,.fg-settings-section h3){font-size:1.05em}',
@@ -1313,13 +1317,14 @@ return {
     // 内置默认随 Git/npm 包发布；用户修改和自定义显示规则只写浏览器 localStorage。
     const FLOW_SETTINGS_EVENT = RT.event('flow-settings-changed')
     const FLOW_PREFERENCES_KEY = RT.storageKey('flow.preferences')
+    const FLOW_PREFERENCES_DEFAULTS_MIGRATION_KEY = RT.storageKey('flow.preferences-defaults-1s-v1')
     const FLOW_RULES_KEY = RT.storageKey('flow.presentation-rules')
     const FLOW_PREFERENCES_DEFAULTS = Object.freeze({
       keepOpenOnSessionSwitch: true,
       zoomEnabled: true,
       defaultBranchCount: 2,
       defaultZoomView: 'compact',
-      refreshMs: 2000,
+      refreshMs: 1000,
     })
     const FLOW_DEFAULT_PRESENTATION_RULES = Object.freeze([
       { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['git', 'git.exe'], displayName: 'Git', actions: [], badge: 'Git', color: '#f05032' },
@@ -1340,13 +1345,22 @@ return {
         zoomEnabled: p.zoomEnabled !== false,
         defaultBranchCount: branchCount === 3 || branchCount === 4 ? branchCount : 2,
         defaultZoomView: p.defaultZoomView === 'detail' || p.defaultZoomView === 'map' ? p.defaultZoomView : 'compact',
-        refreshMs: [0, 1000, 2000, 5000, 10000].includes(refreshMs) ? refreshMs : 2000,
+        refreshMs: [0, 1000, 2000, 5000, 10000].includes(refreshMs) ? refreshMs : 1000,
       }
     }
     const readFlowPreferences = () => {
       try {
         const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(FLOW_PREFERENCES_KEY)
-        return normalizeFlowPreferences(raw ? JSON.parse(raw) : FLOW_PREFERENCES_DEFAULTS)
+        const stored = raw ? JSON.parse(raw) : FLOW_PREFERENCES_DEFAULTS
+        if (typeof localStorage !== 'undefined' && localStorage.getItem(FLOW_PREFERENCES_DEFAULTS_MIGRATION_KEY) !== '1') {
+          const migrated = stored && typeof stored === 'object' && !Array.isArray(stored) && Number(stored.refreshMs) === 2000
+            ? Object.assign({}, stored, { refreshMs: 1000 })
+            : stored
+          if (raw && migrated !== stored) localStorage.setItem(FLOW_PREFERENCES_KEY, JSON.stringify(normalizeFlowPreferences(migrated)))
+          localStorage.setItem(FLOW_PREFERENCES_DEFAULTS_MIGRATION_KEY, '1')
+          return normalizeFlowPreferences(migrated)
+        }
+        return normalizeFlowPreferences(stored)
       } catch (e) { return normalizeFlowPreferences(FLOW_PREFERENCES_DEFAULTS) }
     }
     const splitFlowRuleList = (value) => String(value || '').split(',').map((item) => item.trim()).filter(Boolean)
@@ -1669,7 +1683,7 @@ return {
       const n = Number(v)
       return Number.isFinite(n) && n >= APPEARANCE_RAIL_MIN && n <= APPEARANCE_RAIL_MAX ? Math.round(n) : 0
     }
-    const appearanceDefaults = () => ({ preset: 'default', accent: '', uiScale: 1, detailScale: 1, railW: 0 })
+    const appearanceDefaults = () => ({ preset: 'default', accent: '', uiScale: 0.85, detailScale: 0.85, railW: 0 })
     const normalizeAppearance = (value) => {
       const dft = appearanceDefaults()
       const p = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -1785,6 +1799,7 @@ return {
     // 抽屉管理页与 better-sidebar 流镜设置页共用本组件
     function FlowFontSettings() {
       const a = useAppearance()
+      const dft = appearanceDefaults()
       return React.createElement('section', { className: 'fg-settings-section' },
         React.createElement('div', { className: 'fg-settings-section-head' }, React.createElement('h3', null, '流镜字号')),
         React.createElement('div', { className: 'fg-settings-row' },
@@ -1796,12 +1811,13 @@ return {
             style: { width: '180px', flex: '0 0 180px', maxWidth: '100%', accentColor: 'var(--fg-accent)' },
             onChange: (event) => appearanceWrite({ uiScale: Number(event.target.value) }) }),
           React.createElement('output', { htmlFor: 'flowglass-font-scale' }, Math.round(a.uiScale * 100) + '%'),
-          React.createElement('button', { type: 'button', className: 'fg-settings-button', disabled: Math.abs(a.uiScale - 1) < 0.001,
-            onClick: () => appearanceWrite({ uiScale: 1 }) }, '恢复默认')),
+          React.createElement('button', { type: 'button', className: 'fg-settings-button', disabled: Math.abs(a.uiScale - dft.uiScale) < 0.001,
+            onClick: () => appearanceWrite({ uiScale: dft.uiScale }) }, '恢复默认')),
         React.createElement('p', { className: 'fg-settings-font-preview', style: { fontSize: 'calc(var(--dsh-content-font-size,14px) * ' + a.uiScale + ')' } }, '字号预览：当前会话 · 并发任务 · 最新结论'))
     }
     function AppearancePanel() {
       const a = useAppearance()
+      const dft = appearanceDefaults()
       const rowStyle = { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }
       const lblStyle = { fontSize: '11px', opacity: 0.7, minWidth: '58px' }
       const numStyle = { fontSize: '11px', opacity: 0.75, minWidth: '40px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }
@@ -1810,7 +1826,7 @@ return {
         React.createElement('span', { style: lblStyle }, label),
         React.createElement('input', {
           type: 'range', min: min, max: max, step: 0.05, value: String(a[key]),
-          title: label + '缩放（100% = 内置默认）',
+          title: label + '缩放（' + Math.round(dft[key] * 100) + '% = 内置默认）',
           style: { flex: '1', minWidth: '110px', accentColor: 'var(--tb-accent,#3f6fd9)' },
           onChange: (e) => appearanceWrite({ [key]: Number(e.target.value) }),
         }),

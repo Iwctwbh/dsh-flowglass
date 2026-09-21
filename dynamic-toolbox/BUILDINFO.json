@@ -72,7 +72,7 @@
       "selfview"
     ]
   },
-  "fingerprint": "b766b2bb02facd83",
+  "fingerprint": "df78f315fa16130a",
   "builderVersion": "2",
   "sourceHashes": {
     "plugins/aiassist/tool.js": "d2ce410f437fe0d310e148a8b1252ff05868fc0a6987034e642674ff3f93002a",
@@ -80,7 +80,7 @@
     "plugins/calc/tool.js": "244ffb466f4dcb4007926f79c6bcccebb6c5fefb6143e1e8b1ac25e84bad085d",
     "plugins/context/tool.js": "093eb9d3db43739e1b1df3ec39cc191c34a2a4f5bdbc8fb7977dd30826f388a7",
     "plugins/files/tool.js": "5382259719a71f8c956a835e81f4d75634f30fcd27b31313b255b4041ddf8aeb",
-    "plugins/flow/tool.js": "1852ef6a2c6abd32296550653bcc190136d799dd534df7e67bf6f30238bb4c02",
+    "plugins/flow/tool.js": "2b82a30db4f75e84a13b253e7ba341a9844abc1e7c14d627cf8d0dea6de1913e",
     "plugins/flowedit/tool.js": "8568aa3163dcd701cd39d29e42423c41fe6c62f426e0d2b00a57bf13b6c23fed",
     "plugins/git/tool.js": "9eb26150da963b1d37533469eede994f2ce7976dd154eeec9599bb5c491263c2",
     "plugins/http/tool.js": "4a0f5c001a5b657ddfc68f72ae8a5613f03ee8f1beea8588cf423b3492a6fa13",
@@ -92,7 +92,7 @@
     "plugins/search/tool.js": "2f4fa3fc7176873af32878d44eae0e7418e5e334b83e0cd66048bad2d5c0e71f",
     "plugins/selfview/client.js": "1e6d4f7189cbbce16a006d362cff05f600bdc4b9b8812e8f9c2a5ec5342e4e2c",
     "plugins/selfview/tool.js": "ecf9383ecebf3af6e70bc5b7179075df0a13f8d9961bb1fcffab38013b94e333",
-    "plugins/toolbox/client.js": "dfa38437cc0d316d8cba12a325f75236ee5328a93f1f99286c57aeb619ce93b9",
+    "plugins/toolbox/client.js": "7da5c244fe29a103da9788754eba7fd45b1195c857fd2861725d72c49265d1f2",
     "plugins/toolbox/flow-launch.js": "25f0a73b39cd4abb01327c35a71fa8debc63efe55cb55b12117782f472193f1b",
     "plugins/toolbox/flow-stable.js": "6f2b82e482708bf89937cfa3e993e29521d36e716568aabf927b3b86af6946d7",
     "plugins/toolbox/host.js": "680c4b64db304643310affbb073104d46212a26a680df5a0650b56a96079fc23",
