@@ -1,6 +1,6 @@
 {
   "name": "dsh-dynamic-toolbox",
-  "version": "0.7.0",
+  "version": "0.7.2",
   "description": "工具箱（DSH 原生静态工具箱）",
   "type": "module",
   "main": "./lib/index.js",
@@ -73,8 +73,8 @@
     "node": ">=22.19"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-typert-protocol": "^0.1.5-rc.1 || ^0.1.6-alpha.2",
-    "@deepseek-ai/dsh-tools": "^0.1.5-rc.1 || ^0.1.6-alpha.2",
+    "@deepseek-ai/dsh-typert-protocol": "^0.1.5-rc.1 || ^0.1.6-alpha.2 || ^0.1.7-alpha.2",
+    "@deepseek-ai/dsh-tools": "^0.1.5-rc.1 || ^0.1.6-alpha.2 || ^0.1.7-alpha.2",
     "react": "^18.3.1"
   }
 }

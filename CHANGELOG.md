@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.2 - 2026-09-23
 
 - 兼容 DSH 0.1.7 的工具结果消息：按 message 上的调用 ID 结算工具卡，显示实际耗时与输出，失败结果不再一直显示运行中。
 - 恢复用户/助手消息卡片头部的模型与时间徽标（0.6.1 卡片重构时误删，数据本身一直在）：模型只显示名称不含提供商前缀；时间与助手耗时归入卡头右侧独立元信息组；输出 token 数暂不展示。
@@ -32,4 +32,4 @@
 - 对重复的持久事件投影增加有界缓存；live、原始瞬时 chunk 和超大日志绕过，覆盖内容修改、回放和驱逐回归。
 - 修复临时 Host 状态残留导致旧版 losslessJSON RPC 校验失败的问题。
 
-实现与限制见 [实施记录](docs/flowglass-ux-implementation.md)，原离线验证见 [基线记录](docs/flowglass-ux-baseline.md)，后续真实实例修复见 [3080 验收记录](docs/flowglass-live-fixes-2026-09-20.md)。本版本同步发布 `dsh-flowglass@0.7.0` 与 `dsh-dynamic-toolbox@0.7.0`。
+实现与限制见 [实施记录](docs/flowglass-ux-implementation.md)，原离线验证见 [基线记录](docs/flowglass-ux-baseline.md)，后续真实实例修复见 [3080 验收记录](docs/flowglass-live-fixes-2026-09-20.md)。本版本同步发布 `dsh-flowglass@0.7.2` 与 `dsh-dynamic-toolbox@0.7.2`。

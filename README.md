@@ -4,7 +4,7 @@
 
 ![Flowglass UX 改造：并发任务概览（脱敏 fixture）](docs/screenshots/flowglass-ux-overview-1440.png)
 
-Flowglass 是本仓库的默认产品和默认构建目标，当前版本 `0.7.0`。它是原生静态 Host/Client 插件，不使用 `dynamicCordisRunner`，也不产生 `dyn/*`。0.7.0 同步重构并发布了独立的原生静态 `dsh-dynamic-toolbox`，各工具以可拆分的 Host feature 直接挂载。
+Flowglass 是本仓库的默认产品和默认构建目标，当前版本 `0.7.2`。它是原生静态 Host/Client 插件，不使用 `dynamicCordisRunner`，也不产生 `dyn/*`。0.7.0 同步重构并发布了独立的原生静态 `dsh-dynamic-toolbox`，各工具以可拆分的 Host feature 直接挂载。
 
 上图来自真实源码与脱敏 fixture。源码能力、验证范围和真实宿主验收见 [实施记录](docs/flowglass-ux-implementation.md)；离线测试与性能基线见 [基线记录](docs/flowglass-ux-baseline.md)。下面折叠区的既有产品截图来自改造前版本。
 
@@ -35,10 +35,10 @@ Flowglass 是本仓库的默认产品和默认构建目标，当前版本 `0.7.0
 
 | 输入 | 示例 |
 | --- | --- |
-| npm 包名 | `dsh-flowglass@0.7.0` |
+| npm 包名 | `dsh-flowglass@0.7.2` |
 | GitHub 仓库地址 | `https://github.com/Iwctwbh/dsh-flowglass` |
 | 本地插件目录 | `C:\work\dsh-flowglass` |
-| 本地 tarball | `C:\work\dsh-flowglass-0.7.0.tgz` |
+| 本地 tarball | `C:\work\dsh-flowglass-0.7.2.tgz` |
 
 点击「安装」，安装完成后选择「启用」。插件管理器会先读取包的名称、版本和说明，再执行安装；本地插件代码会以当前用户权限运行，请只安装可信来源。
 
@@ -46,20 +46,20 @@ Flowglass 是本仓库的默认产品和默认构建目标，当前版本 `0.7.0
 
 ```powershell
 # npm，推荐固定版本
-dsh plugin --profile web add dsh-flowglass@0.7.0
+dsh plugin --profile web add dsh-flowglass@0.7.2
 
 # GitHub，建议固定 tag 或 commit
-dsh plugin --profile web add github:Iwctwbh/dsh-flowglass#v0.7.0
+dsh plugin --profile web add github:Iwctwbh/dsh-flowglass#v0.7.2
 
 # 本地目录或 tarball
 dsh plugin --profile web add C:\work\dsh-flowglass
-dsh plugin --profile web add C:\work\dsh-flowglass-0.7.0.tgz
+dsh plugin --profile web add C:\work\dsh-flowglass-0.7.2.tgz
 ```
 
 升级或卸载：
 
 ```powershell
-dsh plugin --profile web add dsh-flowglass@0.7.0
+dsh plugin --profile web add dsh-flowglass@0.7.2
 dsh plugin --profile web remove dsh-flowglass
 ```
 
@@ -118,7 +118,7 @@ Flowglass 按以下顺序选择承载面，同一时刻只启用一条路径：
 
 ```powershell
 node make-payloads.mjs
-node scripts/build-toolbox-bundle.mjs --flow --version 0.7.0 --clean
+node scripts/build-toolbox-bundle.mjs --flow --version 0.7.2 --clean
 node scripts/verify-generated.mjs
 node scripts/verify-bundle.mjs dist/toolbox-bundles/flow --pack
 node smoke.mjs
@@ -143,7 +143,7 @@ pnpm dsh web --no-open --port 3080
 另开终端构建并安装本地 Flowglass：
 
 ```powershell
-node scripts/build-toolbox-bundle.mjs --flow --version 0.7.0 --clean
+node scripts/build-toolbox-bundle.mjs --flow --version 0.7.2 --clean
 node scripts/verify-bundle.mjs dist/toolbox-bundles/flow --pack
 Push-Location dist/toolbox-bundles/flow
 $flowglassPackage = npm pack
@@ -158,7 +158,7 @@ dsh plugin --profile web add <flowglassPackage>
 本仓库也提供独立的完整工具箱 `dsh-dynamic-toolbox`，包含 Jira、Git、文件、HTTP、AI 助手等工具。它不是 Flowglass 的运行前置：
 
 ```powershell
-dsh plugin --profile web add dsh-dynamic-toolbox@0.7.0
+dsh plugin --profile web add dsh-dynamic-toolbox@0.7.2
 ```
 
 相关文档：[`dynamic-toolbox/README.md`](dynamic-toolbox/README.md)、[`REBUILD.md`](REBUILD.md)、[`PLUGIN-DEV.md`](PLUGIN-DEV.md)。

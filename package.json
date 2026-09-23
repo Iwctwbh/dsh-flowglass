@@ -1,6 +1,6 @@
 {
   "name": "dsh-flowglass",
-  "version": "0.7.0",
+  "version": "0.7.2",
   "description": "可视化会话执行流、工具调用、子代理与多会话并发分支。",
   "type": "module",
   "main": "./flowglass/lib/index.js",

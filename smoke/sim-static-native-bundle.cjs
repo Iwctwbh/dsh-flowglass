@@ -188,7 +188,7 @@ const check = (label, cond, detail) => {
     id: 'dynamic-toolbox',
     name: 'dsh-dynamic-toolbox',
     label: '工具箱',
-     version: '0.7.0',
+    version: '0.7.2',
   })
   check('官方静态工具箱构建成功', toolboxBuilt.ok, toolboxBuilt.errors && toolboxBuilt.errors.join('；'))
   if (toolboxBuilt.ok) {
