@@ -634,13 +634,28 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     const configWrap = configReg && configReg.component({ view: 'page' })
     const configNode = configWrap && renderHooked(configWrap.type, configWrap.props)
     const configText = configNode ? JSON.stringify(configNode) : ''
-    check('D: 官方详情设置页包含行为、并发任务、轮询与显示规则', configText.indexOf('Flowglass 设置') >= 0
+    check('D: 官方详情设置页包含布局、行为、并发任务、轮询与显示规则', configText.indexOf('Flowglass 设置') >= 0
+      && configText.indexOf('布局') >= 0 && configText.indexOf('子代理列宽百分比') >= 0
+      && configText.indexOf('恢复 20 / 35 / 45') >= 0
       && configText.indexOf('切换 Session 时保持展开') >= 0 && configText.indexOf('启用并发任务') >= 0
       && configText.indexOf('默认分支数量') >= 0 && configText.indexOf('轮询刷新') >= 0
       && configText.indexOf('工具显示规则') >= 0)
     const flatten = (node) => node && typeof node === 'object'
       ? [node, ...(node.children || []).flat(Infinity).flatMap(flatten)] : []
     const settingNodes = () => flatten(renderHooked(configWrap.type, configWrap.props))
+    const laneInput = (label) => settingNodes().find((n) => n.props['aria-label'] === label + '列宽百分比')
+    check('D: 三列宽度默认 20/35/45', ['子代理', '主干', '工具'].map((label) => laneInput(label).props.value).join('/') === '20/35/45')
+    check('D: 三列宽度共用横条与三个 5% 步进圆点', settingNodes().filter((n) => n.props.className === 'fg-settings-lane-rail').length === 1
+      && ['子代理', '主干', '工具'].every((label) => laneInput(label).props.type === 'range' && Number(laneInput(label).props.step) === 5))
+    laneInput('子代理').props.onChange({ currentTarget: { value: '25' } })
+    check('D: 拖动子代理圆点后自动从较宽列扣除并保持 100%', ['子代理', '主干', '工具'].map((label) => laneInput(label).props.value).join('/') === '25/35/40')
+    laneInput('主干').props.onChange({ currentTarget: { value: '30' } })
+    check('D: 缩小主干圆点后自动补给较窄列并保持 100%', ['子代理', '主干', '工具'].map((label) => laneInput(label).props.value).join('/') === '30/30/40')
+    laneInput('工具').props.onChange({ currentTarget: { value: '45' } })
+    check('D: 连续拖动三个圆点始终保持合计 100%', ['子代理', '主干', '工具'].map((label) => Number(laneInput(label).props.value)).reduce((sum, value) => sum + value, 0) === 100)
+    settingNodes().find((n) => n.type === 'form').props.onSubmit({ preventDefault() {} })
+    const flowPreferencesKey = [...localStorage.store.keys()].find((key) => key.endsWith('.flow.preferences'))
+    check('D: 三列宽度保存到浏览器设置', JSON.parse(localStorage.getItem(flowPreferencesKey)).laneRatio.join('/') === '25/30/45')
     check('D: 工具规则初始只显示摘要，没有展开编辑字段', !flatten(configNode).some((n) => n.props.className === 'fg-settings-rule-grid'))
     flatten(configNode).find((n) => n.props['aria-label'] === '编辑规则 Git').props.onClick()
     check('D: 编辑只展开一条规则', settingNodes().filter((n) => n.props.className === 'fg-settings-rule-grid').length === 1)

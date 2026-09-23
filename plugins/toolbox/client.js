@@ -73,7 +73,7 @@ return {
     const workspacesClient = ctx.get('workspaces')
 
     // Flowglass 的“子代理跟随”要走 Harness 正式会话导航，不直接改 localStorage。
-    // 子代理优先使用 catalog 的精确 address；若 catalog 尚未拉取，先刷新父会话再解析。
+    // 子代理优先使用 Harness 的精确 address；新宿主先加载父会话投影，旧宿主刷新 catalog。
     const navigateHarnessSession = async (request) => {
       if (!request || !request.sessionId) return
       if (!sessionsClient) throw new Error('sessions 服务不可用')
@@ -82,7 +82,10 @@ return {
       let navigationTarget = target
       if (request.kind === 'subagent' && parent) {
         let address = typeof sessionsClient.subagentAddress === 'function' ? sessionsClient.subagentAddress(target) : null
-        if (!address && typeof sessionsClient.refreshSubagents === 'function') {
+        if (!address && typeof sessionsClient.refreshProjections === 'function') {
+          try { await sessionsClient.refreshProjections(parent) } catch (e) {}
+          if (typeof sessionsClient.subagentAddress === 'function') address = sessionsClient.subagentAddress(target)
+        } else if (!address && typeof sessionsClient.refreshSubagents === 'function') {
           try { await sessionsClient.refreshSubagents(parent) } catch (e) {}
           if (typeof sessionsClient.subagentAddress === 'function') address = sessionsClient.subagentAddress(target)
         }
@@ -589,6 +592,10 @@ return {
       '.fl-model{flex:none;font-size:calc(10px*var(--tb-fs,1));font-family:ui-monospace,Consolas,monospace;color:var(--tb-text-3,var(--dsw-alias-label-tertiary,#777884));background:var(--dsw-alias-bg-base,#17181d);border-radius:3px;padding:1px 5px}',
       '.fl-glyph{flex:none;font-size:calc(9px*var(--tb-fs,1));line-height:1;opacity:.9}',
       '.fl-node-head{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}',
+      '.fl-node-meta{display:inline-flex;align-items:center;gap:6px;margin-left:auto;flex:none;min-width:0}',
+      // 用户/助手消息卡头单行：标签、模型、时间、耗时同行，模型过长省略，不与右侧操作按钮重叠
+      '[data-flow] .fl-node[data-flow-role] .fl-node-head{flex-wrap:nowrap}',
+      '[data-flow] .fl-node[data-flow-role] .fl-model{max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.fl-tag{flex:none;display:inline-flex;align-items:center;height:17px;padding:0 6px;border-radius:4px;font-size:calc(10px*var(--tb-fs,1));font-weight:700;letter-spacing:.3px}',
       // 重试/失败徽标（流镜助手卡头）：等待=琥珀 / 成功=绿 / 失败与错误码=红 / 未成行=灰
       '.fl-retry{flex:none;display:inline-flex;align-items:center;height:15px;padding:0 5px;border-radius:4px;font-size:calc(9.5px*var(--tb-fs,1));font-weight:600;letter-spacing:.2px}',
@@ -790,6 +797,20 @@ return {
       '.fg-settings-copy{display:flex;flex-direction:column;gap:2px;min-width:0}',
       '.fg-settings-copy>strong{font-size:12.5px;font-weight:600}',
       '.fg-settings-copy>small{color:var(--dsw-alias-label-tertiary,#777884);font-size:10.5px;line-height:1.45}',
+      '.fg-settings-lane-ratio{display:flex;flex-direction:column;gap:9px;min-width:0}',
+      '.fg-settings-lane-track{position:relative;height:32px;min-width:220px}',
+      '.fg-settings-lane-rail{position:absolute;left:8px;right:8px;top:14px;height:4px;border-radius:999px;background:var(--dsw-alias-border-l2,#454650);box-shadow:inset 0 1px 2px rgba(0,0,0,.22)}',
+      '.fg-settings-lane-range{position:absolute;inset:0;width:100%;height:32px;margin:0;appearance:none;-webkit-appearance:none;background:transparent;pointer-events:none;outline:none}',
+      '.fg-settings-lane-range::-webkit-slider-runnable-track{height:4px;background:transparent}',
+      '.fg-settings-lane-range::-webkit-slider-thumb{width:16px;height:16px;margin-top:-6px;border:2px solid var(--fg-canvas,#17181d);border-radius:50%;appearance:none;-webkit-appearance:none;background:var(--fg-ratio-color,var(--fg-accent,#7fa7f0));box-shadow:0 0 0 1px var(--fg-border,#454650),0 2px 5px rgba(0,0,0,.3);pointer-events:auto;cursor:ew-resize}',
+      '.fg-settings-lane-range::-moz-range-track{height:4px;background:transparent}',
+      '.fg-settings-lane-range::-moz-range-thumb{width:14px;height:14px;border:2px solid var(--fg-canvas,#17181d);border-radius:50%;background:var(--fg-ratio-color,var(--fg-accent,#7fa7f0));box-shadow:0 0 0 1px var(--fg-border,#454650),0 2px 5px rgba(0,0,0,.3);pointer-events:auto;cursor:ew-resize}',
+      '.fg-settings-lane-range:focus-visible::-webkit-slider-thumb{outline:2px solid var(--fg-accent,#7fa7f0);outline-offset:3px}',
+      '.fg-settings-lane-legend{display:flex;align-items:center;flex-wrap:wrap;gap:7px 14px}',
+      '.fg-settings-lane-value{display:inline-flex;align-items:center;gap:5px;color:var(--dsw-alias-label-secondary,#9a9ba6);font-size:11.5px;font-variant-numeric:tabular-nums}',
+      '.fg-settings-lane-dot{width:8px;height:8px;border-radius:50%;background:var(--fg-ratio-color,var(--fg-accent,#7fa7f0))}',
+      '.fg-settings-lane-total{align-self:center;color:var(--dsw-alias-label-secondary,#9a9ba6);font-size:11.5px;font-variant-numeric:tabular-nums}',
+      '.fg-settings-lane-total.is-invalid{color:var(--tb-danger-text,#f28b82)}',
       '.fg-settings-select,.fg-settings-input{width:min(210px,45%);height:30px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2,#454650);border-radius:6px;background:var(--dsw-alias-bg-layer-1,#26272e);color:inherit;font:inherit;font-size:12px;box-sizing:border-box}',
       '.fg-settings-input.is-official{height:auto;padding:0;border:0;background:transparent}',
       '.fg-settings-toggle{position:relative;flex:none;width:36px;height:21px;padding:0;border:1px solid var(--dsw-alias-border-l2,#454650);border-radius:999px;background:var(--dsw-alias-bg-layer-1,#26272e);cursor:pointer}',
@@ -1210,7 +1231,7 @@ return {
       // A narrow inspector replaces visible content without unmounting it or losing its scroll position.
       '@container flowglass (max-width:479px){[data-flow]:has(>.fl-rail)>:is(.tb-pane-head,.tb-pane-body,.fl-zoom-history-drawer){visibility:hidden;pointer-events:none}[data-flow] .fl-rail{inset:0;width:100%;border:0;border-radius:0;box-shadow:none}[data-flow] .fl-lane-side{grid-template-columns:minmax(0,1fr);padding-left:10px;border-left:1px solid var(--fg-wire)}[data-flow] .fl-lane-side>.fl-wp{display:none}[data-flow] .fl-lane-side.fl-grp{margin:0;padding:10px}[data-flow] .fl-preview{-webkit-line-clamp:4}[data-flow] .fl-zoom-composer-controls>[data-zoom-launch]{width:100%;white-space:normal}[data-flow] .fl-zoom-composer-spacer{display:none}[data-flow] .fl-zoom-history-drawer{width:100%}[data-flow] .fl-toolbar-menu{max-width:calc(100cqi - 8px)}[data-flow] .fl-rail-head .fl-branch-btn{width:26px;height:26px}}',
       // Keep the session surface a flow diagram at both sidebar and full-screen sizes.
-      '.jr-drawer [data-flow]:not([data-flow-board])>.tb-pane-body{background-image:radial-gradient(circle,var(--fg-wire) .7px,transparent .8px);background-size:22px 22px;gap:4px;padding:16px 12px 54px}',
+      '.jr-drawer [data-flow]:not([data-flow-board])>.tb-pane-body{background-image:radial-gradient(circle,var(--fg-wire) .7px,transparent .8px);background-size:22px 22px;gap:4px;padding:16px 12px 12px}',
       '[data-flow]:not([data-flow-board])>.tb-pane-body>.fl-lane{flex-shrink:0;width:100%;max-width:1440px;align-self:flex-start;margin-inline:auto}',
       '[data-flow]>.tb-pane-head{flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px}',
       '[data-flow]>.tb-pane-head>.tb-row{flex:1 1 100%}',
@@ -1229,13 +1250,17 @@ return {
       '@container flowglass (max-width:799px){[data-flow]:not([data-flow-board]) .fl-lane{gap:0}[data-flow]:not([data-flow-board]) .fl-lane-main::before{display:block}[data-flow]:not([data-flow-board]) .fl-lane-main:has(>.fl-lane-line){display:flex}[data-flow]:not([data-flow-board]) .fl-lane-side{margin:8px 0 8px 24px;padding:10px;border-left:2px solid var(--fg-wire);border-radius:7px;background:var(--fg-canvas)}[data-flow]:not([data-flow-board]) .fl-subcol{margin:8px 0 8px 24px}[data-flow] .fl-preview{-webkit-line-clamp:2}}',
       // Session diagrams retain the original three semantic lanes at every panel width.
       '[data-flow]:not([data-flow-board])>.tb-pane-body{overflow-x:auto!important}',
-      '[data-flow]:not([data-flow-board]) .fl-lane{display:grid!important;grid-template-columns:minmax(180px,1.05fr) minmax(220px,1fr) minmax(240px,1.2fr)!important;gap:0 10px!important;min-width:680px;align-items:stretch}',
+      '[data-flow]:not([data-flow-board]) .fl-lane{display:grid!important;grid-template-columns:minmax(0,var(--fg-lane-subagent,20fr)) minmax(0,var(--fg-lane-main,35fr)) minmax(0,var(--fg-lane-tools,45fr))!important;gap:0 10px!important;min-width:720px;align-items:stretch}',
       '[data-flow]:not([data-flow-board]) .fl-lane>div:empty{display:block!important}',
       '[data-flow]:not([data-flow-board]) .fl-lane-main{grid-column:2!important;grid-row:1;order:initial!important}',
       '[data-flow]:not([data-flow-board]) .fl-lane-side{grid-column:3!important;grid-row:1;order:initial!important;margin:0!important;padding:0;grid-template-columns:64px minmax(0,1fr)!important;border-left:0;background:transparent}',
       '[data-flow]:not([data-flow-board]) .fl-lane-side>.fl-wp{display:flex!important}',
       '[data-flow]:not([data-flow-board]) .fl-subcol{grid-column:1!important;grid-row:1!important;order:initial!important;margin:0!important;min-height:112px;grid-template-columns:minmax(0,1fr)}',
       '[data-flow]:not([data-flow-board]) .fl-sub-card::after{display:block!important}',
+      '[data-flow]:not([data-flow-board]) .fl-sub-card .fl-iohead{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center}',
+      '[data-flow]:not([data-flow-board]) .fl-sub-card .fl-iohead>.fl-tag{grid-column:1;grid-row:1;justify-self:start}',
+      '[data-flow]:not([data-flow-board]) .fl-sub-card .fl-iohead>.fl-status{grid-column:2;grid-row:1}',
+      '[data-flow]:not([data-flow-board]) .fl-sub-card .fl-iohead>.fl-name{grid-column:1/-1;grid-row:2;max-width:100%;white-space:nowrap;overflow-wrap:normal;overflow:hidden;text-overflow:ellipsis}',
       // 右侧并行调用组使用轻量虚线层级；放在三列强制布局之后，避免后者清掉左边框。
       '[data-flow]:not([data-flow-board]) .fl-lane-side.fl-grp{border:1px dashed var(--fg-border);background:transparent;box-shadow:none;padding:13px 10px 10px}',
       '[data-flow] .fl-lane-side.fl-grp>.fl-wp~.fl-wp,[data-flow] .fl-lane-side.fl-grp>.fl-wp~.fl-wp+.fl-callside{margin-top:4px;padding-top:10px;border-top:1px dashed var(--fg-border)}',
@@ -1325,6 +1350,7 @@ return {
       defaultBranchCount: 2,
       defaultZoomView: 'compact',
       refreshMs: 1000,
+      laneRatio: Object.freeze([20, 35, 45]),
     })
     const FLOW_DEFAULT_PRESENTATION_RULES = Object.freeze([
       { enabled: true, tools: ['pwsh', 'bash', 'sh', 'run_code'], executables: ['git', 'git.exe'], displayName: 'Git', actions: [], badge: 'Git', color: '#f05032' },
@@ -1336,6 +1362,34 @@ return {
     ])
     const flowDefaultPresentationRules = JSON.stringify(FLOW_DEFAULT_PRESENTATION_RULES)
     const cloneFlowRules = (rules) => JSON.parse(JSON.stringify(rules))
+    const parseFlowLaneRatio = (value) => {
+      if (!Array.isArray(value) || value.length !== 3) return null
+      const ratio = value.map((item) => Number(item))
+      if (!ratio.every((item) => Number.isInteger(item) && item >= 10 && item <= 80 && item % 5 === 0)) return null
+      return ratio.reduce((sum, item) => sum + item, 0) === 100 ? ratio : null
+    }
+    const rebalanceFlowLaneRatio = (value, changedIndex, rawTarget) => {
+      const current = parseFlowLaneRatio(value) || [20, 35, 45]
+      const target = Math.max(10, Math.min(80, Math.round(Number(rawTarget) / 5) * 5))
+      if (!Number.isInteger(changedIndex) || changedIndex < 0 || changedIndex > 2 || !Number.isFinite(target)) return current
+      const next = current.slice()
+      let remainingSteps = (target - next[changedIndex]) / 5
+      next[changedIndex] = target
+      const others = [0, 1, 2].filter((index) => index !== changedIndex)
+      while (remainingSteps > 0) {
+        const donor = others.filter((index) => next[index] > 10).sort((a, b) => next[b] - next[a] || a - b)[0]
+        if (donor == null) break
+        next[donor] -= 5
+        remainingSteps--
+      }
+      while (remainingSteps < 0) {
+        const receiver = others.filter((index) => next[index] < 80).sort((a, b) => next[a] - next[b] || a - b)[0]
+        if (receiver == null) break
+        next[receiver] += 5
+        remainingSteps++
+      }
+      return next
+    }
     const normalizeFlowPreferences = (value) => {
       const p = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
       const branchCount = Number(p.defaultBranchCount)
@@ -1346,6 +1400,7 @@ return {
         defaultBranchCount: branchCount === 3 || branchCount === 4 ? branchCount : 2,
         defaultZoomView: p.defaultZoomView === 'detail' || p.defaultZoomView === 'map' ? p.defaultZoomView : 'compact',
         refreshMs: [0, 1000, 2000, 5000, 10000].includes(refreshMs) ? refreshMs : 1000,
+        laneRatio: parseFlowLaneRatio(p.laneRatio) || [20, 35, 45],
       }
     }
     const readFlowPreferences = () => {
@@ -1400,6 +1455,7 @@ return {
       localStorage.setItem(FLOW_RULES_KEY, raw)
     }
     const writeFlowSettings = (preferences, rules) => {
+      if (!parseFlowLaneRatio(preferences && preferences.laneRatio)) throw new Error('三列宽度比例必须都是 10%–80% 的 5% 倍数，且合计 100%')
       const nextPreferences = normalizeFlowPreferences(preferences)
       const nextRules = normalizeFlowRulesForStorage(rules)
       if (typeof localStorage === 'undefined') throw new Error('当前浏览器不支持本地设置')
@@ -1931,6 +1987,10 @@ return {
         setPreferences((current) => ({ ...current, [key]: value }))
         setNotice(null)
       }
+      const setLaneRatio = (index, value) => {
+        setPreferences((current) => ({ ...current, laneRatio: rebalanceFlowLaneRatio(current.laneRatio, index, value) }))
+        setNotice(null)
+      }
       const moveRule = (index, direction) => {
         const next = index + direction
         if (next < 0 || next >= rules.length) return
@@ -2031,6 +2091,31 @@ return {
             ),
           ),
           h(FlowFontSettings),
+          h('section', { className: 'fg-settings-section' },
+              h('div', { className: 'fg-settings-section-head' },
+              h('div', null, h('h3', null, '布局'), h('p', { className: 'fg-settings-note' }, '拖动任意圆点会自动联动另外两列，三列宽度始终合计 100%。')),
+            ),
+            h('div', { className: 'fg-settings-lane-ratio' },
+              h('div', { className: 'fg-settings-lane-track' },
+                h('span', { className: 'fg-settings-lane-rail', 'aria-hidden': true }),
+                ['子代理', '主干', '工具'].map((label, index) => h('input', {
+                  key: label, type: 'range', min: 10, max: 80, step: 5,
+                  className: 'fg-settings-lane-range', 'aria-label': label + '列宽百分比',
+                  value: String(preferences.laneRatio[index]),
+                  style: { '--fg-ratio-color': ['var(--fg-accent,#7fa7f0)', 'var(--fg-success,#81c784)', 'var(--fg-warning,#d4b95c)'][index], zIndex: index + 1 },
+                  onChange: (event) => setLaneRatio(index, event.currentTarget.value),
+                })),
+              ),
+              h('div', { className: 'fg-settings-lane-legend' },
+                ['子代理', '主干', '工具'].map((label, index) => h('span', { key: label, className: 'fg-settings-lane-value' },
+                  h('i', { className: 'fg-settings-lane-dot', style: { '--fg-ratio-color': ['var(--fg-accent,#7fa7f0)', 'var(--fg-success,#81c784)', 'var(--fg-warning,#d4b95c)'][index] } }),
+                  label + ' ' + preferences.laneRatio[index] + '%',
+                )),
+                h('span', { className: 'fg-settings-lane-total' }, '合计 100%'),
+                button({ type: 'button', className: 'fg-settings-button', onClick: () => setPreference('laneRatio', [20, 35, 45]) }, '恢复 20 / 35 / 45'),
+              ),
+            ),
+          ),
           h('section', { className: 'fg-settings-section' },
             h('div', { className: 'fg-settings-section-head' }, h('h3', null, '行为与并发任务')),
             h('div', { className: 'fg-settings-grid' },
@@ -3963,6 +4048,10 @@ return {
         if (!flow || active !== 'flow') return
         const body = flow.querySelector('.tb-pane-body')
         if (body) body.style.setProperty('--tb-flow-zoom', String(flowZoom / 100))
+        const laneRatio = readFlowPreferences().laneRatio
+        flow.style.setProperty('--fg-lane-subagent', laneRatio[0] + 'fr')
+        flow.style.setProperty('--fg-lane-main', laneRatio[1] + 'fr')
+        flow.style.setProperty('--fg-lane-tools', laneRatio[2] + 'fr')
       }, [active, html, flowZoom])
 
       // 导图画布：节点可自由拖动，空白处拖动平移；边线跟随节点。布局保存在 ref 中，

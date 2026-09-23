@@ -37,6 +37,13 @@ const CHILD_EVENTS = [
   { seq: 2, time: 1520, type: 'tool/call', data: { turn: 1, step: 2, name: 'grep', callId: 'x1', arguments: '{"pattern":"bar"}' } },
   { seq: 3, time: 1560, type: 'tool/result', data: { message: { content: [{ type: 'tool-result', toolCallId: 'x1', content: [{ type: 'text', text: 'child hits' }] }] } } },
 ]
+// DSH 0.1.7 工具消息：结果 ID、失败位在 message 上，正文是直接 text 块。
+const V4_TOOL_EVENTS = [
+  { seq: 1, time: 1000, type: 'tool/call', data: { turn: 1, step: 1, name: 'pwsh', callId: 'v4-ok', arguments: '{"cmd":"npm pack"}' } },
+  { seq: 2, time: 1250, type: 'tool/result', data: { turn: 1, step: 1, message: { role: 'tool', source: { kind: 'tool', callId: 'v4-ok' }, toolCallId: 'v4-ok', content: [{ type: 'text', text: 'package ready' }], isError: false } } },
+  { seq: 3, time: 1300, type: 'tool/call', data: { turn: 1, step: 2, name: 'plugin_manager', callId: 'v4-error', arguments: '{}' } },
+  { seq: 4, time: 1450, type: 'tool/result', data: { turn: 1, step: 2, message: { role: 'tool', source: { kind: 'tool', callId: 'v4-error' }, toolCallId: 'v4-error', content: [{ type: 'text', text: 'install failed' }], isError: true } } },
+]
 // ---- 进行中会话（durable 前缀）：turn/step 已开、尚无结算；实时内容全靠 live 叠加层 ----
 const LIVE_PREFIX_EVENTS = [
   { seq: 1, time: 3000, type: 'turn/start', data: { turn: 1 } },
@@ -207,6 +214,7 @@ const LONG_EVENTS = Array.from({ length: 130 }, (_, i) => ({
 
 const SESSIONS = {
   's-main': MAIN_EVENTS,
+  's-v4-tools': V4_TOOL_EVENTS,
   '228a8697-2b7a-422a-b3c0-1cf61c965d5c': CHILD_EVENTS,
   '338a8697-2b7a-422a-b3c0-1cf61c965d6d': CHILD_EVENTS,
   's-fleet-1': CHILD_EVENTS,
@@ -325,6 +333,12 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
   check('输出线标签=返回结果摘要（file a content）', r.html.indexOf('file a content') >= 0)
   check('工具卡存在（fl-iocard）', r.html.indexOf('fl-iocard') >= 0)
   check('调用完成状态与耗时使用可读文案', r.html.includes('已完成 · 100ms'))
+  const v4Tools = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-v4-tools' })
+  check('0.1.7 工具结果按 message ID 结算并显示耗时',
+    v4Tools.html.includes('已完成 · 250ms') && v4Tools.html.includes('失败 · 150ms')
+      && !v4Tools.html.includes('data-flow-status="pending"') && !v4Tools.html.includes('data-flow-timer="1000"'))
+  check('0.1.7 工具正文直接从 message content 读取',
+    v4Tools.html.includes('package ready') && v4Tools.html.includes('install failed'))
   check('子代理入口卡（fl-sub-open）与支线步骤', r.html.indexOf('fl-sub-open') >= 0 && r.html.indexOf('fl-sub-steps') >= 0)
   check('子代理出口卡（fl-sub-close）', r.html.indexOf('fl-sub-close') >= 0)
   check('alpha.4 send_message 归入子代理并可钻取', r.html.indexOf('data-action="fenter" data-seq="13"') >= 0)
@@ -436,11 +450,13 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
     defaultBranchCount: 4,
     defaultZoomView: 'map',
     refreshMs: 5000,
+    laneRatio: [25, 30, 45],
   })
   let configured = await h({ action: '', fields: { __flowPreferences: configuredPreferences }, state: null, root: ROOT, session: 's-main' })
-  check('插件详情偏好控制轮询、默认视图、分支数和大流镜入口', configured.html.indexOf('data-autorefresh="5000"') >= 0
+  check('插件详情偏好控制轮询、默认视图、分支数、列宽和大流镜入口', configured.html.indexOf('data-autorefresh="5000"') >= 0
     && configured.html.indexOf('data-action="fzoom"') < 0
-    && configured.state.zoomView === 'map' && configured.state.zoomLanes.length === 4)
+    && configured.state.zoomView === 'map' && configured.state.zoomLanes.length === 4
+    && configured.state.__flowPreferences === undefined)
   configured = await h({ action: 'fzoom', fields: { __flowPreferences: configuredPreferences }, state: configured.state, root: ROOT, session: 's-main' })
   check('关闭大流镜后旧入口动作也不会重新打开', configured.state.zoom === false && configured.html.indexOf('data-flow-board="1"') < 0)
 
@@ -608,6 +624,7 @@ const countCards = (html, marker) => (html.match(new RegExp(marker.replace(/[.*+
   // ================= 长会话分页（回归） =================
   r = await h({ action: '', fields: {}, state: null, root: ROOT, session: 's-long' })
   check('长会话初始仅显示最近 60 条', r.html.indexOf('data-flow-visible="60"') >= 0 && r.html.indexOf('long-071') >= 0 && r.html.indexOf('long-070') < 0)
+  check('加载更早提示位于 column-reverse 的视觉顶部，最新节点保持贴底', r.html.indexOf('data-flow-older-hint') > r.html.indexOf('long-071'))
   r = await h({ action: 'fmore', fields: {}, state: r.state, root: ROOT, session: 's-long' })
   check('向上加载 → 120 条', r.html.indexOf('data-flow-visible="120"') >= 0 && r.html.indexOf('long-011') >= 0 && r.html.indexOf('long-010') < 0)
   r = await h({ action: 'fmore', fields: {}, state: r.state, root: ROOT, session: 's-long' })

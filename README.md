@@ -27,7 +27,7 @@ Flowglass 是本仓库的默认产品和默认构建目标，当前版本 `0.7.0
 
 ## 安装
 
-要求 DeepSeek Harness `0.1.5-rc.1` 或更高；推荐使用 `0.1.6-alpha.2` 及以上版本。
+要求 DeepSeek Harness `0.1.5-rc.1` 或更高；已适配 `0.1.7-alpha.2` 的子代理投影读取与安装 peer 版本。
 
 ### 方式一：Harness 插件管理器（推荐）
 

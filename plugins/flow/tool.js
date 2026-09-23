@@ -91,6 +91,7 @@ return {
       defaultBranchCount: 2,
       defaultZoomView: 'compact',
       refreshMs: 1000,
+      laneRatio: Object.freeze([20, 35, 45]),
     })
     const normalizeFlowPreferences = (raw) => {
       let value = raw
@@ -100,12 +101,15 @@ return {
       const p = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
       const branchCount = Number(p.defaultBranchCount)
       const refreshMs = Number(p.refreshMs)
+      const laneRatio = Array.isArray(p.laneRatio) && p.laneRatio.length === 3 ? p.laneRatio.map(Number) : []
+      const validLaneRatio = laneRatio.every((item) => Number.isInteger(item) && item >= 10 && item <= 80 && item % 5 === 0) && laneRatio.reduce((sum, item) => sum + item, 0) === 100
       return {
         keepOpenOnSessionSwitch: p.keepOpenOnSessionSwitch !== false,
         zoomEnabled: p.zoomEnabled !== false,
         defaultBranchCount: branchCount === 3 || branchCount === 4 ? branchCount : 2,
         defaultZoomView: p.defaultZoomView === 'detail' || p.defaultZoomView === 'map' ? p.defaultZoomView : 'compact',
         refreshMs: [0, 1000, 2000, 5000, 10000].includes(refreshMs) ? refreshMs : 1000,
+        laneRatio: validLaneRatio ? laneRatio : [20, 35, 45],
       }
     }
     const flowPreferencesOf = (st) => st && st.__flowPreferences ? st.__flowPreferences : DEFAULT_FLOW_PREFERENCES
@@ -397,16 +401,17 @@ return {
           if (d.callId != null) byCallId[String(d.callId)] = it
         } else if (ev.type === 'tool/result') {
           const m = d.message || {}
-          // 遍历 content 找第一个带 toolCallId 的块（首块非 tool-result 时也能配上对）
-          let callId = null
-          let text = ''
+          // 0.1.7 的工具消息在 message 上记录调用 ID 和正文；旧日志把二者放在结果块里。
+          let callId = m.toolCallId != null ? String(m.toolCallId)
+            : m.source && m.source.kind === 'tool' && m.source.callId != null ? String(m.source.callId) : null
+          let text = textOf(m.content)
           if (Array.isArray(m.content)) {
             for (const block of m.content) {
               if (callId == null && block && block.toolCallId != null) callId = String(block.toolCallId)
               if (!text && block) { const t = textOf(block.content); if (t) text = t }
             }
           }
-          const failed = !!(d.error || (Array.isArray(m.content) && m.content[0] && m.content[0].isError))
+          const failed = !!(d.error || m.isError || (Array.isArray(m.content) && m.content.some((block) => block && block.isError)))
           const it = callId ? byCallId[callId] : null
           if (it) {
             it.status = failed ? 'error' : 'ok'
@@ -836,7 +841,11 @@ return {
       const card = '<div class="fl-node' + (expandedSeq === it.seq ? ' fl-on' : '') + (live ? ' fl-live' : '') + '" style="border-left-color:' + color + '" data-flow-main-card="' + it.seq + '" data-flow-role="' + it.role + '" data-flow-state="' + flowState + '"' + (isAi && it.attemptId ? ' data-flow-attempt="' + esc(it.attemptId) + '"' : '') + ' data-flow-select-seq="' + it.seq + '"' + nodeIdentityHtml(it, st) + '>' +
         '<button type="button" class="fl-node-open" data-action="fdetail" data-seq="' + it.seq + '" aria-expanded="' + (expandedSeq === it.seq ? 'true' : 'false') + '" aria-label="查看' + label + '详情" title="查看完整消息">' +
         '<span class="fl-node-head"><span class="fl-glyph" aria-hidden="true" style="color:' + color + '">' + (isUser ? '▲' : isAi ? '◆' : '■') + '</span><span class="fl-tag" style="color:' + color + '">' + label + '</span>' +
-        (aiRunning && it.runStart ? '<span class="fl-time" data-flow-timer="' + it.runStart + '" data-flow-timer-prefix="生成中 · ">生成中</span>' : (isAi && it.interrupted ? '<span class="fl-time">' + (it.abandoned ? '已取消' : '已中断') + '</span>' : '')) +
+        (isAi && it.route ? '<span class="fl-model">' + esc(String(it.route).split('/').pop()) + '</span>' : '') +
+        '<span class="fl-node-meta">' +
+        (fmtTime(it.time) ? '<span class="fl-time">' + fmtTime(it.time) + '</span>' : '') +
+        (aiRunning && it.runStart ? '<span class="fl-time" data-flow-timer="' + it.runStart + '" data-flow-timer-prefix="生成中 · ">生成中</span>' : (isAi && it.interrupted ? '<span class="fl-time">' + (it.abandoned ? '已取消' : '已中断') + '</span>' : (isAi && it.runDur != null && !it.interrupted ? '<span class="fl-time">' + fmtDur(it.runDur) + '</span>' : ''))) +
+        '</span>' +
         (isAi ? retryBadgeHtml(it) : '') + '</span>' +
         '<span class="fl-preview"' + (it.interrupted ? ' style="color:var(--tb-danger-text,#f28b82)"' : '') + '>' + esc(it.preview || '（空）') + '</span></button>' + branch + bookmarkButtonHtml(it, st) +
       '</div>'
@@ -2084,10 +2093,10 @@ return {
         parts.push('<div class="tb-notice">' + (r.unavailable ? '会话日志暂不可用。<button type="button" class="tb-btn tb-btn-sm" data-action="refresh">重试</button>' : selection.filtered ? '没有匹配的节点。可清除筛选或改为搜索全会话日志。' : replaying ? '此时点还没有可显示的节点。' : '当前会话还没有事件') + '</div>')
       } else {
         const rows = await renderFlowNodeRows(shown, st, liveAiSeq)
-        if (hasOlder) rows.push('<div class="tb-notice fl-older" data-flow-older-hint>' +
+        parts.push(rows.reverse().join(''))
+        if (hasOlder) parts.push('<div class="tb-notice fl-older" data-flow-older-hint>' +
           '已显示最近 ' + shown.length + ' 个节点 · 继续向上滚动会自动加载更早 ' + Math.min(PAGE, nodes.length - shown.length) + ' 条' +
         '</div>')
-        parts.push(rows.reverse().join(''))
       }
       parts.push('</div>')
       // 详情右侧浮层：展开状态且目标仍在可视事件集内时渲染（工具调用→传入/返回；消息→完整内容）

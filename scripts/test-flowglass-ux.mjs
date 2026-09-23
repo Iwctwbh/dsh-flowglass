@@ -47,13 +47,23 @@ try {
         const scrollableDiagram = !flow.hasAttribute('data-flow-board') && getComputedStyle(body).overflowX === 'auto'
         const lanes = [...flow.querySelectorAll('.fl-lane')]
         const threeColumns = !scrollableDiagram || lanes.every((lane) => getComputedStyle(lane).display === 'grid' && getComputedStyle(lane).gridTemplateColumns.split(' ').length === 3 && lane.getBoundingClientRect().left >= paneRect.left - 2)
+        const laneTracks = lanes.length ? getComputedStyle(lanes[0]).gridTemplateColumns.split(' ').map(parseFloat) : []
+        const laneTrackTotal = laneTracks.reduce((sum, width) => sum + width, 0)
+        const laneRatio = laneTrackTotal ? laneTracks.map((width) => Number((width / laneTrackTotal).toFixed(3))) : []
+        const requestedLaneRatio = !scrollableDiagram || laneRatio.length !== 3 || laneRatio.every((value, index) => Math.abs(value - [0.2, 0.35, 0.45][index]) <= 0.015)
+        const wrappedSubagentNames = [...flow.querySelectorAll('.fl-sub-card .fl-iohead>.fl-name')].filter(visible).filter((name) => {
+          const style = getComputedStyle(name)
+          return style.whiteSpace !== 'nowrap' || name.getBoundingClientRect().height > parseFloat(style.lineHeight) * 1.5
+        }).length
+        const laneBottoms = lanes.map((lane) => lane.getBoundingClientRect().bottom)
+        const latestBottomGap = lanes.length && !flow.hasAttribute('data-flow-board') ? Math.round(body.getBoundingClientRect().bottom - Math.max(...laneBottoms)) : null
         const overflows = [...document.querySelectorAll('.fl-lane,.fl-msg,.fl-iocard,.fl-zoom-branch,.fl-zoom-card,.tb-pane-header,.fl-rail')].filter(visible).filter((el) => { if (scrollableDiagram && el.closest('.fl-lane')) return false; const r = el.getBoundingClientRect(); return r.left < paneRect.left - 2 || r.right > paneRect.right + 2 }).map((el) => ({ cls: el.className, width: Math.round(el.getBoundingClientRect().width) })).slice(0, 8)
         const inaccessible = [...document.querySelectorAll('.fl-msg[data-action],.fl-iocard[data-action],.fl-node-open[data-action]')].filter(visible).filter((el) => (el.tagName !== 'BUTTON' && el.getAttribute('role') !== 'button') || el.tabIndex < 0).length
         const infiniteAnimations = [...document.querySelectorAll('[data-flow] *')].filter(visible).filter((el) => [getComputedStyle(el), getComputedStyle(el, '::before'), getComputedStyle(el, '::after')].some((style) => style.animationName !== 'none' && style.animationIterationCount === 'infinite')).length
         const parallelGroups = [...document.querySelectorAll('.fl-lane-side.fl-grp')]
         const parallelSeparators = [...document.querySelectorAll('.fl-lane-side.fl-grp>.fl-wp~.fl-wp')]
         const parallelEmphasis = parallelGroups.every((group) => { const style = getComputedStyle(group); return style.borderTopStyle === 'dashed' && style.borderLeftStyle === 'dashed' && parseFloat(style.borderTopWidth) >= 1 && parseFloat(style.borderLeftWidth) >= 1 && style.boxShadow === 'none' && style.backgroundColor === 'rgba(0, 0, 0, 0)' }) && parallelSeparators.every((separator) => { const style = getComputedStyle(separator); return style.borderTopStyle === 'dashed' && parseFloat(style.borderTopWidth) >= 1 })
-        return { dom: flow?.querySelectorAll('*').length || 0, nodes: nodes.length, flowWidth: Math.round(paneRect?.width || 0), bodyClient: body?.clientWidth, bodyScroll: body?.scrollWidth, scrollableDiagram, threeColumns, overflows, inaccessible, infiniteAnimations, parallelGroups: parallelGroups.length, parallelSeparators: parallelSeparators.length, parallelEmphasis, systemContexts: document.querySelectorAll('.fl-system-context').length, expandedContexts: document.querySelectorAll('.fl-system-context[open]').length }
+        return { dom: flow?.querySelectorAll('*').length || 0, nodes: nodes.length, flowWidth: Math.round(paneRect?.width || 0), bodyClient: body?.clientWidth, bodyScroll: body?.scrollWidth, scrollableDiagram, threeColumns, laneRatio, requestedLaneRatio, wrappedSubagentNames, latestBottomGap, overflows, inaccessible, infiniteAnimations, parallelGroups: parallelGroups.length, parallelSeparators: parallelSeparators.length, parallelEmphasis, systemContexts: document.querySelectorAll('.fl-system-context').length, expandedContexts: document.querySelectorAll('.fl-system-context[open]').length }
       })
       const key = `${name}-${width}-${variation.theme}-${variation.font}`
       const row = { name, width, height, ...variation, payloadBytes: Buffer.byteLength(JSON.stringify(output)), hostP95Ms: Number(samples[Math.ceil(samples.length * .95) - 1].toFixed(2)), sampleCount: samples.length, sourceEventCount: output.sourceEventCount, ...measurement }
@@ -62,6 +72,9 @@ try {
         if (!measurement.dom) failures.push(key + ': no actual Flowglass DOM')
         if (!['map', 'compare'].includes(name) && measurement.overflows.length) failures.push(key + ': content outside panel ' + JSON.stringify(measurement.overflows))
         if (!measurement.threeColumns) failures.push(key + ': session diagram must retain three reachable lanes')
+        if (!measurement.requestedLaneRatio) failures.push(key + ': session diagram lane ratio is not 20/35/45: ' + measurement.laneRatio.join('/'))
+        if (measurement.wrappedSubagentNames) failures.push(key + ': ' + measurement.wrappedSubagentNames + ' subagent names wrap vertically')
+        if (measurement.latestBottomGap != null && measurement.latestBottomGap > 14) failures.push(key + ': latest session node is not bottom-aligned: ' + measurement.latestBottomGap + 'px')
         if (!measurement.scrollableDiagram && !['map', 'compare', 'detail'].includes(name) && measurement.bodyScroll > measurement.bodyClient + 2) failures.push(key + ': non-diagram content horizontally scrolls')
         if (measurement.inaccessible) failures.push(key + ': ' + measurement.inaccessible + ' cards missing keyboard semantics')
         if (variation.motion === 'reduce' && measurement.infiniteAnimations) failures.push(key + ': reduced motion still animates')

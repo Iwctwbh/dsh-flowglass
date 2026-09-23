@@ -36,12 +36,12 @@ const check = (label, cond, detail) => {
       && pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-sidebar-right')
       && !pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-runtime'))
   check('Host Typert 协议声明为 peer（0.1.5-rc.1+ 基线）',
-    pkg.peerDependencies['@deepseek-ai/dsh-typert-protocol'] === '^0.1.5-rc.1 || ^0.1.6-alpha.2')
+    pkg.peerDependencies['@deepseek-ai/dsh-typert-protocol'] === '^0.1.5-rc.1 || ^0.1.6-alpha.2 || ^0.1.7-alpha.2')
   check('Flow 包声明 optional better-sidebar peer（>=0.19）',
     pkg.peerDependencies['dsh-better-sidebar'] === '>=0.19.0'
       && pkg.peerDependenciesMeta['dsh-better-sidebar'].optional === true)
   check('Flow 包声明官方 Markdown renderer 与 portal peer',
-    pkg.peerDependencies['@deepseek-ai/dsh-client-ui-primitives'] === '^0.1.5-rc.1 || ^0.1.6-alpha.2'
+    pkg.peerDependencies['@deepseek-ai/dsh-client-ui-primitives'] === '^0.1.5-rc.1 || ^0.1.6-alpha.2 || ^0.1.7-alpha.2'
       && pkg.peerDependencies['react-dom'] === '^18.3.1')
   const client = files.get('lib/client.js')
   const host = files.get('lib/index.js')
@@ -173,7 +173,7 @@ const check = (label, cond, detail) => {
   check('selfview 模型工具改走原生 tools service',
     selfviewHost.includes("from '@deepseek-ai/dsh-tools'")
       && selfviewHost.includes("ctx.get('tools')")
-      && selfviewPkg.peerDependencies['@deepseek-ai/dsh-tools'] === '^0.1.5-rc.1 || ^0.1.6-alpha.2')
+      && selfviewPkg.peerDependencies['@deepseek-ai/dsh-tools'] === '^0.1.5-rc.1 || ^0.1.6-alpha.2 || ^0.1.7-alpha.2')
 
   const allToolboxFeatures = ['jira', 'git', 'files', 'flow', 'flowedit', 'trace', 'http', 'ports', 'calc', 'usage', 'prompt', 'context', 'aiassist', 'tools', 'search', 'lineage', 'aiusage', 'quota', 'selfview']
   const largeBuilt = buildBundle(loader, {
