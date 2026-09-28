@@ -2960,7 +2960,9 @@ return {
         }
         const inspector = flow.querySelector('[data-flow-inspector]')
         const updateInspectorMode = () => {
-          const modal = !!inspector && flow.clientWidth < 1200
+          // Only the narrow replacement view is modal. Visible canvas stays interactive
+          // so a blank click can close details and another card can switch them.
+          const modal = !!inspector && flow.clientWidth < 480
           if (inspector) {
             inspector.setAttribute('role', modal ? 'dialog' : 'region')
             if (modal) inspector.setAttribute('aria-modal', 'true')
