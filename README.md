@@ -29,6 +29,8 @@ Flowglass 是本仓库的默认产品和默认构建目标，当前版本 `0.7.4
 
 要求 DeepSeek Harness `0.1.5-rc.1` 或更高；已适配 `0.1.7-alpha.2` 的子代理投影读取，并为 `0.2.0-rc.2` 更新安装兼容声明。`0.2.0-rc.2` 的真实页面验收仍需在宿主中完成。
 
+使用 DSH `0.2.0-rc.2` 时，请安装 `dsh-flowglass@0.7.4` 或更新版本；`0.7.3` 的 peer 声明会被 rc.2 拒绝。
+
 ### 方式一：Harness 插件管理器（推荐）
 
 打开 Harness Web 侧栏的「插件」→「添加插件」，输入以下任一项：
@@ -140,15 +142,14 @@ pnpm run build
 pnpm dsh web --no-open --port 3080
 ```
 
-另开终端构建并安装本地 Flowglass：
+另开终端构建并安装本地 Flowglass（在本仓库根目录执行）：
 
 ```powershell
 node scripts/build-toolbox-bundle.mjs --flow --version 0.7.4 --repo-dir flowglass --clean
 node scripts/verify-bundle.mjs dist/toolbox-bundles/flow --pack
-Push-Location dist/toolbox-bundles/flow
-$flowglassPackage = npm pack
-Pop-Location
-dsh plugin --profile web add <flowglassPackage>
+New-Item -ItemType Directory -Path .scratch -Force | Out-Null
+$flowglassPackage = npm pack ./dist/toolbox-bundles/flow --pack-destination .scratch
+dsh plugin --profile web add (Join-Path (Resolve-Path .scratch).Path $flowglassPackage.Trim())
 ```
 
 截图验收应覆盖 360 / 480 / 720 / 960px 侧栏与宽屏，分别检查当前会话、并发任务、详情和「插件 → flowglass」设置页。已运行的离线门禁及真实宿主验收限制见 [基线记录](docs/flowglass-ux-baseline.md)。不要为了联调替换正在使用的 3080 实例；新增测试实例使用独立 profile 与端口。
