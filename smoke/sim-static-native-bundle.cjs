@@ -35,13 +35,13 @@ const check = (label, cond, detail) => {
       && pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-workspace')
       && pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-sidebar-right')
       && !pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-runtime'))
-  check('Host Typert 协议声明为 peer（0.1.5-rc.1+ 基线）',
-    pkg.peerDependencies['@deepseek-ai/dsh-typert-protocol'] === '^0.1.5-rc.1 || ^0.1.6-alpha.2 || ^0.1.7-alpha.2')
+  check('Host Typert 协议声明为 peer（含 0.2.0-rc.2）',
+    pkg.peerDependencies['@deepseek-ai/dsh-typert-protocol'] === '^0.1.5-rc.1 || ^0.1.6-alpha.2 || ^0.1.7-alpha.2 || ^0.2.0-rc.2')
   check('Flow 包声明 optional better-sidebar peer（>=0.19）',
     pkg.peerDependencies['dsh-better-sidebar'] === '>=0.19.0'
       && pkg.peerDependenciesMeta['dsh-better-sidebar'].optional === true)
   check('Flow 包声明官方 Markdown renderer 与 portal peer',
-    pkg.peerDependencies['@deepseek-ai/dsh-client-ui-primitives'] === '^0.1.5-rc.1 || ^0.1.6-alpha.2 || ^0.1.7-alpha.2'
+    pkg.peerDependencies['@deepseek-ai/dsh-client-ui-primitives'] === '^0.1.5-rc.1 || ^0.1.6-alpha.2 || ^0.1.7-alpha.2 || ^0.2.0-rc.2'
       && pkg.peerDependencies['react-dom'] === '^18.3.1')
   const client = files.get('lib/client.js')
   const host = files.get('lib/index.js')

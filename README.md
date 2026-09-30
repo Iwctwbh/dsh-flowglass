@@ -4,7 +4,7 @@
 
 ![Flowglass UX 改造：并发任务概览（脱敏 fixture）](docs/screenshots/flowglass-ux-overview-1440.png)
 
-Flowglass 是本仓库的默认产品和默认构建目标，当前版本 `0.7.3`。它是原生静态 Host/Client 插件，不使用 `dynamicCordisRunner`，也不产生 `dyn/*`。0.7.0 同步重构并发布了独立的原生静态 `dsh-dynamic-toolbox`，各工具以可拆分的 Host feature 直接挂载。
+Flowglass 是本仓库的默认产品和默认构建目标，当前本地版本 `0.7.4`（待发布）。它是原生静态 Host/Client 插件，不使用 `dynamicCordisRunner`，也不产生 `dyn/*`。0.7.0 同步重构并发布了独立的原生静态 `dsh-dynamic-toolbox`，各工具以可拆分的 Host feature 直接挂载。
 
 上图来自真实源码与脱敏 fixture。源码能力、验证范围和真实宿主验收见 [实施记录](docs/flowglass-ux-implementation.md)；离线测试与性能基线见 [基线记录](docs/flowglass-ux-baseline.md)。下面折叠区的既有产品截图来自改造前版本。
 
@@ -27,7 +27,7 @@ Flowglass 是本仓库的默认产品和默认构建目标，当前版本 `0.7.3
 
 ## 安装
 
-要求 DeepSeek Harness `0.1.5-rc.1` 或更高；已适配 `0.1.7-alpha.2` 的子代理投影读取与安装 peer 版本。
+要求 DeepSeek Harness `0.1.5-rc.1` 或更高；已适配 `0.1.7-alpha.2` 的子代理投影读取，并为 `0.2.0-rc.2` 更新安装兼容声明。`0.2.0-rc.2` 的真实页面验收仍需在宿主中完成。
 
 ### 方式一：Harness 插件管理器（推荐）
 
@@ -38,7 +38,7 @@ Flowglass 是本仓库的默认产品和默认构建目标，当前版本 `0.7.3
 | npm 包名 | `dsh-flowglass@0.7.3` |
 | GitHub 仓库地址 | `https://github.com/Iwctwbh/dsh-flowglass` |
 | 本地插件目录 | `C:\work\dsh-flowglass` |
-| 本地 tarball | `C:\work\dsh-flowglass-0.7.3.tgz` |
+| 本地 tarball | `C:\work\dsh-flowglass-0.7.4.tgz` |
 
 点击「安装」，安装完成后选择「启用」。插件管理器会先读取包的名称、版本和说明，再执行安装；本地插件代码会以当前用户权限运行，请只安装可信来源。
 
@@ -53,7 +53,7 @@ dsh plugin --profile web add github:Iwctwbh/dsh-flowglass#v0.7.3
 
 # 本地目录或 tarball
 dsh plugin --profile web add C:\work\dsh-flowglass
-dsh plugin --profile web add C:\work\dsh-flowglass-0.7.3.tgz
+dsh plugin --profile web add C:\work\dsh-flowglass-0.7.4.tgz
 ```
 
 升级或卸载：
@@ -118,7 +118,7 @@ Flowglass 按以下顺序选择承载面，同一时刻只启用一条路径：
 
 ```powershell
 node make-payloads.mjs
-node scripts/build-toolbox-bundle.mjs --flow --version 0.7.3 --clean
+node scripts/build-toolbox-bundle.mjs --flow --version 0.7.4 --repo-dir flowglass --clean
 node scripts/verify-generated.mjs
 node scripts/verify-bundle.mjs dist/toolbox-bundles/flow --pack
 node smoke.mjs
@@ -143,7 +143,7 @@ pnpm dsh web --no-open --port 3080
 另开终端构建并安装本地 Flowglass：
 
 ```powershell
-node scripts/build-toolbox-bundle.mjs --flow --version 0.7.3 --clean
+node scripts/build-toolbox-bundle.mjs --flow --version 0.7.4 --repo-dir flowglass --clean
 node scripts/verify-bundle.mjs dist/toolbox-bundles/flow --pack
 Push-Location dist/toolbox-bundles/flow
 $flowglassPackage = npm pack
