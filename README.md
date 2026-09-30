@@ -4,7 +4,7 @@
 
 ![Flowglass UX 改造：并发任务概览（脱敏 fixture）](docs/screenshots/flowglass-ux-overview-1440.png)
 
-Flowglass 是本仓库的默认产品和默认构建目标，当前本地版本 `0.7.4`（待发布）。它是原生静态 Host/Client 插件，不使用 `dynamicCordisRunner`，也不产生 `dyn/*`。0.7.0 同步重构并发布了独立的原生静态 `dsh-dynamic-toolbox`，各工具以可拆分的 Host feature 直接挂载。
+Flowglass 是本仓库的默认产品和默认构建目标，当前版本 `0.7.4`。它是原生静态 Host/Client 插件，不使用 `dynamicCordisRunner`，也不产生 `dyn/*`。0.7.0 同步重构并发布了独立的原生静态 `dsh-dynamic-toolbox`，各工具以可拆分的 Host feature 直接挂载。
 
 上图来自真实源码与脱敏 fixture。源码能力、验证范围和真实宿主验收见 [实施记录](docs/flowglass-ux-implementation.md)；离线测试与性能基线见 [基线记录](docs/flowglass-ux-baseline.md)。下面折叠区的既有产品截图来自改造前版本。
 
@@ -35,7 +35,7 @@ Flowglass 是本仓库的默认产品和默认构建目标，当前本地版本 
 
 | 输入 | 示例 |
 | --- | --- |
-| npm 包名 | `dsh-flowglass@0.7.3` |
+| npm 包名 | `dsh-flowglass@0.7.4` |
 | GitHub 仓库地址 | `https://github.com/Iwctwbh/dsh-flowglass` |
 | 本地插件目录 | `C:\work\dsh-flowglass` |
 | 本地 tarball | `C:\work\dsh-flowglass-0.7.4.tgz` |
@@ -46,10 +46,10 @@ Flowglass 是本仓库的默认产品和默认构建目标，当前本地版本 
 
 ```powershell
 # npm，推荐固定版本
-dsh plugin --profile web add dsh-flowglass@0.7.3
+dsh plugin --profile web add dsh-flowglass@0.7.4
 
 # GitHub，建议固定 tag 或 commit
-dsh plugin --profile web add github:Iwctwbh/dsh-flowglass#v0.7.3
+dsh plugin --profile web add github:Iwctwbh/dsh-flowglass#v0.7.4
 
 # 本地目录或 tarball
 dsh plugin --profile web add C:\work\dsh-flowglass
@@ -59,7 +59,7 @@ dsh plugin --profile web add C:\work\dsh-flowglass-0.7.4.tgz
 升级或卸载：
 
 ```powershell
-dsh plugin --profile web add dsh-flowglass@0.7.3
+dsh plugin --profile web add dsh-flowglass@0.7.4
 dsh plugin --profile web remove dsh-flowglass
 ```
 
