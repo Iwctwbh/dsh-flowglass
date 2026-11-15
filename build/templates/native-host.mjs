@@ -77,6 +77,8 @@ const makeStaticRegistry = () => {
           state: call && call.state || null,
           root: typeof root === 'string' && root ? root : undefined,
           session: call && typeof call.session === 'string' && call.session ? call.session : undefined,
+          // 浏览器语言（Flowglass UI 双语）：Client 每次面板请求携带 lang，Host 渲染对应语言
+          lang: call && call.lang === 'en' ? 'en' : 'zh',
         })
         if (res && res.ok === false) return { ok: false, error: String(res.error || '工具操作失败') }
         if (!res || typeof res.html !== 'string') return { ok: false, error: '工具返回了无效面板内容' }

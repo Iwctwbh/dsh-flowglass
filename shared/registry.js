@@ -60,6 +60,8 @@ const makeToolboxRegistry = () => {
           session: (call && typeof call.session === 'string' && call.session) ? call.session : undefined,
           // live 叠加层（Flowglass 实时流）：Client 事件窗快照透传给工具 handler，Host 侧校验形状
           live: (call && call.live && typeof call.live === 'object') ? call.live : undefined,
+          // 浏览器语言（Flowglass UI 双语）：Client 每次面板请求携带 lang，Host 渲染对应语言
+          lang: call && call.lang === 'en' ? 'en' : 'zh',
         })
         // panel 永远校验 handler 返回 html 字符串
         if (!res || typeof res.html !== 'string') return { ok: false, error: '工具返回了无效的面板内容' }

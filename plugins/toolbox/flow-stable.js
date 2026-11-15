@@ -1,5 +1,6 @@
 // Plain-script factory: state belongs to one Client instance and bundle.
-const createFlowStableRuntime = (RT, React) => {
+const createFlowStableRuntime = (RT, React, lang) => {
+  const TB_T = (zh, en) => lang === 'en' ? en : zh
   const flowDrafts = new Map()
   const actionIcons = {
     bookmark: '<path d="M4 2.5h8v11l-4-2.5-4 2.5z"/>',
@@ -11,7 +12,7 @@ const createFlowStableRuntime = (RT, React) => {
     if (!root) return root
     for (const button of root.querySelectorAll('[data-flow-bookmark],.fl-zoom-relay,.fl-toolbar>[data-flow-bookmarks],.fl-toolbar>[data-flow-export],.fl-toolbar>[data-flow-compare-preview]')) {
       const kind = button.matches('.fl-zoom-relay') ? 'relay' : button.hasAttribute('data-flow-export') ? 'export' : button.hasAttribute('data-flow-compare-preview') ? 'compare' : 'bookmark'
-      const label = button.getAttribute('aria-label') || (button.hasAttribute('data-flow-bookmarks') ? '查看标记' : button.textContent.trim())
+      const label = button.getAttribute('aria-label') || (button.hasAttribute('data-flow-bookmarks') ? TB_T('查看标记', 'View bookmarks') : button.textContent.trim())
       button.setAttribute('aria-label', label)
       button.setAttribute('title', button.getAttribute('title') || label)
       button.classList.add('fl-icon-button')
@@ -77,7 +78,7 @@ const createFlowStableRuntime = (RT, React) => {
     if (node.nodeType !== 1 || ['SCRIPT', 'IFRAME'].includes(node.tagName)) return null
     const tag = node.tagName.toLowerCase()
     const props = { ...flowElementProps(node), key }
-    if (tag === 'select' && node.hasAttribute('data-lane')) props['aria-label'] = '分支 ' + (Number(node.getAttribute('data-lane')) + 1) + (node.hasAttribute('data-zoom-effort') ? ' 思考强度' : ' 模型')
+    if (tag === 'select' && node.hasAttribute('data-lane')) props['aria-label'] = TB_T('分支 ', 'Branch ') + (Number(node.getAttribute('data-lane')) + 1) + (node.hasAttribute('data-zoom-effort') ? TB_T(' 思考强度', ' thinking effort') : TB_T(' 模型', ' model'))
     if (tag === 'input' || tag === 'textarea' || tag === 'select') {
       props.defaultValue = node.value || node.getAttribute('value') || ''
       if (node.hasAttribute('data-zoom-prompt')) {
@@ -100,7 +101,7 @@ const createFlowStableRuntime = (RT, React) => {
     const children = [...node.childNodes].map((child, index) => flowReactContent(child, child.nodeType === 1 && (child.getAttribute('data-field') || child.getAttribute('data-flow-disclosure')) || index, draftKey))
     if (node.classList.contains('fl-zoom-lane-group')) {
       const lane = node.querySelector('[data-lane]')
-      if (lane) children.unshift(React.createElement('span', { className: 'fl-zoom-lane-label', key: 'lane-label' }, '分支 ' + (Number(lane.getAttribute('data-lane')) + 1)))
+      if (lane) children.unshift(React.createElement('span', { className: 'fl-zoom-lane-label', key: 'lane-label' }, TB_T('分支 ', 'Branch ') + (Number(lane.getAttribute('data-lane')) + 1)))
     }
     return React.createElement(tag, props, children)
   }

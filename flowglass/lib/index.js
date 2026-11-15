@@ -103,6 +103,8 @@ const makeStaticRegistry = () => {
           state: call && call.state || null,
           root: typeof root === 'string' && root ? root : undefined,
           session: call && typeof call.session === 'string' && call.session ? call.session : undefined,
+          // 浏览器语言（Flowglass UI 双语）：Client 每次面板请求携带 lang，Host 渲染对应语言
+          lang: call && call.lang === 'en' ? 'en' : 'zh',
         })
         if (res && res.ok === false) return { ok: false, error: String(res.error || '工具操作失败') }
         if (!res || typeof res.html !== 'string') return { ok: false, error: '工具返回了无效面板内容' }
@@ -705,6 +707,11 @@ return {
     const sq = ctx.get('sessionQuery')
     const fs = ctx.get('fs')
 
+    // ---- UI 语言（面板请求携带浏览器语言；渲染共享变量，中文为兜底）----
+    let FLOW_UI_LANG = 'zh'
+    const FLOW_T = (zh, en) => FLOW_UI_LANG === 'en' ? en : zh
+    const FLOW_DIM_EN = { '同': 'same', '异': 'diff', '缺': 'missing' }
+
     // ---- 会话日志读取缓存（主会话 + 每个子代理会话各一个读取器，避免缓存抖动）----
     const readers = {}
     const growth = {} // sid → 上次渲染的日志条数：本轮条数增长 = 会话活跃（助手卡流光判定用）
@@ -746,12 +753,12 @@ return {
       return 'builtin'
     }
     const KIND_META = {
-      skill: { label: '技能', color: '#7fa7f0', bg: 'rgba(91,141,239,.12)' },
-      cordis: { label: '插件', color: '#d4b95c', bg: 'rgba(212,167,44,.10)' },
-      mcp: { label: 'MCP', color: '#81c784', bg: 'rgba(102,187,106,.10)' },
-      shell: { label: '命令', color: '#d4b95c', bg: 'rgba(212,167,44,.08)' },
-      file: { label: '文件', color: '#7fa7f0', bg: 'rgba(91,141,239,.10)' },
-      builtin: { label: '内置', color: '#9a9ba6', bg: 'rgba(138,139,150,.10)' },
+      skill: { label: '技能', labelEn: 'Skill', color: '#7fa7f0', bg: 'rgba(91,141,239,.12)' },
+      cordis: { label: '插件', labelEn: 'Plugin', color: '#d4b95c', bg: 'rgba(212,167,44,.10)' },
+      mcp: { label: 'MCP', labelEn: 'MCP', color: '#81c784', bg: 'rgba(102,187,106,.10)' },
+      shell: { label: '命令', labelEn: 'Command', color: '#d4b95c', bg: 'rgba(212,167,44,.08)' },
+      file: { label: '文件', labelEn: 'File', color: '#7fa7f0', bg: 'rgba(91,141,239,.10)' },
+      builtin: { label: '内置', labelEn: 'Built-in', color: '#9a9ba6', bg: 'rgba(138,139,150,.10)' },
     }
 
     // ---- 声明式工具显示规则 ----
@@ -799,9 +806,9 @@ return {
       return st.live && ms > 0 ? String(ms) : ''
     }
     const textField = (value, name, max) => {
-      if (typeof value !== 'string' || !value.trim()) throw new Error('显示规则缺少 ' + name)
+      if (typeof value !== 'string' || !value.trim()) throw new Error(FLOW_T('显示规则缺少 ', 'Display rule missing ') + name)
       const out = value.trim()
-      if (out.length > max) throw new Error('显示规则的 ' + name + ' 最长 ' + max + ' 字符')
+      if (out.length > max) throw new Error(FLOW_T('显示规则的 ' + name + ' 最长 ' + max + ' 字符', name + ' of the display rule must be at most ' + max + ' characters'))
       return out
     }
     const optionalTextField = (value, name, max) => {
@@ -811,7 +818,7 @@ return {
     const stringList = (value, name, maxItems, maxLength, required) => {
       if (value == null && !required) return []
       if (!Array.isArray(value) || (required && value.length === 0) || value.length > maxItems) {
-        throw new Error('显示规则的 ' + name + ' 必须是 1–' + maxItems + ' 项字符串数组')
+        throw new Error(FLOW_T('显示规则的 ' + name + ' 必须是 1–' + maxItems + ' 项字符串数组', name + ' of the display rule must be a string array of 1–' + maxItems + ' items'))
       }
       const out = []
       for (const item of value) {
@@ -823,16 +830,16 @@ return {
     const normalizePresentationRules = (raw) => {
       let value = raw
       if (typeof value === 'string') {
-        if (value.length > 16000) throw new Error('显示规则 JSON 不能超过 16000 字符')
-        try { value = JSON.parse(value || '[]') } catch (e) { throw new Error('显示规则不是有效 JSON') }
+        if (value.length > 16000) throw new Error(FLOW_T('显示规则 JSON 不能超过 16000 字符', 'Display rule JSON must be at most 16000 characters'))
+        try { value = JSON.parse(value || '[]') } catch (e) { throw new Error(FLOW_T('显示规则不是有效 JSON', 'Display rules are not valid JSON')) }
       }
       if (!Array.isArray(value) || value.length > MAX_PRESENTATION_RULES) {
-        throw new Error('显示规则必须是数组，最多 ' + MAX_PRESENTATION_RULES + ' 条')
+        throw new Error(FLOW_T('显示规则必须是数组，最多 ' + MAX_PRESENTATION_RULES + ' 条', 'Display rules must be an array of at most ' + MAX_PRESENTATION_RULES + ' rules'))
       }
       return value.map((rule, index) => {
-        if (!rule || typeof rule !== 'object' || Array.isArray(rule)) throw new Error('第 ' + (index + 1) + ' 条显示规则必须是对象')
+        if (!rule || typeof rule !== 'object' || Array.isArray(rule)) throw new Error(FLOW_T('第 ' + (index + 1) + ' 条显示规则必须是对象', 'Display rule #' + (index + 1) + ' must be an object'))
         const color = rule.color == null || rule.color === '' ? '#81c784' : textField(rule.color, 'color', 7)
-        if (!/^#[0-9a-fA-F]{6}$/.test(color)) throw new Error('第 ' + (index + 1) + ' 条显示规则的 color 必须是 #RRGGBB')
+        if (!/^#[0-9a-fA-F]{6}$/.test(color)) throw new Error(FLOW_T('第 ' + (index + 1) + ' 条显示规则的 color 必须是 #RRGGBB', 'color of display rule #' + (index + 1) + ' must be #RRGGBB'))
         return {
           enabled: rule.enabled !== false,
           tools: stringList(rule.tools, 'tools', 8, 64, true),
@@ -1159,7 +1166,7 @@ return {
             akey: card.live ? 'assistant-attempt:' + card.live.attemptId : 'assistant-event:' + ev.seq,
             finalSeq: ev.seq, runStart: stepStarts[k] != null ? stepStarts[k] : (stream.firstAt != null ? stream.firstAt : ev.time),
             runDur: Math.max(0, ev.time - (stepStarts[k] != null ? stepStarts[k] : (stream.firstAt != null ? stream.firstAt : ev.time))),
-            preview: oneLine(finalText, 110) || (stream.toolCall ? '（工具调用）' : (stream.reasoning ? oneLine(stream.reasoning, 110) : '（工具调用）')),
+            preview: oneLine(finalText, 110) || (stream.toolCall ? FLOW_T('（工具调用）', '(tool call)') : (stream.reasoning ? oneLine(stream.reasoning, 110) : FLOW_T('（工具调用）', '(tool call)'))),
             full: finalText || stream.text || stream.reasoning,
             tok: u ? (u.outputTokens || 0) : null, route: msgRoute || route,
             streaming: false, settled: true,
@@ -1179,14 +1186,14 @@ return {
             kind: 'msg', role: 'ai', seq: uiSeqFinal, time: last.ev.time, turn: card.turn, step: card.step,
             attemptId: '', akey: 'assistant-event:' + last.ev.seq, finalSeq: last.ev.seq,
             runStart: runFrom, runDur: Math.max(0, runTo - runFrom),
-            preview: (s.text || s.reasoning ? oneLine(s.text || s.reasoning, 100) + ' ' : '') + (s.finishKind === 'aborted' ? '（已取消）' : '（生成失败）'),
+            preview: (s.text || s.reasoning ? oneLine(s.text || s.reasoning, 100) + ' ' : '') + (s.finishKind === 'aborted' ? FLOW_T('（已取消）', '(cancelled)') : FLOW_T('（生成失败）', '(generation failed)')),
             full: s.text || s.reasoning,
             tok: null, route, streaming: false, settled: true,
             interrupted: false, failed: s.finishKind === 'error' || Boolean(s.failCode),
             abandoned: s.finishKind === 'aborted',
             finishKind: s.finishKind, failCode: s.failCode || '', failMsg: s.failMsg || '',
           }
-          if (!failed && !s.failCode && s.finishKind !== 'aborted') it.preview = oneLine(s.text || s.reasoning, 110) || '（尝试未形成消息）'
+          if (!failed && !s.failCode && s.finishKind !== 'aborted') it.preview = oneLine(s.text || s.reasoning, 110) || FLOW_T('（尝试未形成消息）', '(attempt produced no message)')
           // 步骤仍在开（无 step/end、无在途 live）且重试已调度未起跳 → 等待重试态：
           // 卡片落定但徽标显示退避倒计时（下一次 live attempt 到来时替换为流式卡）
           const rsEarly = retriesByStep[k]
@@ -1230,9 +1237,9 @@ return {
             it.settled = a.finishKind !== ''
             const endRef = endedAt != null ? endedAt : (a.lastAt != null ? a.lastAt : it.runStart)
             it.runDur = Math.max(0, endRef - it.runStart)
-            it.preview = (it.full ? oneLine(it.full, 100) + ' ' : '') + (it.abandoned ? '（已取消）' : '（生成已中断）')
+            it.preview = (it.full ? oneLine(it.full, 100) + ' ' : '') + (it.abandoned ? FLOW_T('（已取消）', '(cancelled)') : FLOW_T('（生成已中断）', '(generation interrupted)'))
           } else {
-            it.preview = oneLine(it.full, 110) || (a.toolCall ? '正在准备工具调用…' : (a.reasoning ? '思考中…' : '正在生成…'))
+            it.preview = oneLine(it.full, 110) || (a.toolCall ? FLOW_T('正在准备工具调用…', 'Preparing tool call…') : (a.reasoning ? FLOW_T('思考中…', 'Thinking…') : FLOW_T('正在生成…', 'Generating…')))
           }
         }
         // 重试链挂卡（含重试后成功的卡与终局失败的中断卡）
@@ -1297,7 +1304,7 @@ return {
     const bookmarkButtonHtml = (it, st) => {
       const key = nodeKeyOf(st.sid || '', it)
       const saved = Array.isArray(st.__flowBookmarks) && st.__flowBookmarks.some((b) => b.sessionId === st.sid && b.kind === it.kind && Number(b.seq) === it.seq)
-      return '<button type="button" class="fl-bookmark-btn' + (saved ? ' is-bookmarked' : '') + '" data-flow-bookmark="1" data-node-key="' + esc(key) + '" data-sid="' + esc(st.sid || '') + '" data-kind="' + it.kind + '" data-seq="' + it.seq + '" aria-pressed="' + (saved ? 'true' : 'false') + '" aria-label="' + (saved ? '编辑节点标记' : '标记此节点') + '">' + (saved ? '已标记' : '标记') + '</button>'
+      return '<button type="button" class="fl-bookmark-btn' + (saved ? ' is-bookmarked' : '') + '" data-flow-bookmark="1" data-node-key="' + esc(key) + '" data-sid="' + esc(st.sid || '') + '" data-kind="' + it.kind + '" data-seq="' + it.seq + '" aria-pressed="' + (saved ? 'true' : 'false') + '" aria-label="' + (saved ? FLOW_T('编辑节点标记', 'Edit node bookmark') : FLOW_T('标记此节点', 'Bookmark this node')) + '">' + (saved ? FLOW_T('已标记', 'Bookmarked') : FLOW_T('标记', 'Bookmark')) + '</button>'
     }
     const replayEventsOf = (events, st) => st.replaySeq == null ? events : events.filter((e) => Number(e.seq) <= st.replaySeq)
     const itemMatches = (it, st) => {
@@ -1321,17 +1328,17 @@ return {
     const queryToolbarHtml = (st, selection, events) => {
       const option = (value, label, current) => '<option value="' + value + '"' + (value === current ? ' selected' : '') + '>' + label + '</option>'
       const maxSeq = events.reduce((max, e) => Math.max(max, Number(e.seq) || 0), 0)
-      return '<details class="fl-query-bar" data-flow-disclosure="query"' + (selection.filtered ? ' open' : '') + '><summary title="查找与筛选">查找' + (selection.filtered ? ' · ' + selection.matches + ' 项' : '') + '</summary><div class="fl-filter-panel"><div class="fl-filter-row">' +
-        '<label>查找<input class="tb-input" type="search" data-field="flowSearch" value="' + esc(st.flowSearch || '') + '" placeholder="消息、工具或错误" aria-label="查找节点"></label>' +
-        '<label>范围<select class="tb-select" data-field="flowSearchScope" data-action-onchange="fsearch">' + option('loaded', '已加载节点', st.flowSearchScope) + option('all', '全会话日志', st.flowSearchScope) + '</select></label>' +
-        '<label>类型<select class="tb-select" data-field="flowRole" data-action-onchange="ffilter">' + ['all', 'user', 'ai', 'call', 'inject'].map((value, i) => option(value, ['全部类型', '用户', '助手', '工具', '系统上下文'][i], st.flowRole)).join('') + '</select></label>' +
-        '<label>状态<select class="tb-select" data-field="flowStatus" data-action-onchange="ffilter">' + ['all', 'running', 'failed'].map((value, i) => option(value, ['全部状态', '运行中', '失败'][i], st.flowStatus)).join('') + '</select></label>' +
-        '<button type="button" class="tb-btn tb-btn-sm" data-action="fsearch">查找</button><button type="button" class="tb-btn tb-btn-sm" data-action="fsearch-clear">清除筛选</button></div>' +
-        '<p class="fl-search-summary">' + (st.flowSearchScope === 'all' ? '全会话已记录日志' : '当前已加载节点') + (st.replaySeq != null ? ' · 回放时点之前' : '') + ' · 已检查 ' + selection.searched + ' 项' + (selection.filtered ? ' · 命中 ' + selection.matches + ' 项' : '') + (selection.truncated ? ' · 显示前 200 个节点，请缩小条件' : '') + '</p></div></details>' +
-        '<details class="fl-replay-bar" data-flow-disclosure="replay"' + (st.replaySeq != null ? ' open' : '') + '><summary title="只读回放">回放' + (st.replaySeq != null ? ' · seq ' + st.replaySeq : '') + '</summary><div class="fl-filter-panel"><div class="fl-filter-row">' +
-        '<label>事件位置<input class="tb-input" type="number" min="0" max="' + maxSeq + '" step="1" data-field="flowReplaySeq" value="' + (st.replaySeq == null ? maxSeq : st.replaySeq) + '" aria-label="回放事件位置"></label>' +
-        '<button type="button" class="tb-btn tb-btn-sm" data-action="freplay">查看此时点</button><button type="button" class="tb-btn tb-btn-sm" data-action="freplay" data-step="-1">上一个事件</button><button type="button" class="tb-btn tb-btn-sm" data-action="freplay" data-step="1">下一个事件</button>' +
-        '<button type="button" class="tb-btn tb-btn-sm" data-action="freplay-live">返回最新</button></div><p class="tb-note">按已记录事件回放；此时点之后的结果和实时内容不会显示。</p></div></details>'
+      return '<details class="fl-query-bar" data-flow-disclosure="query"' + (selection.filtered ? ' open' : '') + '><summary title="' + FLOW_T('查找与筛选', 'Search and filter') + '">' + FLOW_T('查找', 'Search') + (selection.filtered ? FLOW_T(' · ' + selection.matches + ' 项', ' · ' + selection.matches + ' match(es)') : '') + '</summary><div class="fl-filter-panel"><div class="fl-filter-row">' +
+        '<label>' + FLOW_T('查找', 'Search') + '<input class="tb-input" type="search" data-field="flowSearch" value="' + esc(st.flowSearch || '') + '" placeholder="' + FLOW_T('消息、工具或错误', 'Messages, tools, or errors') + '" aria-label="' + FLOW_T('查找节点', 'Search nodes') + '"></label>' +
+        '<label>' + FLOW_T('范围', 'Scope') + '<select class="tb-select" data-field="flowSearchScope" data-action-onchange="fsearch">' + option('loaded', FLOW_T('已加载节点', 'Loaded nodes'), st.flowSearchScope) + option('all', FLOW_T('全会话日志', 'Full session log'), st.flowSearchScope) + '</select></label>' +
+        '<label>' + FLOW_T('类型', 'Type') + '<select class="tb-select" data-field="flowRole" data-action-onchange="ffilter">' + ['all', 'user', 'ai', 'call', 'inject'].map((value, i) => option(value, [FLOW_T('全部类型', 'All types'), FLOW_T('用户', 'User'), FLOW_T('助手', 'Assistant'), FLOW_T('工具', 'Tools'), FLOW_T('系统上下文', 'System context')][i], st.flowRole)).join('') + '</select></label>' +
+        '<label>' + FLOW_T('状态', 'Status') + '<select class="tb-select" data-field="flowStatus" data-action-onchange="ffilter">' + ['all', 'running', 'failed'].map((value, i) => option(value, [FLOW_T('全部状态', 'All statuses'), FLOW_T('运行中', 'Running'), FLOW_T('失败', 'Failed')][i], st.flowStatus)).join('') + '</select></label>' +
+        '<button type="button" class="tb-btn tb-btn-sm" data-action="fsearch">' + FLOW_T('查找', 'Search') + '</button><button type="button" class="tb-btn tb-btn-sm" data-action="fsearch-clear">' + FLOW_T('清除筛选', 'Clear filters') + '</button></div>' +
+        '<p class="fl-search-summary">' + (st.flowSearchScope === 'all' ? FLOW_T('全会话已记录日志', 'Searched the full session log') : FLOW_T('当前已加载节点', 'Searched the loaded nodes')) + (st.replaySeq != null ? FLOW_T(' · 回放时点之前', ' · before the replay point') : '') + FLOW_T(' · 已检查 ' + selection.searched + ' 项', ' · checked ' + selection.searched + ' item(s)') + (selection.filtered ? FLOW_T(' · 命中 ' + selection.matches + ' 项', ' · matched ' + selection.matches + ' item(s)') : '') + (selection.truncated ? FLOW_T(' · 显示前 200 个节点，请缩小条件', ' · showing the first 200 nodes; narrow the filter') : '') + '</p></div></details>' +
+        '<details class="fl-replay-bar" data-flow-disclosure="replay"' + (st.replaySeq != null ? ' open' : '') + '><summary title="' + FLOW_T('只读回放', 'Read-only replay') + '">' + FLOW_T('回放', 'Replay') + (st.replaySeq != null ? ' · seq ' + st.replaySeq : '') + '</summary><div class="fl-filter-panel"><div class="fl-filter-row">' +
+        '<label>' + FLOW_T('事件位置', 'Event position') + '<input class="tb-input" type="number" min="0" max="' + maxSeq + '" step="1" data-field="flowReplaySeq" value="' + (st.replaySeq == null ? maxSeq : st.replaySeq) + '" aria-label="' + FLOW_T('回放事件位置', 'Replay event position') + '"></label>' +
+        '<button type="button" class="tb-btn tb-btn-sm" data-action="freplay">' + FLOW_T('查看此时点', 'View at this point') + '</button><button type="button" class="tb-btn tb-btn-sm" data-action="freplay" data-step="-1">' + FLOW_T('上一个事件', 'Previous event') + '</button><button type="button" class="tb-btn tb-btn-sm" data-action="freplay" data-step="1">' + FLOW_T('下一个事件', 'Next event') + '</button>' +
+        '<button type="button" class="tb-btn tb-btn-sm" data-action="freplay-live">' + FLOW_T('返回最新', 'Back to latest') + '</button></div><p class="tb-note">' + FLOW_T('按已记录事件回放；此时点之后的结果和实时内容不会显示。', 'Replays from recorded events; results and live content after this point are not shown.') + '</p></div></details>'
     }
 
     // ---- 子代理调用 → 目标会话 id（旧版结果文本 / alpha.4 send_message）----
@@ -1359,7 +1366,7 @@ return {
           if (it.role === 'ai') rows.push({ txt: it.preview, cls: 'ai' })
         } else {
           const km = KIND_META[it.cat] || KIND_META.builtin
-          rows.push({ txt: it.name + ' ' + oneLine(it.argsRaw, 40), cls: '', pill: km.label, status: it.status, dur: it.dur })
+          rows.push({ txt: it.name + ' ' + oneLine(it.argsRaw, 40), cls: '', pill: FLOW_T(km.label, km.labelEn || km.label), status: it.status, dur: it.dur })
         }
       }
       let live = false
@@ -1379,23 +1386,23 @@ return {
 
     // ---- 渲染 ----
     const statusGlyph = (s, dur) => {
-      if (s === 'ok') return '<span class="fl-status" style="color:var(--tb-done-text,#81c784)">已完成 · ' + fmtDur(dur) + '</span>'
-      if (s === 'error') return '<span class="fl-status" style="color:var(--tb-danger-text,#f28b82)">失败 · ' + fmtDur(dur) + '</span>'
-      return '<span class="fl-spin" aria-hidden="true"></span><span class="fl-status">运行中</span>'
+      if (s === 'ok') return '<span class="fl-status" style="color:var(--tb-done-text,#81c784)">' + FLOW_T('已完成 · ', 'Completed · ') + fmtDur(dur) + '</span>'
+      if (s === 'error') return '<span class="fl-status" style="color:var(--tb-danger-text,#f28b82)">' + FLOW_T('失败 · ', 'Failed · ') + fmtDur(dur) + '</span>'
+      return '<span class="fl-spin" aria-hidden="true"></span><span class="fl-status">' + FLOW_T('运行中', 'Running') + '</span>'
     }
 
-    const syncStatusHtml = (st) => '<span class="fl-sync-status' + (st.live ? '' : ' is-paused') + '" data-flow-sync-state="' + (st.live ? 'live' : 'paused') + '">' + (st.live ? '已同步' : '已暂停同步') + '</span>'
-    const toolbarMoreHtml = (st, help, technical) => '<details class="fl-toolbar-more" data-flow-disclosure="more"><summary>更多</summary><div class="fl-toolbar-menu">' +
-      '<button type="button" class="tb-btn tb-btn-sm" data-flow-bookmarks="1">标记</button><button type="button" class="tb-btn tb-btn-sm" data-flow-export="1">导出</button>' +
-      (st.zoom ? '<button type="button" class="tb-btn tb-btn-sm" data-flow-compare-preview="1">比较所选结论</button>' : '') +
-      '<button type="button" class="tb-btn tb-btn-sm" data-action="refresh">立即刷新</button>' +
-      '<button type="button" class="tb-chip" data-action="toggle-live" aria-pressed="' + (st.live ? 'true' : 'false') + '">' + (st.live ? '暂停自动同步' : '恢复自动同步') + '</button>' +
-      '<button type="button" class="tb-chip" data-action="toggle-follow" aria-pressed="' + (st.follow ? 'true' : 'false') + '" title="查看分支或子代理时，同时切换 DeepSeek Harness 主会话">查看时同步切换主会话：' + (st.follow ? '开' : '关') + '</button>' +
-      (technical ? '<details class="fl-technical-info" data-flow-disclosure="technical:session"><summary>技术信息</summary><p class="tb-note">' + esc(technical) + '</p></details>' : '') +
-      '<details class="fl-help" data-flow-disclosure="help"><summary>使用说明</summary><p class="tb-note fl-help-text">' + esc(help) + '</p></details>' +
+    const syncStatusHtml = (st) => '<span class="fl-sync-status' + (st.live ? '' : ' is-paused') + '" data-flow-sync-state="' + (st.live ? 'live' : 'paused') + '">' + (st.live ? FLOW_T('已同步', 'Synced') : FLOW_T('已暂停同步', 'Sync paused')) + '</span>'
+    const toolbarMoreHtml = (st, help, technical) => '<details class="fl-toolbar-more" data-flow-disclosure="more"><summary>' + FLOW_T('更多', 'More') + '</summary><div class="fl-toolbar-menu">' +
+      '<button type="button" class="tb-btn tb-btn-sm" data-flow-bookmarks="1">' + FLOW_T('标记', 'Bookmarks') + '</button><button type="button" class="tb-btn tb-btn-sm" data-flow-export="1">' + FLOW_T('导出', 'Export') + '</button>' +
+      (st.zoom ? '<button type="button" class="tb-btn tb-btn-sm" data-flow-compare-preview="1">' + FLOW_T('比较所选结论', 'Compare selected conclusions') + '</button>' : '') +
+      '<button type="button" class="tb-btn tb-btn-sm" data-action="refresh">' + FLOW_T('立即刷新', 'Refresh now') + '</button>' +
+      '<button type="button" class="tb-chip" data-action="toggle-live" aria-pressed="' + (st.live ? 'true' : 'false') + '">' + (st.live ? FLOW_T('暂停自动同步', 'Pause auto-sync') : FLOW_T('恢复自动同步', 'Resume auto-sync')) + '</button>' +
+      '<button type="button" class="tb-chip" data-action="toggle-follow" aria-pressed="' + (st.follow ? 'true' : 'false') + '" title="' + FLOW_T('查看分支或子代理时，同时切换 DeepSeek Harness 主会话', 'When viewing a branch or subagent, also switch the DeepSeek Harness main session') + '">' + FLOW_T('查看时同步切换主会话：', 'Switch main session on view: ') + (st.follow ? FLOW_T('开', 'On') : FLOW_T('关', 'Off')) + '</button>' +
+      (technical ? '<details class="fl-technical-info" data-flow-disclosure="technical:session"><summary>' + FLOW_T('技术信息', 'Technical details') + '</summary><p class="tb-note">' + esc(technical) + '</p></details>' : '') +
+      '<details class="fl-help" data-flow-disclosure="help"><summary>' + FLOW_T('使用说明', 'Help') + '</summary><p class="tb-note fl-help-text">' + esc(help) + '</p></details>' +
       '</div></details>'
-    const inspectorBackHtml = (seq) => '<button type="button" class="fl-rail-x fl-rail-back" data-action="fdetail" data-seq="' + seq + '" aria-label="关闭详情并返回流程" title="关闭详情（Escape）">← 返回</button>'
-    const inspectorTechnicalHtml = (seq, text) => '<details class="fl-technical-info" data-flow-disclosure="technical:' + seq + '"><summary>技术信息</summary><p class="tb-note">' + esc(text) + '</p></details>'
+    const inspectorBackHtml = (seq) => '<button type="button" class="fl-rail-x fl-rail-back" data-action="fdetail" data-seq="' + seq + '" aria-label="' + FLOW_T('关闭详情并返回流程', 'Close details and return to the flow') + '" title="' + FLOW_T('关闭详情（Escape）', 'Close details (Escape)') + '">← ' + FLOW_T('返回', 'Back') + '</button>'
+    const inspectorTechnicalHtml = (seq, text) => '<details class="fl-technical-info" data-flow-disclosure="technical:' + seq + '"><summary>' + FLOW_T('技术信息', 'Technical details') + '</summary><p class="tb-note">' + esc(text) + '</p></details>'
 
     // 进出摘要：传入/返回（用户核心诉求——看到传给 skill 什么、skill 返回什么）
     // 传入：从 arguments JSON 提取最有信息量的字段（command/file_path/pattern/prompt…），而非整段 JSON
@@ -1409,19 +1416,19 @@ return {
         }
         const ks = Object.keys(a)
         if (ks.length) return ks[0] + ': ' + oneLine(String(a[ks[0]]), 72)
-        return '（无参数）'
-      } catch (e) { return oneLine(c.argsRaw, 72) || '（无参数）' }
+        return FLOW_T('（无参数）', '(no arguments)')
+      } catch (e) { return oneLine(c.argsRaw, 72) || FLOW_T('（无参数）', '(no arguments)') }
     }
     // 返回：结果首条有意义文本 + 体量 + 状态
     const outSummary = (c) => {
       if (c.status === 'pending') return null
       if (c.status === 'error') {
         const t = (c.resultText || '').trim()
-        return { text: t ? oneLine(t, 72) : '（调用失败）', err: true }
+        return { text: t ? oneLine(t, 72) : FLOW_T('（调用失败）', '(call failed)'), err: true }
       }
       const lines = String(c.resultText || '').split('\n').map((s) => s.trim()).filter(Boolean)
       const first = lines[0] || ''
-      return { text: (first ? oneLine(first, 72) : '（空返回）') + (c.outLen > 72 ? ' · ' + fmtSize(c.outLen) : ''), err: false }
+      return { text: (first ? oneLine(first, 72) : FLOW_T('（空返回）', '(empty result)')) + (c.outLen > 72 ? ' · ' + fmtSize(c.outLen) : ''), err: false }
     }
     // 调用连线单元（形态约定·手绘参考图：主干卡在左、工具卡在右，中间两条水平连线——
     // 上=输入摘要 + 横线 + ▶ 右出；下=◀ + 横线 + 输出摘要 回左；输出线绿色系、错误红色系、进行中虚线）；
@@ -1433,19 +1440,19 @@ return {
       const pending = c.status === 'pending'
       const o = outSummary(c)
       return '<div class="fl-wp" data-flow-card="' + c.seq + '" data-flow-status="' + c.status + '">' +
-          '<div class="fl-wl"><span class="fl-wl-txt">输入 ' + esc(inSummary(c)) + '</span>' +
+          '<div class="fl-wl"><span class="fl-wl-txt">' + FLOW_T('输入 ', 'Input ') + esc(inSummary(c)) + '</span>' +
             '<span class="fl-wl-row"><span class="fl-wl-line"></span><span class="fl-wl-arr">▶</span></span></div>' +
           (pending
-            ? '<div class="fl-wl fl-wl-b fl-wl-wait"><span class="fl-wl-txt">输出 进行中…</span>' +
+            ? '<div class="fl-wl fl-wl-b fl-wl-wait"><span class="fl-wl-txt">' + FLOW_T('输出 进行中…', 'Output in progress…') + '</span>' +
               '<span class="fl-wl-row"><span class="fl-wl-arr">◀</span><span class="fl-wl-line"></span></span></div>'
-            : '<div class="fl-wl fl-wl-b' + (o && o.err ? ' fl-wl-err' : '') + '"><span class="fl-wl-txt">输出 ' + esc(o ? o.text : '') + '</span>' +
+            : '<div class="fl-wl fl-wl-b' + (o && o.err ? ' fl-wl-err' : '') + '"><span class="fl-wl-txt">' + FLOW_T('输出 ', 'Output ') + esc(o ? o.text : '') + '</span>' +
               '<span class="fl-wl-row"><span class="fl-wl-arr">◀</span><span class="fl-wl-line"></span></span></div>') +
         '</div>' +
         '<div class="fl-callside">' +
-          '<button type="button" class="fl-iocard' + (pending && st.replaySeq == null ? ' fl-live' : '') + (isExp ? ' fl-on' : '') + (o && o.err ? ' fl-err' : '') + '" data-action="fdetail" data-seq="' + c.seq + '" data-flow-select-seq="' + c.seq + '"' + nodeIdentityHtml(c, st) + ' aria-expanded="' + (isExp ? 'true' : 'false') + '" aria-label="查看工具详情：' + esc(identity.name) + '" title="查看完整输入与输出">' +
-            '<span class="fl-iohead">' + (km.label ? '<span class="fl-tag" style="--fg-tool-color:' + km.color + ';color:' + km.color + ';background:' + km.bg + '">' + esc(km.label) + '</span>' : '') +
+          '<button type="button" class="fl-iocard' + (pending && st.replaySeq == null ? ' fl-live' : '') + (isExp ? ' fl-on' : '') + (o && o.err ? ' fl-err' : '') + '" data-action="fdetail" data-seq="' + c.seq + '" data-flow-select-seq="' + c.seq + '"' + nodeIdentityHtml(c, st) + ' aria-expanded="' + (isExp ? 'true' : 'false') + '" aria-label="' + FLOW_T('查看工具详情：', 'View tool details: ') + esc(identity.name) + '" title="' + FLOW_T('查看完整输入与输出', 'View full input and output') + '">' +
+            '<span class="fl-iohead">' + (km.label ? '<span class="fl-tag" style="--fg-tool-color:' + km.color + ';color:' + km.color + ';background:' + km.bg + '">' + esc(FLOW_T(km.label, km.labelEn || km.label)) + '</span>' : '') +
             '<span class="fl-name">' + esc(identity.name) + '</span>' +
-            (pending && st.replaySeq != null ? '<span class="fl-status">此时尚未完成</span>' : pending ? '<span class="fl-spin" aria-hidden="true"></span><span class="fl-time" data-flow-timer="' + c.time + '" data-flow-timer-prefix="运行中 · ">运行中</span>' : statusGlyph(c.status, c.dur)) + '</span>' +
+            (pending && st.replaySeq != null ? '<span class="fl-status">' + FLOW_T('此时尚未完成', 'Not completed at this point') + '</span>' : pending ? '<span class="fl-spin" aria-hidden="true"></span><span class="fl-time" data-flow-timer="' + c.time + '" data-flow-timer-prefix="' + FLOW_T('运行中 · ', 'Running · ') + '">' + FLOW_T('运行中', 'Running') + '</span>' : statusGlyph(c.status, c.dur)) + '</span>' +
           '</button>' +
         '</div>'
     }
@@ -1454,7 +1461,7 @@ return {
     const grpSide = (node, units) => {
       const n = node.calls.length
       if (n < 2) return '<div class="fl-lane-side">' + units + '</div>'
-      return '<div class="fl-lane-side fl-grp"><span class="fl-grp-tag">并行 ×' + n + '</span>' + units + '</div>'
+      return '<div class="fl-lane-side fl-grp"><span class="fl-grp-tag">' + FLOW_T('并行 ×' + n, 'Parallel ×' + n) + '</span>' + units + '</div>'
     }
 
     // 泳道中列包装：连接符（▼ 上方空隙由 ::before 主干线自适应填满，▼ 贴内容顶）+ 内容 + 对称弹性空间
@@ -1481,25 +1488,25 @@ return {
       if (rs && rs.length) {
         const last = rs[rs.length - 1]
         const max = typeof last.maxRetries === 'number' ? '/' + last.maxRetries : ''
-        const tip = esc((last.code || '') + (last.message ? '：' + last.message : ''))
+        const tip = esc((last.code || '') + (last.message ? FLOW_T('：', ': ') + last.message : ''))
         if ((it.streaming || it.awaitingRetry) && !last.startedAt) {
           const remain = Math.max(0, Math.ceil((last.time + (last.delayMs || 0) - Date.now()) / 1000))
-          out += '<span class="fl-retry fl-retry-wait" title="' + tip + '">⟳ 等待重试 ' + last.retry + max + (remain ? ' · ' + remain + 's' : '') + '</span>'
+          out += '<span class="fl-retry fl-retry-wait" title="' + tip + '">' + FLOW_T('⟳ 等待重试 ' + last.retry + max + (remain ? ' · ' + remain + 's' : ''), '⟳ Waiting for retry ' + last.retry + max + (remain ? ' · ' + remain + 's' : '')) + '</span>'
         } else if (it.streaming) {
-          out += '<span class="fl-retry fl-retry-wait" title="' + tip + '">⟳ 重试 ' + last.retry + max + ' · 进行中</span>'
+          out += '<span class="fl-retry fl-retry-wait" title="' + tip + '">' + FLOW_T('⟳ 重试 ' + last.retry + max + ' · 进行中', '⟳ Retry ' + last.retry + max + ' · in progress') + '</span>'
         } else if (!last.startedAt) {
-          out += '<span class="fl-retry fl-retry-cancel" title="退避等待期间步骤/轮次已结束">⟳ 重试 ' + last.retry + max + ' 未成行</span>'
+          out += '<span class="fl-retry fl-retry-cancel" title="' + FLOW_T('退避等待期间步骤/轮次已结束', 'Step/turn ended during the backoff wait') + '">' + FLOW_T('⟳ 重试 ' + last.retry + max + ' 未成行', '⟳ Retry ' + last.retry + max + ' never launched') + '</span>'
         } else if (it.interrupted) {
-          out += '<span class="fl-retry fl-retry-fail" title="' + tip + '">⟳ 重试 ' + last.retry + max + ' · 失败</span>'
+          out += '<span class="fl-retry fl-retry-fail" title="' + tip + '">' + FLOW_T('⟳ 重试 ' + last.retry + max + ' · 失败', '⟳ Retry ' + last.retry + max + ' · failed') + '</span>'
         } else {
-          out += '<span class="fl-retry fl-retry-ok" title="' + tip + '">⟳ 重试 ' + last.retry + max + ' · 成功</span>'
+          out += '<span class="fl-retry fl-retry-ok" title="' + tip + '">' + FLOW_T('⟳ 重试 ' + last.retry + max + ' · 成功', '⟳ Retry ' + last.retry + max + ' · succeeded') + '</span>'
         }
       }
       if (it.interrupted && it.failCode) {
         out += '<span class="fl-retry fl-retry-fail" title="' + esc(it.failMsg || '') + '">✗ ' + esc(it.failCode) + '</span>'
       }
       if (it.finishKind === 'max-tokens') {
-        out += '<span class="fl-retry fl-retry-cancel" title="输出因 max-tokens 长度上限截断">⤒ 已达上限</span>'
+        out += '<span class="fl-retry fl-retry-cancel" title="' + FLOW_T('输出因 max-tokens 长度上限截断', 'Output truncated by the max-tokens limit') + '">' + FLOW_T('⤒ 已达上限', '⤒ Limit reached') + '</span>'
       }
       return out
     }
@@ -1509,38 +1516,38 @@ return {
       const isAi = it.role === 'ai'
       const aiRunning = isAi && it.streaming && st.replaySeq == null
       const color = isUser ? 'var(--tb-done-text,#81c784)' : isAi ? 'var(--tb-active-text,#7fa7f0)' : 'var(--tb-text-3,#777884)'
-      const label = isUser ? '用户' : isAi ? '助手' : '系统上下文'
+      const label = isUser ? FLOW_T('用户', 'User') : isAi ? FLOW_T('助手', 'Assistant') : FLOW_T('系统上下文', 'System context')
       // 卡片统一面片底色（fl-node），角色色只落在左侧色条 + 几何符号/tag 上，避免整卡彩色半透明的杂乱感
       // 用户/助手/注入卡均可点开右侧详情浮层看完整内容（与工具卡同一交互）；live=进行中 → 与工具卡同款流光脉冲
       // data-flow-state 暴露折叠器终态（streaming/settled/failed/abandoned）；data-flow-attempt 带实时 attempt 身份
       const branchSeq = it.finalSeq != null ? it.finalSeq : it.seq
       const flowState = it.streaming ? 'streaming' : (it.abandoned ? 'abandoned' : (it.failed || (it.interrupted && it.failCode) ? 'failed' : 'settled'))
       const branch = isAi && !it.streaming && st.replaySeq == null
-        ? '<button type="button" class="fl-branch-btn" data-flow-branch data-seq="' + branchSeq + '" title="从这条助手消息在 Harness 中创建新分支" aria-label="在新对话中分支">' +
+        ? '<button type="button" class="fl-branch-btn" data-flow-branch data-seq="' + branchSeq + '" title="' + FLOW_T('从这条助手消息在 Harness 中创建新分支', 'Create a new Harness branch from this assistant message') + '" aria-label="' + FLOW_T('在新对话中分支', 'Branch in a new conversation') + '">' +
           '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3v5a3 3 0 0 0 3 3h4"/><path d="M8 5l3-3 3 3"/><path d="M11 2v4"/><path d="M9 9l2 2-2 2"/></svg></button>'
         : ''
       const card = '<div class="fl-node' + (expandedSeq === it.seq ? ' fl-on' : '') + (live ? ' fl-live' : '') + '" style="border-left-color:' + color + '" data-flow-main-card="' + it.seq + '" data-flow-role="' + it.role + '" data-flow-state="' + flowState + '"' + (isAi && it.attemptId ? ' data-flow-attempt="' + esc(it.attemptId) + '"' : '') + ' data-flow-select-seq="' + it.seq + '"' + nodeIdentityHtml(it, st) + '>' +
-        '<button type="button" class="fl-node-open" data-action="fdetail" data-seq="' + it.seq + '" aria-expanded="' + (expandedSeq === it.seq ? 'true' : 'false') + '" aria-label="查看' + label + '详情" title="查看完整消息">' +
+        '<button type="button" class="fl-node-open" data-action="fdetail" data-seq="' + it.seq + '" aria-expanded="' + (expandedSeq === it.seq ? 'true' : 'false') + '" aria-label="' + FLOW_T('查看', 'View ') + label + FLOW_T('详情', ' details') + '" title="' + FLOW_T('查看完整消息', 'View full message') + '">' +
         '<span class="fl-node-head"><span class="fl-glyph" aria-hidden="true" style="color:' + color + '">' + (isUser ? '▲' : isAi ? '◆' : '■') + '</span><span class="fl-tag" style="color:' + color + '">' + label + '</span>' +
         (isAi && it.route ? '<span class="fl-model">' + esc(String(it.route).split('/').pop()) + '</span>' : '') +
         '<span class="fl-node-meta">' +
         (fmtTime(it.time) ? '<span class="fl-time">' + fmtTime(it.time) + '</span>' : '') +
-        (aiRunning && it.runStart ? '<span class="fl-time" data-flow-timer="' + it.runStart + '" data-flow-timer-prefix="生成中 · ">生成中</span>' : (isAi && it.interrupted ? '<span class="fl-time">' + (it.abandoned ? '已取消' : '已中断') + '</span>' : (isAi && it.runDur != null && !it.interrupted ? '<span class="fl-time">' + fmtDur(it.runDur) + '</span>' : ''))) +
+        (aiRunning && it.runStart ? '<span class="fl-time" data-flow-timer="' + it.runStart + '" data-flow-timer-prefix="' + FLOW_T('生成中 · ', 'Generating · ') + '">' + FLOW_T('生成中', 'Generating') + '</span>' : (isAi && it.interrupted ? '<span class="fl-time">' + (it.abandoned ? FLOW_T('已取消', 'Cancelled') : FLOW_T('已中断', 'Interrupted')) + '</span>' : (isAi && it.runDur != null && !it.interrupted ? '<span class="fl-time">' + fmtDur(it.runDur) + '</span>' : ''))) +
         '</span>' +
         (isAi ? retryBadgeHtml(it) : '') + '</span>' +
-        '<span class="fl-preview"' + (it.interrupted ? ' style="color:var(--tb-danger-text,#f28b82)"' : '') + '>' + esc(it.preview || '（空）') + '</span></button>' + branch + bookmarkButtonHtml(it, st) +
+        '<span class="fl-preview"' + (it.interrupted ? ' style="color:var(--tb-danger-text,#f28b82)"' : '') + '>' + esc(it.preview || FLOW_T('（空）', '(empty)')) + '</span></button>' + branch + bookmarkButtonHtml(it, st) +
       '</div>'
       // 折叠只影响呈现；原始节点、seq 与框选上下文仍完整保留。
       return !isUser && !isAi
-        ? '<details class="fl-system-context" data-flow-disclosure="system:' + it.seq + '"' + (expandedSeq === it.seq ? ' open' : '') + '><summary>系统上下文<span class="tb-note"> · 1 项</span></summary>' + card + '</details>'
+        ? '<details class="fl-system-context" data-flow-disclosure="system:' + it.seq + '"' + (expandedSeq === it.seq ? ' open' : '') + '><summary>' + FLOW_T('系统上下文', 'System context') + '<span class="tb-note">' + FLOW_T(' · 1 项', ' · 1 item') + '</span></summary>' + card + '</details>'
         : card
     }
 
     const renderMsg = (it, expandedSeq, withConn, live, st) => '<div class="fl-lane"><div></div><div class="fl-lane-main">' + connMain(msgCardInner(it, expandedSeq, live, st), withConn) + '</div><div></div></div>'
 
-    const copyButtonHtml = '<button type="button" class="fl-copy-btn" data-flow-copy="1" title="复制内容到剪贴板" aria-label="复制内容到剪贴板">' +
+    const copyButtonHtml = '<button type="button" class="fl-copy-btn" data-flow-copy="1" title="' + FLOW_T('复制内容到剪贴板', 'Copy content to clipboard') + '" aria-label="' + FLOW_T('复制内容到剪贴板', 'Copy content to clipboard') + '">' +
       '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M3 11H2.5A1.5 1.5 0 0 1 1 9.5v-7A1.5 1.5 0 0 1 2.5 1h7A1.5 1.5 0 0 1 11 2.5V3"/></svg></button>'
-    const markdownPreviewButtonHtml = (seq) => '<button type="button" class="fl-md-preview-btn" data-flow-markdown-preview="1" data-flow-markdown-key="' + seq + '" title="Markdown 预览" aria-label="Markdown 预览" aria-pressed="false">' +
+    const markdownPreviewButtonHtml = (seq) => '<button type="button" class="fl-md-preview-btn" data-flow-markdown-preview="1" data-flow-markdown-key="' + seq + '" title="' + FLOW_T('Markdown 预览', 'Markdown preview') + '" aria-label="' + FLOW_T('Markdown 预览', 'Markdown preview') + '" aria-pressed="false">' +
       '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.3-4 6.5-4 6.5 4 6.5 4-2.3 4-6.5 4S1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="1.8"/></svg></button>'
 
     const skillDetailOf = (c) => {
@@ -1567,17 +1574,17 @@ return {
       const skill = skillDetailOf(c)
       if (!skill) return null
       const cap = 16000
-      const instructions = skill.instructions.length > cap ? skill.instructions.slice(0, cap) + '\n…（截断，共 ' + skill.instructions.length + ' 字符）' : skill.instructions
-      const raw = skill.raw.length > cap ? skill.raw.slice(0, cap) + '\n…（截断，共 ' + skill.raw.length + ' 字符）' : skill.raw
-      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '" data-flow-inspector="' + c.seq + '" role="region" aria-label="技能详情" data-flow-markdown-detail="1"><div class="fl-rail-resize" title="拖拽调宽（自动记忆）"></div>' +
-        '<div class="fl-rail-head">' + inspectorBackHtml(c.seq) + bookmarkButtonHtml(c, st) + '<span class="fl-rail-title">技能 · ' + esc(skill.name) + '</span></div>' +
+      const instructions = skill.instructions.length > cap ? skill.instructions.slice(0, cap) + '\n' + FLOW_T('…（截断，共 ' + skill.instructions.length + ' 字符）', '… (truncated, ' + skill.instructions.length + ' characters in total)') : skill.instructions
+      const raw = skill.raw.length > cap ? skill.raw.slice(0, cap) + '\n' + FLOW_T('…（截断，共 ' + skill.raw.length + ' 字符）', '… (truncated, ' + skill.raw.length + ' characters in total)') : skill.raw
+      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '" data-flow-inspector="' + c.seq + '" role="region" aria-label="' + FLOW_T('技能详情', 'Skill details') + '" data-flow-markdown-detail="1"><div class="fl-rail-resize" title="' + FLOW_T('拖拽调宽（自动记忆）', 'Drag to resize (remembered)') + '"></div>' +
+        '<div class="fl-rail-head">' + inspectorBackHtml(c.seq) + bookmarkButtonHtml(c, st) + '<span class="fl-rail-title">' + FLOW_T('技能 · ', 'Skill · ') + esc(skill.name) + '</span></div>' +
         '<div class="fl-rail-body" data-flow-markdown-body="1" data-flow-markdown-key="' + c.seq + '" data-flow-markdown-streaming="0">' +
-          '<div class="fl-skill-hero"><span class="fl-tag">技能</span><strong>' + esc(skill.name) + '</strong>' + statusGlyph(c.status, c.dur) + '</div>' +
-          (skill.baseDir ? '<div class="fl-skill-field"><span>基础目录</span><code>' + esc(skill.baseDir) + '</code></div>' : '') +
-          (skill.resourceNote ? '<div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">资源说明</span>' + copyButtonHtml + '</div><pre class="fl-pre">' + esc(skill.resourceNote) + '</pre></div>' : '') +
-          '<div class="fl-sec fl-skill-instructions"><div class="fl-sec-head"><span class="fl-sec-label">使用说明</span>' + markdownPreviewButtonHtml(c.seq) + copyButtonHtml + '</div>' +
-          '<pre class="fl-pre" data-flow-markdown-source="1">' + esc(instructions || '（空）') + '</pre></div>' +
-          '<details class="fl-skill-raw"><summary>原始返回</summary><div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">完整 XML' + (skill.raw.length > cap ? '（截断）' : '') + '</span>' + copyButtonHtml + '</div><pre class="fl-pre">' + esc(raw || '（空）') + '</pre></div></details>' +
+          '<div class="fl-skill-hero"><span class="fl-tag">' + FLOW_T('技能', 'Skill') + '</span><strong>' + esc(skill.name) + '</strong>' + statusGlyph(c.status, c.dur) + '</div>' +
+          (skill.baseDir ? '<div class="fl-skill-field"><span>' + FLOW_T('基础目录', 'Base directory') + '</span><code>' + esc(skill.baseDir) + '</code></div>' : '') +
+          (skill.resourceNote ? '<div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">' + FLOW_T('资源说明', 'Resource notes') + '</span>' + copyButtonHtml + '</div><pre class="fl-pre">' + esc(skill.resourceNote) + '</pre></div>' : '') +
+          '<div class="fl-sec fl-skill-instructions"><div class="fl-sec-head"><span class="fl-sec-label">' + FLOW_T('使用说明', 'Instructions') + '</span>' + markdownPreviewButtonHtml(c.seq) + copyButtonHtml + '</div>' +
+          '<pre class="fl-pre" data-flow-markdown-source="1">' + esc(instructions || FLOW_T('（空）', '(empty)')) + '</pre></div>' +
+          '<details class="fl-skill-raw"><summary>' + FLOW_T('原始返回', 'Raw result') + '</summary><div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">' + FLOW_T('完整 XML', 'Full XML') + (skill.raw.length > cap ? FLOW_T('（截断）', ' (truncated)') : '') + '</span>' + copyButtonHtml + '</div><pre class="fl-pre">' + esc(raw || FLOW_T('（空）', '(empty)')) + '</pre></div></details>' +
         '</div></div>'
     }
 
@@ -1590,48 +1597,48 @@ return {
       let input = c.argsRaw || ''
       try { input = JSON.stringify(JSON.parse(c.argsRaw || '{}'), null, 2) } catch (e) {}
       const cap = 8000
-      const inShown = input.length > cap ? input.slice(0, cap) + '\n…（截断，共 ' + input.length + ' 字符）' : input
-      const out = c.status === 'pending' ? '（进行中，尚无返回）' : (c.resultText || '（空返回）')
-      const outShown = out.length > cap ? out.slice(0, cap) + '\n…（截断，共 ' + out.length + ' 字符）' : out
+      const inShown = input.length > cap ? input.slice(0, cap) + '\n' + FLOW_T('…（截断，共 ' + input.length + ' 字符）', '… (truncated, ' + input.length + ' characters in total)') : input
+      const out = c.status === 'pending' ? FLOW_T('（进行中，尚无返回）', '(in progress, no result yet)') : (c.resultText || FLOW_T('（空返回）', '(empty result)'))
+      const outShown = out.length > cap ? out.slice(0, cap) + '\n' + FLOW_T('…（截断，共 ' + out.length + ' 字符）', '… (truncated, ' + out.length + ' characters in total)') : out
       // anim=是否新展开（轮询重渲染不重播滑入动画，防闪烁）
-      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '" data-flow-inspector="' + c.seq + '" role="region" aria-label="工具详情"><div class="fl-rail-resize" title="拖拽调宽（自动记忆）"></div>' +
-        '<div class="fl-rail-head">' + inspectorBackHtml(c.seq) + bookmarkButtonHtml(c, st) + '<span class="fl-rail-title">工具 · ' + esc(identity.name) + '</span></div>' +
+      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '" data-flow-inspector="' + c.seq + '" role="region" aria-label="' + FLOW_T('工具详情', 'Tool details') + '"><div class="fl-rail-resize" title="' + FLOW_T('拖拽调宽（自动记忆）', 'Drag to resize (remembered)') + '"></div>' +
+        '<div class="fl-rail-head">' + inspectorBackHtml(c.seq) + bookmarkButtonHtml(c, st) + '<span class="fl-rail-title">' + FLOW_T('工具 · ', 'Tool · ') + esc(identity.name) + '</span></div>' +
         '<div class="fl-rail-body fl-tool-io">' +
           '<div class="fl-detail-status">' + statusGlyph(c.status, c.dur) + '</div>' +
-          '<details open class="fl-tool-input" data-flow-disclosure="input:' + c.seq + '"><summary>输入' + (input.length > cap ? '（截断）' : '') + '</summary><div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">完整参数</span>' + copyButtonHtml + '</div><pre class="fl-pre">' + esc(inShown) + '</pre></div></details>' +
-          '<div class="fl-sec' + (c.status === 'error' ? ' fl-detail-error' : '') + '"><div class="fl-sec-head"><span class="fl-sec-label">输出' + (c.outLen ? '（' + fmtSize(c.outLen) + '）' : '') + '</span>' + copyButtonHtml + '</div><pre class="fl-pre">' + esc(outShown) + '</pre></div>' +
-          inspectorTechnicalHtml(c.seq, '工具 ' + c.name + ' · seq ' + c.seq + (fmtTime(c.time) ? ' · 时间 ' + fmtTime(c.time) : '')) +
+          '<details open class="fl-tool-input" data-flow-disclosure="input:' + c.seq + '"><summary>' + FLOW_T('输入', 'Input') + (input.length > cap ? FLOW_T('（截断）', ' (truncated)') : '') + '</summary><div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">' + FLOW_T('完整参数', 'Full arguments') + '</span>' + copyButtonHtml + '</div><pre class="fl-pre">' + esc(inShown) + '</pre></div></details>' +
+          '<div class="fl-sec' + (c.status === 'error' ? ' fl-detail-error' : '') + '"><div class="fl-sec-head"><span class="fl-sec-label">' + FLOW_T('输出', 'Output') + (c.outLen ? FLOW_T('（' + fmtSize(c.outLen) + '）', ' (' + fmtSize(c.outLen) + ')') : '') + '</span>' + copyButtonHtml + '</div><pre class="fl-pre">' + esc(outShown) + '</pre></div>' +
+          inspectorTechnicalHtml(c.seq, FLOW_T('工具 ', 'Tool ') + c.name + ' · seq ' + c.seq + (fmtTime(c.time) ? FLOW_T(' · 时间 ', ' · time ') + fmtTime(c.time) : '')) +
         '</div>' +
       '</div>'
     }
 
     // 消息详情浮层（用户/助手/注入卡点击）：角色 + 时间/模型/tokens 元信息 + 完整内容（截断标注）
     const msgRail = (it, anim, st) => {
-      const label = it.role === 'user' ? '用户消息' : it.role === 'ai' ? '助手消息' : '系统上下文'
+      const label = it.role === 'user' ? FLOW_T('用户消息', 'User message') : it.role === 'ai' ? FLOW_T('助手消息', 'Assistant message') : FLOW_T('系统上下文', 'System context')
       const cap = 8000
       const full = String(it.full || it.preview || '')
-      const shown = full.length > cap ? full.slice(0, cap) + '\n…（截断，共 ' + full.length + ' 字符）' : full
+      const shown = full.length > cap ? full.slice(0, cap) + '\n' + FLOW_T('…（截断，共 ' + full.length + ' 字符）', '… (truncated, ' + full.length + ' characters in total)') : full
       const meta = []
-      if (fmtTime(it.time)) meta.push('时间 ' + fmtTime(it.time))
-      if (it.route) meta.push('模型 ' + it.route)
+      if (fmtTime(it.time)) meta.push(FLOW_T('时间 ', 'Time ') + fmtTime(it.time))
+      if (it.route) meta.push(FLOW_T('模型 ', 'Model ') + it.route)
       if (it.attemptId) meta.push('attempt ' + String(it.attemptId).slice(0, 12))
-      if (it.tok) meta.push('输出 +' + it.tok + ' tok')
-      if (it.runDur != null) meta.push('耗时 ' + fmtDur(it.runDur))
+      if (it.tok) meta.push(FLOW_T('输出 +' + it.tok + ' tok', 'Output +' + it.tok + ' tok'))
+      if (it.runDur != null) meta.push(FLOW_T('耗时 ', 'Duration ') + fmtDur(it.runDur))
       meta.push('seq ' + it.seq)
-      if (it.finishKind && it.finishKind !== 'stop') meta.push('结束 ' + it.finishKind)
-      if (it.failCode) meta.push('错误 ' + it.failCode + (it.failMsg ? '：' + oneLine(it.failMsg, 80) : ''))
-      if (it.retries && it.retries.length) meta.push('重试 ' + it.retries.length + ' 次（' + it.retries.map((r) => r.code || '?').join(' → ') + '）')
+      if (it.finishKind && it.finishKind !== 'stop') meta.push(FLOW_T('结束 ', 'End ') + it.finishKind)
+      if (it.failCode) meta.push(FLOW_T('错误 ', 'Error ') + it.failCode + (it.failMsg ? FLOW_T('：', ': ') + oneLine(it.failMsg, 80) : ''))
+      if (it.retries && it.retries.length) meta.push(FLOW_T('重试 ' + it.retries.length + ' 次（' + it.retries.map((r) => r.code || '?').join(' → ') + '）', 'Retried ' + it.retries.length + ' time(s) (' + it.retries.map((r) => r.code || '?').join(' → ') + ')'))
       // 与外层助手卡同款分支按钮：详情头部可直接从这条消息创建新分支（复用 data-flow-branch 委托）
       const branch = it.role === 'ai' && !it.streaming && st.replaySeq == null
-        ? '<button type="button" class="fl-branch-btn" data-flow-branch data-seq="' + (it.finalSeq != null ? it.finalSeq : it.seq) + '" title="从这条助手消息在 Harness 中创建新分支" aria-label="在新对话中分支">' +
+        ? '<button type="button" class="fl-branch-btn" data-flow-branch data-seq="' + (it.finalSeq != null ? it.finalSeq : it.seq) + '" title="' + FLOW_T('从这条助手消息在 Harness 中创建新分支', 'Create a new Harness branch from this assistant message') + '" aria-label="' + FLOW_T('在新对话中分支', 'Branch in a new conversation') + '">' +
           '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3v5a3 3 0 0 0 3 3h4"/><path d="M8 5l3-3 3 3"/><path d="M11 2v4"/><path d="M9 9l2 2-2 2"/></svg></button>'
         : ''
       const markdown = it.role === 'ai'
-      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '" data-flow-inspector="' + it.seq + '" role="region" aria-label="' + label + '详情"' + (markdown ? ' data-flow-markdown-detail="1"' : '') + '><div class="fl-rail-resize" title="拖拽调宽（自动记忆）"></div>' +
+      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '" data-flow-inspector="' + it.seq + '" role="region" aria-label="' + label + FLOW_T('详情', ' details') + '"' + (markdown ? ' data-flow-markdown-detail="1"' : '') + '><div class="fl-rail-resize" title="' + FLOW_T('拖拽调宽（自动记忆）', 'Drag to resize (remembered)') + '"></div>' +
         '<div class="fl-rail-head">' + inspectorBackHtml(it.seq) + bookmarkButtonHtml(it, st) + '<span class="fl-rail-title">' + label + '</span>' + branch + '</div>' +
         '<div class="fl-rail-body"' + (markdown ? ' data-flow-markdown-body="1" data-flow-markdown-key="' + it.seq + '" data-flow-markdown-streaming="' + (it.streaming ? '1' : '0') + '"' : '') + '>' +
-          (it.interrupted ? '<div class="fl-detail-error">' + esc(it.failMsg || (it.abandoned ? '生成已取消' : '生成失败或已中断')) + '</div>' : it.streaming ? '<div class="fl-detail-status">正在生成</div>' : '') +
-          '<div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">完整内容' + (full.length > cap ? '（截断）' : '') + '</span>' + (markdown ? markdownPreviewButtonHtml(it.seq) : '') + copyButtonHtml + '</div><pre class="fl-pre"' + (markdown ? ' data-flow-markdown-source="1"' : '') + '>' + esc(shown || '（空）') + '</pre></div>' +
+          (it.interrupted ? '<div class="fl-detail-error">' + esc(it.failMsg || (it.abandoned ? FLOW_T('生成已取消', 'Generation cancelled') : FLOW_T('生成失败或已中断', 'Generation failed or interrupted'))) + '</div>' : it.streaming ? '<div class="fl-detail-status">' + FLOW_T('正在生成', 'Generating') + '</div>' : '') +
+          '<div class="fl-sec"><div class="fl-sec-head"><span class="fl-sec-label">' + FLOW_T('完整内容', 'Full content') + (full.length > cap ? FLOW_T('（截断）', ' (truncated)') : '') + '</span>' + (markdown ? markdownPreviewButtonHtml(it.seq) : '') + copyButtonHtml + '</div><pre class="fl-pre"' + (markdown ? ' data-flow-markdown-source="1"' : '') + '>' + esc(shown || FLOW_T('（空）', '(empty)')) + '</pre></div>' +
           inspectorTechnicalHtml(it.seq, meta.join(' · ')) +
         '</div>' +
       '</div>'
@@ -1639,48 +1646,48 @@ return {
 
     const presentationRulesRail = (st, anim) => {
       const value = JSON.stringify(st.presentationRules || [], null, 2)
-      const example = '[\n  {\n    "enabled": true,\n    "tools": ["pwsh"],\n    "executables": ["engram-memory.ps1"],\n    "displayName": "engram-lattice",\n    "actions": ["search", "recall", "memory"],\n    "badge": "记忆",\n    "color": "#81c784"\n  }\n]'
+      const example = '[\n  {\n    "enabled": true,\n    "tools": ["pwsh"],\n    "executables": ["engram-memory.ps1"],\n    "displayName": "engram-lattice",\n    "actions": ["search", "recall", "memory"],\n    "badge": "' + FLOW_T('记忆', 'Memory') + '",\n    "color": "#81c784"\n  }\n]'
       const trashIcon = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6 2.5h4l.7 2H5.3l.7-2Z"/><path d="M4.5 4.5l.6 9h5.8l.6-9M7 7v4M9 7v4"/></svg>'
       const chevronIcon = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m5.5 3.5 4.5 4.5-4.5 4.5"/></svg>'
       const plusIcon = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>'
       const input = (field, value, placeholder) => '<input class="tb-input" data-field="' + field + '" value="' + esc(value) + '"' + (placeholder ? ' placeholder="' + esc(placeholder) + '"' : '') + '>'
       const fieldsFor = (prefix, rule) => '<div class="fl-rule-grid">' +
-        '<label><span>原始工具</span>' + input(prefix + '.tools', (rule.tools || []).join(', '), 'pwsh, bash') + '</label>' +
-        '<label><span>可执行文件</span>' + input(prefix + '.executables', (rule.executables || []).join(', '), 'tool.ps1, tool') + '</label>' +
-        '<label><span>显示名称</span>' + input(prefix + '.displayName', rule.displayName || '', '可留空') + '</label>' +
-        '<label><span>子命令</span>' + input(prefix + '.actions', (rule.actions || []).join(', '), 'search, recall') + '</label>' +
-        '<label><span>徽章</span>' + input(prefix + '.badge', rule.badge || '', '可留空') + '</label>' +
-        '<label><span>颜色</span><input class="fl-rule-color" type="color" data-field="' + prefix + '.color" value="' + esc(rule.color || '#81c784') + '"></label>' +
+        '<label><span>' + FLOW_T('原始工具', 'Raw tools') + '</span>' + input(prefix + '.tools', (rule.tools || []).join(', '), 'pwsh, bash') + '</label>' +
+        '<label><span>' + FLOW_T('可执行文件', 'Executables') + '</span>' + input(prefix + '.executables', (rule.executables || []).join(', '), 'tool.ps1, tool') + '</label>' +
+        '<label><span>' + FLOW_T('显示名称', 'Display name') + '</span>' + input(prefix + '.displayName', rule.displayName || '', FLOW_T('可留空', 'Optional')) + '</label>' +
+        '<label><span>' + FLOW_T('子命令', 'Subcommands') + '</span>' + input(prefix + '.actions', (rule.actions || []).join(', '), 'search, recall') + '</label>' +
+        '<label><span>' + FLOW_T('徽章', 'Badge') + '</span>' + input(prefix + '.badge', rule.badge || '', FLOW_T('可留空', 'Optional')) + '</label>' +
+        '<label><span>' + FLOW_T('颜色', 'Color') + '</span><input class="fl-rule-color" type="color" data-field="' + prefix + '.color" value="' + esc(rule.color || '#81c784') + '"></label>' +
       '</div>'
       const editor = (prefix, rule, saveAction, index) => '<div class="fl-rule-editor">' +
         '<input type="hidden" data-field="' + prefix + '.enabled" value="' + (rule.enabled ? '1' : '0') + '">' + fieldsFor(prefix, rule) +
-        '<div class="fl-rule-editor-actions"><button type="button" class="tb-btn tb-btn-sm" data-flow-rule-cancel="1">取消</button>' +
-        '<button type="button" class="tb-btn tb-btn-sm tb-btn-primary" data-action="' + saveAction + '"' + (index == null ? '' : ' data-index="' + index + '"') + '>保存</button></div></div>'
+        '<div class="fl-rule-editor-actions"><button type="button" class="tb-btn tb-btn-sm" data-flow-rule-cancel="1">' + FLOW_T('取消', 'Cancel') + '</button>' +
+        '<button type="button" class="tb-btn tb-btn-sm tb-btn-primary" data-action="' + saveAction + '"' + (index == null ? '' : ' data-index="' + index + '"') + '>' + FLOW_T('保存', 'Save') + '</button></div></div>'
       const rows = (st.presentationRules || []).map((rule, index) => {
-        const title = rule.displayName || '未命名规则'
-        const summary = rule.tools.join(', ') + ' · ' + rule.executables.length + ' 个程序 · ' + (rule.actions.length || '任意') + ' 个子命令'
+        const title = rule.displayName || FLOW_T('未命名规则', 'Untitled rule')
+        const summary = rule.tools.join(', ') + FLOW_T(' · ' + rule.executables.length + ' 个程序 · ' + (rule.actions.length || '任意') + ' 个子命令', ' · ' + rule.executables.length + ' program(s) · ' + (rule.actions.length || 'any') + ' subcommand(s)')
         return '<section class="fl-rule-card' + (!rule.enabled ? ' fl-rule-off' : '') + '"><div class="fl-rule-summary">' +
-          '<button type="button" class="fl-rule-main" data-flow-rule-edit="1" title="展开编辑规则" aria-expanded="false">' +
+          '<button type="button" class="fl-rule-main" data-flow-rule-edit="1" title="' + FLOW_T('展开编辑规则', 'Expand to edit the rule') + '" aria-expanded="false">' +
             '<span class="fl-rule-dot" style="background:' + esc(rule.color) + '"></span>' +
             (rule.badge ? '<span class="fl-rule-badge" style="color:' + esc(rule.color) + ';background:' + esc(rule.color) + '1f">' + esc(rule.badge) + '</span>' : '') +
             '<span class="fl-rule-copy"><strong>' + esc(title) + '</strong><small>' + esc(summary) + '</small></span>' +
             '<span class="fl-rule-chevron">' + chevronIcon + '</span></button>' +
-          '<button type="button" class="fl-rule-switch' + (rule.enabled ? ' is-on' : '') + '" data-action="ftoggle-rule" data-index="' + index + '" title="' + (rule.enabled ? '停用规则' : '启用规则') + '" aria-label="' + (rule.enabled ? '停用规则' : '启用规则') + '" aria-pressed="' + (rule.enabled ? 'true' : 'false') + '"><span></span></button>' +
-          '<button type="button" class="fl-rule-icon fl-rule-delete" data-action="fdelete-rule" data-index="' + index + '" title="删除规则" aria-label="删除规则">' + trashIcon + '</button></div>' +
+          '<button type="button" class="fl-rule-switch' + (rule.enabled ? ' is-on' : '') + '" data-action="ftoggle-rule" data-index="' + index + '" title="' + (rule.enabled ? FLOW_T('停用规则', 'Disable rule') : FLOW_T('启用规则', 'Enable rule')) + '" aria-label="' + (rule.enabled ? FLOW_T('停用规则', 'Disable rule') : FLOW_T('启用规则', 'Enable rule')) + '" aria-pressed="' + (rule.enabled ? 'true' : 'false') + '"><span></span></button>' +
+          '<button type="button" class="fl-rule-icon fl-rule-delete" data-action="fdelete-rule" data-index="' + index + '" title="' + FLOW_T('删除规则', 'Delete rule') + '" aria-label="' + FLOW_T('删除规则', 'Delete rule') + '">' + trashIcon + '</button></div>' +
           editor('flowRule.' + index, rule, 'fsave-rule', index) + '</section>'
       }).join('')
-      const empty = '<div class="tb-notice">暂无规则。点击“添加规则”，或展开 JSON 源码导入。</div>'
+      const empty = '<div class="tb-notice">' + FLOW_T('暂无规则。点击“添加规则”，或展开 JSON 源码导入。', 'No rules yet. Click "Add rule", or expand the JSON source to import.') + '</div>'
       const blank = { tools: [], executables: [], displayName: '', actions: [], badge: '', color: '#81c784' }
-      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '"><div class="fl-rail-resize" title="拖拽调宽（自动记忆）"></div>' +
-        '<div class="fl-rail-head"><span class="fl-rail-title">工具显示规则</span><button type="button" class="fl-rule-add" data-flow-rule-new="1" aria-expanded="false">' + plusIcon + '<span>添加规则</span></button>' +
-        '<button type="button" class="fl-rail-x" data-action="fsettings" title="关闭设置">✕</button></div>' +
+      return '<div class="fl-rail' + (anim ? ' fl-rail-anim' : '') + '"><div class="fl-rail-resize" title="' + FLOW_T('拖拽调宽（自动记忆）', 'Drag to resize (remembered)') + '"></div>' +
+        '<div class="fl-rail-head"><span class="fl-rail-title">' + FLOW_T('工具显示规则', 'Tool display rules') + '</span><button type="button" class="fl-rule-add" data-flow-rule-new="1" aria-expanded="false">' + plusIcon + '<span>' + FLOW_T('添加规则', 'Add rule') + '</span></button>' +
+        '<button type="button" class="fl-rail-x" data-action="fsettings" title="' + FLOW_T('关闭设置', 'Close settings') + '">✕</button></div>' +
         '<div class="fl-rail-body">' +
-          '<div class="tb-note">规则只改变流镜中的标题和徽章；原始工具名、参数、结果及会话日志保持不变。按顺序匹配，首条命中生效。displayName 为空时不添加名称，badge 为空时不显示徽章。</div>' +
+          '<div class="tb-note">' + FLOW_T('规则只改变流镜中的标题和徽章；原始工具名、参数、结果及会话日志保持不变。按顺序匹配，首条命中生效。displayName 为空时不添加名称，badge 为空时不显示徽章。', 'Rules only change titles and badges in the flow view; raw tool names, arguments, results, and session logs stay unchanged. Rules match in order and the first hit wins. An empty displayName adds no name; an empty badge shows no badge.') + '</div>' +
           '<div class="fl-rule-list">' + (rows || empty) + '</div>' +
-          '<section class="fl-rule-card fl-rule-new"><div class="fl-rule-new-title">新增规则</div>' + editor('flowRule.new', blank, 'fcreate-rule') + '</section>' +
+          '<section class="fl-rule-card fl-rule-new"><div class="fl-rule-new-title">' + FLOW_T('新增规则', 'New rule') + '</div>' + editor('flowRule.new', blank, 'fcreate-rule') + '</section>' +
           (st.ruleNotice ? '<div class="tb-note" style="color:var(--tb-done-text,#81c784)">' + esc(st.ruleNotice) + '</div>' : '') +
-          '<details class="fl-rule-source"><summary class="tb-note">JSON 源码</summary><textarea class="tb-textarea" spellcheck="false" data-field="flowPresentationRules" placeholder="' + esc(example) + '">' + esc(value) + '</textarea>' +
-          '<div class="tb-row"><button type="button" class="tb-btn tb-btn-sm" data-action="fapply-rule-json">从 JSON 应用</button>' + ((st.presentationRules || []).length ? '<button type="button" class="tb-btn tb-btn-sm" data-action="freset-rules">清空全部</button>' : '') + '</div></details>' +
+          '<details class="fl-rule-source"><summary class="tb-note">' + FLOW_T('JSON 源码', 'JSON source') + '</summary><textarea class="tb-textarea" spellcheck="false" data-field="flowPresentationRules" placeholder="' + esc(example) + '">' + esc(value) + '</textarea>' +
+          '<div class="tb-row"><button type="button" class="tb-btn tb-btn-sm" data-action="fapply-rule-json">' + FLOW_T('从 JSON 应用', 'Apply from JSON') + '</button>' + ((st.presentationRules || []).length ? '<button type="button" class="tb-btn tb-btn-sm" data-action="freset-rules">' + FLOW_T('清空全部', 'Clear all') + '</button>' : '') + '</div></details>' +
         '</div></div>'
     }
 
@@ -1696,15 +1703,15 @@ return {
 
       // 有子会话 id 后，整张入口卡就是“进入子流镜”的主点击面；
       // 子代理尚在启动时仍保留详情行为，避免点击无效。
-      let sub = '<div class="fl-sub-card fl-sub-open' + (subLive ? ' fl-live' : '') + '" role="button" tabindex="0" data-action="' + (cid && st.replaySeq == null ? 'fenter' : 'fdetail') + '" data-seq="' + c.seq + '" data-flow-select-seq="' + c.seq + '"' + nodeIdentityHtml(c, st) + ' title="' + (cid && st.replaySeq == null ? '查看子代理过程' : '查看完整任务输入与输出') + '">' +
-        '<div class="fl-iohead"><span class="fl-tag" style="color:var(--tb-active-text,#7fa7f0);background:rgba(91,141,239,.12)">子代理</span>' +
+      let sub = '<div class="fl-sub-card fl-sub-open' + (subLive ? ' fl-live' : '') + '" role="button" tabindex="0" data-action="' + (cid && st.replaySeq == null ? 'fenter' : 'fdetail') + '" data-seq="' + c.seq + '" data-flow-select-seq="' + c.seq + '"' + nodeIdentityHtml(c, st) + ' title="' + (cid && st.replaySeq == null ? FLOW_T('查看子代理过程', 'View subagent activity') : FLOW_T('查看完整任务输入与输出', 'View full task input and output')) + '">' +
+        '<div class="fl-iohead"><span class="fl-tag" style="color:var(--tb-active-text,#7fa7f0);background:rgba(91,141,239,.12)">' + FLOW_T('子代理', 'Subagent') + '</span>' +
         '<span class="fl-name">' + esc(c.name) + '</span>' + statusGlyph(c.status, c.dur) + '</div>' +
-        '<div class="fl-sub-io"><span class="fl-io-tag">入</span><span class="fl-branch-txt">' + esc(inSummary(c)) + '</span></div>' +
+        '<div class="fl-sub-io"><span class="fl-io-tag">' + FLOW_T('入', 'In') + '</span><span class="fl-branch-txt">' + esc(inSummary(c)) + '</span></div>' +
       '</div>'
       let steps = ''
       if (cid && sub2) {
-        steps += '<div class="fl-sub-meta"><span class="fl-time">↳ ' + esc(cid.slice(0, 8)) + '… · ' + sub2.total + ' 步</span>' + (sub2.live ? '<span class="fl-tag" style="color:var(--tb-done-text,#81c784)">运行中</span>' : '') +
-          '<button type="button" class="tb-btn tb-btn-sm" data-action="fenter" data-seq="' + c.seq + '" title="进入该子代理的完整流程图（可逐级返回）">进入 →</button></div>'
+        steps += '<div class="fl-sub-meta"><span class="fl-time">↳ ' + esc(cid.slice(0, 8)) + '… · ' + FLOW_T(sub2.total + ' 步', sub2.total + ' step(s)') + '</span>' + (sub2.live ? '<span class="fl-tag" style="color:var(--tb-done-text,#81c784)">' + FLOW_T('运行中', 'Running') + '</span>' : '') +
+          '<button type="button" class="tb-btn tb-btn-sm" data-action="fenter" data-seq="' + c.seq + '" title="' + FLOW_T('进入该子代理的完整流程图（可逐级返回）', 'Open the full flow view of this subagent (go back level by level)') + '">' + FLOW_T('进入 →', 'Open →') + '</button></div>'
         for (const r of sub2.rows) {
           steps += '<div class="fl-sub-step">' +
             (r.pill ? '<span class="fl-branch-pill">' + esc(r.pill) + '</span>' : '') +
@@ -1712,15 +1719,15 @@ return {
             (r.pill ? statusGlyph(r.status, r.dur) : '') +
           '</div>'
         }
-        if (sub2.total > sub2.rows.length) steps += '<div class="fl-sub-step"><span class="fl-time">… 更早 ' + (sub2.total - sub2.rows.length) + ' 步未展开</span></div>'
+        if (sub2.total > sub2.rows.length) steps += '<div class="fl-sub-step"><span class="fl-time">' + FLOW_T('… 更早 ' + (sub2.total - sub2.rows.length) + ' 步未展开', '… ' + (sub2.total - sub2.rows.length) + ' earlier step(s) not expanded') + '</span></div>'
       } else if (c.status === 'pending') {
-        steps = '<div class="fl-sub-step"><span class="fl-time">子代理启动中…</span></div>'
+        steps = '<div class="fl-sub-step"><span class="fl-time">' + FLOW_T('子代理启动中…', 'Subagent starting…') + '</span></div>'
       }
       if (steps) sub += '<div class="fl-sub-steps">' + steps + '</div>'
       if (c.status !== 'pending') {
         const o = outSummary(c)
-        sub += '<div class="fl-sub-card fl-sub-close" role="button" tabindex="0" data-action="fdetail" data-seq="' + c.seq + '" title="查看完整任务输入与输出">' +
-          '<div class="fl-sub-io"><span class="fl-io-tag">出</span>' +
+        sub += '<div class="fl-sub-card fl-sub-close" role="button" tabindex="0" data-action="fdetail" data-seq="' + c.seq + '" title="' + FLOW_T('查看完整任务输入与输出', 'View full task input and output') + '">' +
+          '<div class="fl-sub-io"><span class="fl-io-tag">' + FLOW_T('出', 'Out') + '</span>' +
           '<span class="fl-time">' + fmtDur(c.dur) + '</span>' +
           (o ? '<span class="fl-args">' + esc(o.text) + '</span>' : '') + '</div>' +
         '</div>'
@@ -1731,13 +1738,13 @@ return {
     const flowContextOf = (items, seqs, sid) => {
       const wanted = new Set(seqs)
       const selected = items.filter((it) => wanted.has(it.seq)).sort((a, b) => a.seq - b.seq)
-      const chunks = ['以下是从 Flowglass 会话 ' + sid + ' 框选的流程片段（' + selected.length + ' 项）：']
+      const chunks = [FLOW_T('以下是从 Flowglass 会话 ' + sid + ' 框选的流程片段（' + selected.length + ' 项）：', 'Below is a flow selection (' + selected.length + ' item(s)) from the Flowglass session ' + sid + ':')]
       for (const it of selected) {
         if (it.kind === 'msg') {
-          const role = it.role === 'user' ? '用户' : it.role === 'ai' ? '助手' : '注入'
-          chunks.push('\n[' + role + ' · seq ' + it.seq + ']\n' + String(it.full || it.preview || '（空）'))
+          const role = it.role === 'user' ? FLOW_T('用户', 'User') : it.role === 'ai' ? FLOW_T('助手', 'Assistant') : FLOW_T('注入', 'Injected')
+          chunks.push('\n[' + role + ' · seq ' + it.seq + ']\n' + String(it.full || it.preview || FLOW_T('（空）', '(empty)')))
         } else {
-          chunks.push('\n[工具 ' + it.name + ' · seq ' + it.seq + ']\n传入：' + (it.argsRaw || '（无参数）') + '\n返回：' + (it.status === 'pending' ? '（进行中）' : (it.resultText || '（空返回）')))
+          chunks.push('\n' + FLOW_T('[工具 ', '[Tool ') + it.name + ' · seq ' + it.seq + ']\n' + FLOW_T('传入：', 'Input: ') + (it.argsRaw || FLOW_T('（无参数）', '(no arguments)')) + '\n' + FLOW_T('返回：', 'Result: ') + (it.status === 'pending' ? FLOW_T('（进行中）', '(in progress)') : (it.resultText || FLOW_T('（空返回）', '(empty result)'))))
         }
       }
       const text = chunks.join('\n')
@@ -1745,14 +1752,14 @@ return {
       return {
         sourceSessionId: sid,
         seqs: selected.map((it) => it.seq),
-        text: text.length > cap ? text.slice(0, cap) + '\n…（框选内容过长，已截断）' : text,
+        text: text.length > cap ? text.slice(0, cap) + '\n' + FLOW_T('…（框选内容过长，已截断）', '… (selection too long, truncated)') : text,
       }
     }
 
     // 同步子代理组：每个分支是一个可自行拉伸的小流镜，宽屏自动多列、窄屏回落单列。
     const subGroupHtml = async (node, st) => {
       const branches = await Promise.all(node.calls.map((c) => subBranchHtml(c, st)))
-      return (node.calls.length > 1 ? '<span class="fl-subgrp-tag">并行子代理 ×' + node.calls.length + '</span>' : '') +
+      return (node.calls.length > 1 ? '<span class="fl-subgrp-tag">' + FLOW_T('并行子代理 ×' + node.calls.length, 'Parallel subagents ×' + node.calls.length) + '</span>' : '') +
         branches.map((html) => '<div class="fl-subbranch">' + html + '</div>').join('')
     }
 
@@ -1889,7 +1896,7 @@ return {
           efforts: last.efforts,
         })
       }
-      for (let i = 0; i < out.length; i++) if (!out[i].name) out[i].name = '大流镜 ' + String.fromCharCode(65 + (i % 26))
+      for (let i = 0; i < out.length; i++) if (!out[i].name) out[i].name = FLOW_T('大流镜 ', 'Zoom ') + String.fromCharCode(65 + (i % 26))
       return out
     }
 
@@ -1963,12 +1970,12 @@ return {
         if (typeof it.time === 'number' && it.time > lastTime) lastTime = it.time
         if (it.kind === 'msg') {
           if (it.role === 'user') { if (!title && it.preview) title = it.preview; strip.push({ g: 'user', txt: it.preview }) }
-          else if (it.role === 'ai') { if (it.tok) tok += it.tok; if (it.route) route = it.route; strip.push({ g: 'ai', txt: it.preview }); if (!it.streaming && !it.failed && !it.interrupted) conclusion = { seq: it.seq, text: String(it.full || it.preview || '') }; if (it.failed || it.interrupted) latestError = it.failMsg || it.preview || '助手生成中断' }
+          else if (it.role === 'ai') { if (it.tok) tok += it.tok; if (it.route) route = it.route; strip.push({ g: 'ai', txt: it.preview }); if (!it.streaming && !it.failed && !it.interrupted) conclusion = { seq: it.seq, text: String(it.full || it.preview || '') }; if (it.failed || it.interrupted) latestError = it.failMsg || it.preview || FLOW_T('助手生成中断', 'Assistant generation interrupted') }
           else strip.push({ g: 'sys', txt: it.preview })
         } else {
           tools++
           if (it.cat === 'subagent') hasSubagent = true
-          if (it.status === 'error') { toolErr++; latestError = it.name + '：' + oneLine(it.resultText || '调用失败', 160) }
+          if (it.status === 'error') { toolErr++; latestError = it.name + FLOW_T('：', ': ') + oneLine(it.resultText || FLOW_T('调用失败', 'call failed'), 160) }
           if (it.status === 'pending') currentStep = it.name
           const identity = displayIdentity(it, rules)
           strip.push({ g: 'tool', name: identity.name, status: it.status, color: identity.meta.color, bg: identity.meta.bg, txt: inSummary(it) })
@@ -2086,18 +2093,18 @@ return {
         if (e.g === 'tool') {
           const cls = e.status === 'error' ? ' fl-zoom-tool-err' : e.status === 'pending' ? ' fl-zoom-tool-pending' : ''
           return '<div class="fl-zoom-step">' +
-            '<span class="fl-zoom-tool' + cls + '" style="color:' + e.color + ';background:' + e.bg + '" title="' + esc(e.name + (e.txt ? ' · ' + e.txt : '')) + (e.status === 'error' ? '（失败）' : e.status === 'pending' ? '（进行中）' : '') + '">' + esc(e.name) + '</span>' +
+            '<span class="fl-zoom-tool' + cls + '" style="color:' + e.color + ';background:' + e.bg + '" title="' + esc(e.name + (e.txt ? ' · ' + e.txt : '')) + (e.status === 'error' ? FLOW_T('（失败）', ' (failed)') : e.status === 'pending' ? FLOW_T('（进行中）', ' (in progress)') : '') + '">' + esc(e.name) + '</span>' +
             '<span class="fl-zoom-step-txt">' + esc(oneLine(e.txt || '', 24)) + '</span>' +
             (e.status === 'pending' ? '<span class="fl-spin"></span>' : e.status === 'error' ? '<span class="fl-zoom-step-err">✗</span>' : '<span class="fl-zoom-step-ok">✓</span>') +
           '</div>'
         }
         const glyph = e.g === 'user' ? '▲' : e.g === 'ai' ? '◆' : '■'
         const color = e.g === 'user' ? 'var(--tb-done-text,#81c784)' : e.g === 'ai' ? 'var(--tb-active-text,#7fa7f0)' : 'var(--tb-text-3,#777884)'
-        const label = e.g === 'user' ? '用户' : e.g === 'ai' ? '助手' : '注入'
+        const label = e.g === 'user' ? FLOW_T('用户', 'User') : e.g === 'ai' ? FLOW_T('助手', 'Assistant') : FLOW_T('注入', 'Injected')
         return '<div class="fl-zoom-step"><span class="fl-zoom-glyph" style="color:' + color + '" title="' + label + '">' + glyph + '</span>' +
           '<span class="fl-zoom-step-txt">' + esc(oneLine(e.txt || '', 26)) + '</span></div>'
       }).join('')
-      const more = sum.stripTotal > flow.length ? '<div class="fl-zoom-step"><span class="fl-zoom-more">… 更早 ' + (sum.stripTotal - flow.length) + ' 步</span></div>' : ''
+      const more = sum.stripTotal > flow.length ? '<div class="fl-zoom-step"><span class="fl-zoom-more">' + FLOW_T('… 更早 ' + (sum.stripTotal - flow.length) + ' 步', '… ' + (sum.stripTotal - flow.length) + ' earlier step(s)') + '</span></div>' : ''
       return '<div class="fl-zoom-flow">' + more + rows + '</div>'
     }
 
@@ -2247,68 +2254,68 @@ return {
       const zoomMotion = st.zoomMotion === 'focus' || st.zoomMotion === 'overview' ? st.zoomMotion : ''
       delete st.zoomMotion
       const currentConversationItems = activeRun && activeRound ? activeRound.sids.map((runSid, i) =>
-        '<span class="fl-zoom-current-item"><button type="button" class="fl-zoom-current-session' + (runSid === st.zoomFocusSid ? ' is-active' : '') + '" data-action="fzoom-open" data-run="' + esc(activeRun.id) + '" data-sid="' + esc(runSid) + '" title="选择会话 ' + (i + 1) + '；保持当前观察模式">' +
-          '<span>会话 ' + (i + 1) + '</span><span>' + esc(activeRound.routes[i] || '跟随当前') + '</span><code>' + esc(runSid.replace(/^session-/, '').slice(0, 8)) + '</code>' +
-        '</button><button type="button" class="fl-zoom-current-remove" data-action="fzoom-run-remove" data-sid="' + esc(runSid) + '" title="从当前并发移除">×</button></span>').join('') : ''
+        '<span class="fl-zoom-current-item"><button type="button" class="fl-zoom-current-session' + (runSid === st.zoomFocusSid ? ' is-active' : '') + '" data-action="fzoom-open" data-run="' + esc(activeRun.id) + '" data-sid="' + esc(runSid) + '" title="' + FLOW_T('选择会话 ' + (i + 1) + '；保持当前观察模式', 'Select session ' + (i + 1) + '; keeps the current view mode') + '">' +
+          '<span>' + FLOW_T('会话 ' + (i + 1), 'Session ' + (i + 1)) + '</span><span>' + esc(activeRound.routes[i] || FLOW_T('跟随当前', 'Follow current')) + '</span><code>' + esc(runSid.replace(/^session-/, '').slice(0, 8)) + '</code>' +
+        '</button><button type="button" class="fl-zoom-current-remove" data-action="fzoom-run-remove" data-sid="' + esc(runSid) + '" title="' + FLOW_T('从当前并发移除', 'Remove from the current concurrency') + '">×</button></span>').join('') : ''
       const addSessionMenu = activeRound && activeRound.sids.length < 4
-        ? '<button type="button" class="fl-zoom-add-picker" data-zoom-add-picker="1">＋ 添加其他 Session</button>'
+        ? '<button type="button" class="fl-zoom-add-picker" data-zoom-add-picker="1">＋ ' + FLOW_T('添加其他 Session', 'Add another Session') + '</button>'
         : ''
       const headOf = (c, isRoot, quiet) => {
         const rec = c.rec
         const sum = c.sum
         const short = rec.sid.replace(/^session-/, '').slice(0, 8)
         const indexed = (st.__zoomSessionIndex || []).find((row) => row.id === rec.sid)
-        const title = (indexed && indexed.title) || (rec.header && rec.header.title) || (sum && sum.title) || '会话 ' + short
+        const title = (indexed && indexed.title) || (rec.header && rec.header.title) || (sum && sum.title) || FLOW_T('会话 ' + short, 'Session ' + short)
         const badges = []
-        if (isRoot) badges.push('<span class="fl-zoom-badge fl-zoom-badge-home">' + (rec.sid === home ? '面板所属' : '血缘根') + '</span>')
-        if (rec.fleet) badges.push('<span class="fl-zoom-badge fl-zoom-badge-fleet">⚡ 并发</span>')
-        if (sum && sum.route) badges.push('<span class="fl-zoom-badge fl-zoom-badge-model" title="该会话的模型路由">' + esc(sum.route) + '</span>')
-        if (rec.header && rec.header.origin === 'subagent') badges.push('<span class="fl-zoom-badge">子代理 L' + Math.max(1, rec.depth || 1) + '</span>')
+        if (isRoot) badges.push('<span class="fl-zoom-badge fl-zoom-badge-home">' + (rec.sid === home ? FLOW_T('面板所属', 'Panel home') : FLOW_T('血缘根', 'Lineage root')) + '</span>')
+        if (rec.fleet) badges.push('<span class="fl-zoom-badge fl-zoom-badge-fleet">⚡ ' + FLOW_T('并发', 'Concurrent') + '</span>')
+        if (sum && sum.route) badges.push('<span class="fl-zoom-badge fl-zoom-badge-model" title="' + FLOW_T('该会话的模型路由', 'Model route of this session') + '">' + esc(sum.route) + '</span>')
+        if (rec.header && rec.header.origin === 'subagent') badges.push('<span class="fl-zoom-badge">' + FLOW_T('子代理 L' + Math.max(1, rec.depth || 1), 'Subagent L' + Math.max(1, rec.depth || 1)) + '</span>')
         if (st.zoomScope === 'run' && rec.header && rec.header.cwd) {
           const cwdShort = String(rec.header.cwd).replace(/[\\/]+$/, '').split(/[\\/]/).pop()
           if (cwdShort) badges.push('<span class="fl-zoom-badge fl-zoom-badge-cwd" title="' + esc(rec.header.cwd) + '">' + esc(cwdShort) + '</span>')
         }
         const dotCls = c.running ? ' fl-zoom-dot-running' : c.live ? ' fl-zoom-dot-online' : ''
-        const statusTxt = c.running ? '运行中' : c.live ? '在线' : '历史'
+        const statusTxt = c.running ? FLOW_T('运行中', 'Running') : c.live ? FLOW_T('在线', 'Online') : FLOW_T('历史', 'Historical')
         const stats = sum
-          ? '节点 ' + sum.nodes + ' · 工具 ' + sum.tools + (sum.toolErr ? ' · ✗ ' + sum.toolErr : '') + (sum.tok ? ' · +' + sum.tok + ' tok' : '') + (sum.lastTime ? ' · ' + fmtTime(sum.lastTime) : '')
-          : '（日志为空或读取失败）'
+          ? FLOW_T('节点 ' + sum.nodes + ' · 工具 ' + sum.tools, sum.nodes + ' nodes · ' + sum.tools + ' tools') + (sum.toolErr ? ' · ✗ ' + sum.toolErr : '') + (sum.tok ? ' · +' + sum.tok + ' tok' : '') + (sum.lastTime ? ' · ' + fmtTime(sum.lastTime) : '')
+          : FLOW_T('（日志为空或读取失败）', '(log empty or read failed)')
         return '<div class="fl-zoom-head">' +
             '<span class="fl-zoom-dot' + dotCls + '" title="' + statusTxt + '"></span>' +
             '<span class="fl-zoom-title">' + esc(oneLine(title, 42)) + '</span>' +
             '<span class="fl-zoom-status">' + statusTxt + '</span>' +
-            '<button type="button" class="fl-zoom-relay" data-action="fzoom-relay" data-sid="' + esc(rec.sid) + '" aria-label="带入其他会话" title="把该会话的最新助手结论带入其他会话">带入</button>' +
+            '<button type="button" class="fl-zoom-relay" data-action="fzoom-relay" data-sid="' + esc(rec.sid) + '" aria-label="' + FLOW_T('带入其他会话', 'Relay to other sessions') + '" title="' + FLOW_T('把该会话的最新助手结论带入其他会话', 'Relay the latest assistant conclusion of this session to other sessions') + '">' + FLOW_T('带入', 'Relay') + '</button>' +
           '</div>' +
-          (quiet ? '<details class="fl-technical-info" data-flow-disclosure="branch:' + esc(rec.sid) + '"><summary>技术信息</summary><p class="tb-note">Session ' + esc(rec.sid) + '</p>' : '') +
+          (quiet ? '<details class="fl-technical-info" data-flow-disclosure="branch:' + esc(rec.sid) + '"><summary>' + FLOW_T('技术信息', 'Technical details') + '</summary><p class="tb-note">Session ' + esc(rec.sid) + '</p>' : '') +
           (badges.length ? '<div class="fl-zoom-badges">' + badges.join('') + '</div>' : '') +
           '<div class="fl-zoom-stats">' + esc(stats) + '</div>' + (quiet ? '</details>' : '')
       }
-      const openTip = st.follow ? '进入该会话的流镜视角，并切换 Harness' : '进入该会话的流镜视角'
+      const openTip = st.follow ? FLOW_T('进入该会话的流镜视角，并切换 Harness', 'Open the flow view of this session and switch the Harness') : FLOW_T('进入该会话的流镜视角', 'Open the flow view of this session')
       const zoomHelp = [
-        '• 并发任务支持概览、对比、关系图。点击分支查看完整过程，用面包屑返回。',
-        '• 继续任务会向当前分支组发送；查看单个分支时可以从该会话创建并发任务。',
-        '• 「沿用当前会话」会直接继续当前会话，只新建剩余分支。',
-        '• 任务历史按轮次保存关系，从旧轮继续会产生新历史分支。',
-        '• 关系图同列连线表示沿用，跨列连线表示派生。',
-        '• 「带入」将该会话的最新结论带入其他会话。',
+        FLOW_T('• 并发任务支持概览、对比、关系图。点击分支查看完整过程，用面包屑返回。', '• Concurrency tasks support overview, diff and graph views. Click a branch for its full history; use breadcrumbs to go back.'),
+        FLOW_T('• 继续任务会向当前分支组发送；查看单个分支时可以从该会话创建并发任务。', '• Continue sends to the current branch group; while viewing one branch you can start a concurrency task from that session.'),
+        FLOW_T('• 「沿用当前会话」会直接继续当前会话，只新建剩余分支。', '• Reuse current session continues it directly and only creates the remaining branches.'),
+        FLOW_T('• 任务历史按轮次保存关系，从旧轮继续会产生新历史分支。', '• Task history keeps round relationships; continuing from an older round creates a new history branch.'),
+        FLOW_T('• 关系图同列连线表示沿用，跨列连线表示派生。', '• In the graph, same-column links mean reuse; cross-column links mean fork.'),
+        FLOW_T('• 「带入」将该会话的最新结论带入其他会话。', '• Relay brings the latest conclusion of this session into other sessions.'),
       ].join('\n')
       const parts = []
-      const conclusionSelector = (sourceSid, seq, round) => '<label class="fl-conclusion-select"><input type="checkbox" data-flow-conclusion="1" data-sid="' + esc(sourceSid) + '" data-seq="' + seq + '" data-round="' + esc(round || '') + '" data-node-key="' + esc(nodeKeyOf(sourceSid, { kind: 'msg', seq })) + '">选择结论</label>'
-      parts.push('<div class="jr-tabpanel tb-root tb-pane' + (zoomMotion ? ' fl-zoom-motion-' + zoomMotion : '') + '" data-flow' + (!nearMode ? ' data-flow-board="1"' : '') + ' data-flow-view="' + esc(zoomView) + '" data-flow-scope="' + esc(sid) + '" data-zoom-active-sids="' + esc(continueBranches.map((c) => c.rec.sid).join(',')) + '" data-zoom-run-id="' + esc(activeRun ? activeRun.id : '') + '" data-zoom-round-id="' + esc(activeRound ? activeRound.id : '') + '" data-flow-has-older="' + (nearFlow && nearFlow.hasOlder ? '1' : '0') + '" data-flow-visible="' + (nearFlow ? nearFlow.shown.length : shownCards.length) + '" data-flow-total="' + (nearFlow ? nearFlow.nodes.length : total) + '" data-autorefresh="' + flowAutorefreshOf(st) + '" data-tab-badge="' + (st.live && runningCount ? String(runningCount) + '活' : '') + '">')
+      const conclusionSelector = (sourceSid, seq, round) => '<label class="fl-conclusion-select"><input type="checkbox" data-flow-conclusion="1" data-sid="' + esc(sourceSid) + '" data-seq="' + seq + '" data-round="' + esc(round || '') + '" data-node-key="' + esc(nodeKeyOf(sourceSid, { kind: 'msg', seq })) + '">' + FLOW_T('选择结论', 'Select conclusion') + '</label>'
+      parts.push('<div class="jr-tabpanel tb-root tb-pane' + (zoomMotion ? ' fl-zoom-motion-' + zoomMotion : '') + '" data-flow' + (!nearMode ? ' data-flow-board="1"' : '') + ' data-flow-view="' + esc(zoomView) + '" data-flow-scope="' + esc(sid) + '" data-zoom-active-sids="' + esc(continueBranches.map((c) => c.rec.sid).join(',')) + '" data-zoom-run-id="' + esc(activeRun ? activeRun.id : '') + '" data-zoom-round-id="' + esc(activeRound ? activeRound.id : '') + '" data-flow-has-older="' + (nearFlow && nearFlow.hasOlder ? '1' : '0') + '" data-flow-visible="' + (nearFlow ? nearFlow.shown.length : shownCards.length) + '" data-flow-total="' + (nearFlow ? nearFlow.nodes.length : total) + '" data-autorefresh="' + flowAutorefreshOf(st) + '" data-tab-badge="' + (st.live && runningCount ? FLOW_T(String(runningCount) + '活', String(runningCount) + ' live') : '') + '">')
       parts.push('<div class="tb-pane-head">')
-      const selectedTitle = selectedCard ? oneLine((selectedCard.sum && selectedCard.sum.title) || '当前分支', 36) : '未选中分支'
-      parts.push('<div class="tb-row fl-context-bar"><nav class="fl-breadcrumbs" aria-label="观察范围">' +
-        '<button type="button" class="tb-chip" data-action="fzoom">当前会话</button><span aria-hidden="true">/</span>' +
-        '<button type="button" class="tb-chip' + (!nearMode ? ' tb-chip-on' : '') + '" data-action="fzoom-focus-back"' + (!nearMode ? ' aria-current="page"' : '') + '>并发任务</button>' +
+      const selectedTitle = selectedCard ? oneLine((selectedCard.sum && selectedCard.sum.title) || FLOW_T('当前分支', 'Current branch'), 36) : FLOW_T('未选中分支', 'No branch selected')
+      parts.push('<div class="tb-row fl-context-bar"><nav class="fl-breadcrumbs" aria-label="' + FLOW_T('观察范围', 'Observation scope') + '">' +
+        '<button type="button" class="tb-chip" data-action="fzoom">' + FLOW_T('当前会话', 'Current session') + '</button><span aria-hidden="true">/</span>' +
+        '<button type="button" class="tb-chip' + (!nearMode ? ' tb-chip-on' : '') + '" data-action="fzoom-focus-back"' + (!nearMode ? ' aria-current="page"' : '') + '>' + FLOW_T('并发任务', 'Concurrency task') + '</button>' +
         (nearMode ? '<span aria-hidden="true">/</span><span aria-current="page">' + esc(selectedTitle) + '</span>' : '') + '</nav>' +
-        '<span class="fl-execution-status">' + branches.length + ' 个分支 · ' + (runningCount ? runningCount + ' 运行中' : '暂无运行任务') + '</span>' + syncStatusHtml(st) + '</div>')
+        '<span class="fl-execution-status">' + FLOW_T(branches.length + ' 个分支 · ' + (runningCount ? runningCount + ' 运行中' : '暂无运行任务'), branches.length + ' branch(es) · ' + (runningCount ? runningCount + ' running' : 'no running task')) + '</span>' + syncStatusHtml(st) + '</div>')
       parts.push('<div class="tb-row fl-toolbar">' +
-        '<span class="fl-session-title">' + esc(nearMode ? selectedTitle : oneLine((activeRun && activeRun.prompt) || inferredFleetPrompt || '并发执行过程', 56)) + '</span>' +
-        (!nearMode && selectedCard ? '<button type="button" class="tb-btn tb-btn-sm" data-action="fzoom-focus-current">查看选中分支</button>' : '') +
-        '<button type="button" class="tb-btn tb-btn-sm tb-btn-primary" data-action="fzoom-composer" aria-expanded="' + (st.zoomComposerOpen ? 'true' : 'false') + '">' + (continueCurrentGroup ? '继续任务' : '创建并发任务') + '</button>' +
-        '<button type="button" class="tb-btn tb-btn-sm" data-flow-bookmarks="1">标记</button><button type="button" class="tb-btn tb-btn-sm" data-flow-export="1">导出</button>' +
-        (!nearMode ? '<button type="button" class="tb-btn tb-btn-sm" data-flow-compare-preview="1">比较所选结论</button>' : '') +
-        toolbarMoreHtml(st, zoomHelp, 'Session ' + sid + ' · ' + total + ' 个会话') + '</div>')
+        '<span class="fl-session-title">' + esc(nearMode ? selectedTitle : oneLine((activeRun && activeRun.prompt) || inferredFleetPrompt || FLOW_T('并发执行过程', 'Concurrency run'), 56)) + '</span>' +
+        (!nearMode && selectedCard ? '<button type="button" class="tb-btn tb-btn-sm" data-action="fzoom-focus-current">' + FLOW_T('查看选中分支', 'View selected branch') + '</button>' : '') +
+        '<button type="button" class="tb-btn tb-btn-sm tb-btn-primary" data-action="fzoom-composer" aria-expanded="' + (st.zoomComposerOpen ? 'true' : 'false') + '">' + (continueCurrentGroup ? FLOW_T('继续任务', 'Continue task') : FLOW_T('创建并发任务', 'New concurrency task')) + '</button>' +
+        '<button type="button" class="tb-btn tb-btn-sm" data-flow-bookmarks="1">' + FLOW_T('标记', 'Bookmark') + '</button><button type="button" class="tb-btn tb-btn-sm" data-flow-export="1">' + FLOW_T('导出', 'Export') + '</button>' +
+        (!nearMode ? '<button type="button" class="tb-btn tb-btn-sm" data-flow-compare-preview="1">' + FLOW_T('比较所选结论', 'Compare selected conclusions') + '</button>' : '') +
+        toolbarMoreHtml(st, zoomHelp, 'Session ' + sid + ' · ' + FLOW_T(total + ' 个会话', total + ' session(s)')) + '</div>')
       if (nearFlow) parts.push(queryToolbarHtml(st, nearFlow.selection, nearFlow.events))
       // 开工台（客户端行为，不经 Host RPC：输入/启动按钮由 Client 面板委托读写）：
       // 同一任务 ⚡ 同时开始 —— 旧会话从当前完成轮次分叉，新会话在同一工作区新建；每条
@@ -2317,15 +2324,15 @@ return {
       parts.push('</div>')
       if (st.zoomComposerOpen) {
         const routes = await buildZoomRoutes()
-        const routeOptions = (sel) => '<option value="">默认（跟随当前）</option>' + routes.map((r) => '<option value="' + esc(r.value) + '"' + (r.value === sel ? ' selected' : '') + '>' + esc(r.label) + '</option>').join('')
+        const routeOptions = (sel) => '<option value="">' + FLOW_T('默认（跟随当前）', 'Default (follow current)') + '</option>' + routes.map((r) => '<option value="' + esc(r.value) + '"' + (r.value === sel ? ' selected' : '') + '>' + esc(r.label) + '</option>').join('')
         const effortOptions = (route, sel) => {
           const meta = routes.find((r) => r.value === route)
-          if (!meta || !meta.efforts.length) return '<option value="">思考：跟随模型</option>'
-          const inherited = meta.defaultEffort ? '默认（' + meta.defaultEffort + '）' : '默认'
-          return '<option value="">思考：' + esc(inherited) + '</option>' + meta.efforts.map((e) => '<option value="' + esc(e.id) + '"' + (e.id === sel ? ' selected' : '') + '>' + esc(e.name) + '</option>').join('')
+          if (!meta || !meta.efforts.length) return '<option value="">' + FLOW_T('思考：跟随模型', 'Reasoning: follow model') + '</option>'
+          const inherited = meta.defaultEffort ? FLOW_T('默认（' + meta.defaultEffort + '）', 'Default (' + meta.defaultEffort + ')') : FLOW_T('默认', 'Default')
+          return '<option value="">' + FLOW_T('思考：', 'Reasoning: ') + esc(inherited) + '</option>' + meta.efforts.map((e) => '<option value="' + esc(e.id) + '"' + (e.id === sel ? ' selected' : '') + '>' + esc(e.name) + '</option>').join('')
         }
         const laneSelects = st.zoomLanes.map((lane, i) =>
-          '<span class="fl-zoom-lane-group" title="分支 ' + (i + 1) + '：模型与思考强度（左→右对应看板分支列）">' +
+          '<span class="fl-zoom-lane-group" title="' + FLOW_T('分支 ' + (i + 1) + '：模型与思考强度（左→右对应看板分支列）', 'Branch ' + (i + 1) + ': model and reasoning effort (left to right matches the board columns)') + '">' +
             '<select class="tb-select fl-zoom-lane fl-zoom-lane-model" data-field="zoomLane.' + i + '" data-action-onchange="fzoom-lane" data-lane="' + i + '" data-zoom-lane="1">' + routeOptions(lane) + '</select>' +
             '<select class="tb-select fl-zoom-lane fl-zoom-lane-effort" data-field="zoomEffort.' + i + '" data-action-onchange="fzoom-effort" data-lane="' + i + '" data-zoom-effort="1"' + (!lane ? ' disabled' : '') + '>' + effortOptions(lane, st.zoomEfforts[i] || '') + '</select>' +
           '</span>'
@@ -2334,68 +2341,68 @@ return {
         // Client 启动时读 chip 的 aria-pressed（data-zoom-reuse）；开关经 fzoom-reuse 回写 state，重渲染不丢。
         const zoomReuseOn = nearMode && selectedCard && st.zoomReuse === true
         const reuseChip = nearMode && selectedCard
-          ? '<button type="button" class="tb-chip' + (zoomReuseOn ? ' tb-chip-on' : '') + '" data-action="fzoom-reuse" data-zoom-reuse="1" aria-pressed="' + (zoomReuseOn ? 'true' : 'false') + '" title="开启后：当前会话作为分支 1 直接继续，只新建 ' + (targetBranchCount - 1) + ' 个新分支；本轮接进同一条大流镜历史">沿用当前会话</button>'
+          ? '<button type="button" class="tb-chip' + (zoomReuseOn ? ' tb-chip-on' : '') + '" data-action="fzoom-reuse" data-zoom-reuse="1" aria-pressed="' + (zoomReuseOn ? 'true' : 'false') + '" title="' + FLOW_T('开启后：当前会话作为分支 1 直接继续，只新建 ' + (targetBranchCount - 1) + ' 个新分支；本轮接进同一条大流镜历史', 'When on: the current session continues as branch 1 and only ' + (targetBranchCount - 1) + ' new branches are created; this round joins the same zoom history') + '">' + FLOW_T('沿用当前会话', 'Reuse current session') + '</button>'
           : ''
         const zoomComposerContext = continueCurrentGroup && activeRun && activeRound
-          ? '<div class="fl-zoom-composer-context"><strong>发送到当前 ' + activeRound.sids.length + ' 个会话</strong><span>' + esc(oneLine(activeRun.prompt || '并发任务', 28)) + ' · ' + esc(zoomTopology(activeRun)) + '</span><div class="fl-zoom-composer-targets" data-zoom-add-drop="1">' + currentConversationItems + addSessionMenu + '</div></div>'
+          ? '<div class="fl-zoom-composer-context"><strong>' + FLOW_T('发送到当前 ' + activeRound.sids.length + ' 个会话', 'Send to ' + activeRound.sids.length + ' current session(s)') + '</strong><span>' + esc(oneLine(activeRun.prompt || FLOW_T('并发任务', 'Concurrency task'), 28)) + ' · ' + esc(zoomTopology(activeRun)) + '</span><div class="fl-zoom-composer-targets" data-zoom-add-drop="1">' + currentConversationItems + addSessionMenu + '</div></div>'
           : nearMode && selectedCard
-            ? '<div class="fl-zoom-composer-context"><strong>' + (zoomReuseOn ? '沿用当前会话，再新建 ' + (targetBranchCount - 1) + ' 个分支（1→' + targetBranchCount + '）' : '从当前单会话发起 1→' + targetBranchCount) + '</strong><span>来源 Session：' + esc(selectedCard.rec.sid.replace(/^session-/, '').slice(0, 8)) + '</span></div>'
-            : '<div class="fl-zoom-composer-context"><strong>新建并发会话</strong><span>输入一次，创建并发送到 ' + targetBranchCount + ' 个 Session</span></div>'
-        const zoomPromptPlaceholder = continueCurrentGroup ? '这条消息将同时发送到上面列出的 Session' : nearMode && selectedCard ? (zoomReuseOn ? '这条消息将发送到当前会话，并派生 ' + (targetBranchCount - 1) + ' 个新分支' : '这条消息将从当前 Session 派生并发送到新分支') : '输入第一个任务，创建新的并发 Session'
-        const zoomLaunchLabel = continueCurrentGroup ? '发送到当前 ' + continueBranches.length + ' 个会话' : nearMode && selectedCard ? (zoomReuseOn ? '沿用当前会话 + 新建 ' + (targetBranchCount - 1) + ' 个分支' : '从当前会话发起 1→' + targetBranchCount) : '新建 ' + st.zoomLanes.length + ' 个会话并发送'
+            ? '<div class="fl-zoom-composer-context"><strong>' + (zoomReuseOn ? FLOW_T('沿用当前会话，再新建 ' + (targetBranchCount - 1) + ' 个分支（1→' + targetBranchCount + '）', 'Reuse current session, then create ' + (targetBranchCount - 1) + ' more branch(es) (1→' + targetBranchCount + ')') : FLOW_T('从当前单会话发起 1→' + targetBranchCount, 'Fan out 1→' + targetBranchCount + ' from this single session')) + '</strong><span>' + FLOW_T('来源 Session：', 'Source Session: ') + esc(selectedCard.rec.sid.replace(/^session-/, '').slice(0, 8)) + '</span></div>'
+            : '<div class="fl-zoom-composer-context"><strong>' + FLOW_T('新建并发会话', 'New concurrent sessions') + '</strong><span>' + FLOW_T('输入一次，创建并发送到 ' + targetBranchCount + ' 个 Session', 'Type once to create and send to ' + targetBranchCount + ' Session(s)') + '</span></div>'
+        const zoomPromptPlaceholder = continueCurrentGroup ? FLOW_T('这条消息将同时发送到上面列出的 Session', 'This message will be sent to all Sessions listed above') : nearMode && selectedCard ? (zoomReuseOn ? FLOW_T('这条消息将发送到当前会话，并派生 ' + (targetBranchCount - 1) + ' 个新分支', 'This message goes to the current session and forks ' + (targetBranchCount - 1) + ' new branch(es)') : FLOW_T('这条消息将从当前 Session 派生并发送到新分支', 'This message forks from the current Session into new branches')) : FLOW_T('输入第一个任务，创建新的并发 Session', 'Enter the first task to create new concurrent Sessions')
+        const zoomLaunchLabel = continueCurrentGroup ? FLOW_T('发送到当前 ' + continueBranches.length + ' 个会话', 'Send to ' + continueBranches.length + ' current session(s)') : nearMode && selectedCard ? (zoomReuseOn ? FLOW_T('沿用当前会话 + 新建 ' + (targetBranchCount - 1) + ' 个分支', 'Reuse current session + ' + (targetBranchCount - 1) + ' new branch(es)') : FLOW_T('从当前会话发起 1→' + targetBranchCount, 'Fan out 1→' + targetBranchCount + ' from current session')) : FLOW_T('新建 ' + st.zoomLanes.length + ' 个会话并发送', 'Create ' + st.zoomLanes.length + ' sessions and send')
         parts.push('<div class="fl-zoom-composer">' +
           zoomComposerContext +
           '<textarea class="tb-input fl-zoom-prompt" data-zoom-prompt="1" rows="2" placeholder="' + zoomPromptPlaceholder + '"></textarea>' +
           '<div class="fl-zoom-composer-controls">' + laneSelects + reuseChip +
-            '<span class="fl-zoom-target-label">目标分支数</span>' +
-            '<span class="fl-zoom-count" title="新并发将生成的目标分支数">' + [2, 3, 4].map((n) => '<button type="button" class="tb-chip' + (st.zoomLanes.length === n ? ' tb-chip-on' : '') + '" data-action="fzoom-lanes" data-count="' + n + '">' + n + '</button>').join('') + '</span>' +
+            '<span class="fl-zoom-target-label">' + FLOW_T('目标分支数', 'Target branches') + '</span>' +
+            '<span class="fl-zoom-count" title="' + FLOW_T('新并发将生成的目标分支数', 'Number of branches the new concurrency will create') + '">' + [2, 3, 4].map((n) => '<button type="button" class="tb-chip' + (st.zoomLanes.length === n ? ' tb-chip-on' : '') + '" data-action="fzoom-lanes" data-count="' + n + '">' + n + '</button>').join('') + '</span>' +
             '<span class="fl-zoom-composer-spacer"></span>' +
             '<button type="button" class="tb-btn tb-btn-sm tb-btn-primary" data-zoom-launch="1">⚡ ' + zoomLaunchLabel + '</button>' +
           '</div></div>')
       }
       // 显示方式与历史保留为轻量工具行；并发路径、目标 Session 与发送输入统一收进上方发送区。
       parts.push('<div class="tb-row fl-zoom-logbar"><span class="tb-note fl-zoom-log-spacer"></span>' +
-        '<span class="tb-sec-label">显示</span>' +
-        (nearMode ? '<span class="tb-note">分支过程</span>' :
-          '<button type="button" class="tb-chip' + (st.zoomView === 'compact' ? ' tb-chip-on' : '') + '" data-action="fzoom-view" data-view="compact" aria-pressed="' + (st.zoomView === 'compact' ? 'true' : 'false') + '">概览</button>' +
-          '<button type="button" class="tb-chip' + (st.zoomView === 'detail' ? ' tb-chip-on' : '') + '" data-action="fzoom-view" data-view="detail" aria-pressed="' + (st.zoomView === 'detail' ? 'true' : 'false') + '">对比</button>' +
-          '<button type="button" class="tb-chip' + (st.zoomView === 'map' ? ' tb-chip-on' : '') + '" data-action="fzoom-view" data-view="map" aria-pressed="' + (st.zoomView === 'map' ? 'true' : 'false') + '">关系图</button>') +
-        (!nearMode && zoomView === 'detail' ? '<button type="button" class="tb-chip" data-action="fdifferences" aria-pressed="' + (st.flowDifferences ? 'true' : 'false') + '">' + (st.flowDifferences ? '仅看差异' : '显示全部') + '</button>' : '') +
-        '<button type="button" class="tb-btn tb-btn-sm" data-action="fzoom-history">任务历史 · ' + st.zoomRuns.length + '</button>' +
+        '<span class="tb-sec-label">' + FLOW_T('显示', 'View') + '</span>' +
+        (nearMode ? '<span class="tb-note">' + FLOW_T('分支过程', 'Branch history') + '</span>' :
+          '<button type="button" class="tb-chip' + (st.zoomView === 'compact' ? ' tb-chip-on' : '') + '" data-action="fzoom-view" data-view="compact" aria-pressed="' + (st.zoomView === 'compact' ? 'true' : 'false') + '">' + FLOW_T('概览', 'Overview') + '</button>' +
+          '<button type="button" class="tb-chip' + (st.zoomView === 'detail' ? ' tb-chip-on' : '') + '" data-action="fzoom-view" data-view="detail" aria-pressed="' + (st.zoomView === 'detail' ? 'true' : 'false') + '">' + FLOW_T('对比', 'Diff') + '</button>' +
+          '<button type="button" class="tb-chip' + (st.zoomView === 'map' ? ' tb-chip-on' : '') + '" data-action="fzoom-view" data-view="map" aria-pressed="' + (st.zoomView === 'map' ? 'true' : 'false') + '">' + FLOW_T('关系图', 'Graph') + '</button>') +
+        (!nearMode && zoomView === 'detail' ? '<button type="button" class="tb-chip" data-action="fdifferences" aria-pressed="' + (st.flowDifferences ? 'true' : 'false') + '">' + (st.flowDifferences ? FLOW_T('仅看差异', 'Differences only') : FLOW_T('显示全部', 'Show all')) + '</button>' : '') +
+        '<button type="button" class="tb-btn tb-btn-sm" data-action="fzoom-history">' + FLOW_T('任务历史 · ' + st.zoomRuns.length, 'Task history · ' + st.zoomRuns.length) + '</button>' +
       '</div>')
       if (st.zoomHistoryOpen) {
-        parts.push('<aside class="fl-zoom-history-drawer"><div class="fl-zoom-history-drawer-head"><strong>任务历史</strong><button type="button" data-action="fzoom-history" aria-label="关闭任务历史">×</button></div><div class="fl-zoom-history-tree">' +
+        parts.push('<aside class="fl-zoom-history-drawer"><div class="fl-zoom-history-drawer-head"><strong>' + FLOW_T('任务历史', 'Task history') + '</strong><button type="button" data-action="fzoom-history" aria-label="' + FLOW_T('关闭任务历史', 'Close task history') + '">×</button></div><div class="fl-zoom-history-tree">' +
           st.zoomRuns.slice().reverse().map((run) => {
             const active = run.id === st.zoomRunId
             const expanded = st.zoomExpandedHistories.includes(run.id)
-            const summary = oneLine(run.prompt || run.name || '并发任务', 24)
+            const summary = oneLine(run.prompt || run.name || FLOW_T('并发任务', 'Concurrency task'), 24)
             return '<section class="fl-history-node' + (active ? ' is-active' : '') + '"><div class="fl-history-run-line">' +
-              '<button type="button" class="fl-history-toggle" data-action="fzoom-history-toggle" data-run="' + esc(run.id) + '" aria-expanded="' + (expanded ? 'true' : 'false') + '" title="' + (expanded ? '折叠历史' : '展开历史') + '">' + (expanded ? '▾' : '▸') + '</button>' +
-              '<button type="button" class="fl-history-run" data-action="fzoom-run" data-run="' + esc(run.id) + '" title="' + esc(run.prompt || '并发任务') + '"><span>⚡ ' + esc(summary) + '</span><small>' + esc(zoomTopology(run)) + '</small></button></div>' +
-              (expanded ? '<div class="fl-history-rounds">' + run.rounds.map((round, ri) => '<section class="fl-history-round-node' + (active && round.id === st.zoomRoundId ? ' is-active' : '') + '"><button type="button" class="fl-history-round" data-action="fzoom-round" data-run="' + esc(run.id) + '" data-round="' + esc(round.id) + '"><span>└ ' + (ri === 0 ? '初始' : '第 ' + ri + ' 轮') + '</span><small>' + (round.sourceSids.length ? round.sourceSids.length + '→' : '') + round.sids.length + '</small></button>' +
-                '<div class="fl-history-children">' + round.sids.map((runSid, i) => '<button type="button" class="fl-history-session" data-action="fzoom-open" data-run="' + esc(run.id) + '" data-round="' + esc(round.id) + '" data-sid="' + esc(runSid) + '"><span>└ 对话 ' + (i + 1) + '</span><code>' + esc(runSid.replace(/^session-/, '').slice(0, 8)) + '</code></button>').join('') + '</div></section>').join('') + '</div>' : '') + '</section>'
+              '<button type="button" class="fl-history-toggle" data-action="fzoom-history-toggle" data-run="' + esc(run.id) + '" aria-expanded="' + (expanded ? 'true' : 'false') + '" title="' + (expanded ? FLOW_T('折叠历史', 'Collapse history') : FLOW_T('展开历史', 'Expand history')) + '">' + (expanded ? '▾' : '▸') + '</button>' +
+              '<button type="button" class="fl-history-run" data-action="fzoom-run" data-run="' + esc(run.id) + '" title="' + esc(run.prompt || FLOW_T('并发任务', 'Concurrency task')) + '"><span>⚡ ' + esc(summary) + '</span><small>' + esc(zoomTopology(run)) + '</small></button></div>' +
+              (expanded ? '<div class="fl-history-rounds">' + run.rounds.map((round, ri) => '<section class="fl-history-round-node' + (active && round.id === st.zoomRoundId ? ' is-active' : '') + '"><button type="button" class="fl-history-round" data-action="fzoom-round" data-run="' + esc(run.id) + '" data-round="' + esc(round.id) + '"><span>└ ' + (ri === 0 ? FLOW_T('初始', 'Initial') : FLOW_T('第 ' + ri + ' 轮', 'Round ' + ri)) + '</span><small>' + (round.sourceSids.length ? round.sourceSids.length + '→' : '') + round.sids.length + '</small></button>' +
+                '<div class="fl-history-children">' + round.sids.map((runSid, i) => '<button type="button" class="fl-history-session" data-action="fzoom-open" data-run="' + esc(run.id) + '" data-round="' + esc(round.id) + '" data-sid="' + esc(runSid) + '"><span>└ ' + FLOW_T('对话 ' + (i + 1), 'Conversation ' + (i + 1)) + '</span><code>' + esc(runSid.replace(/^session-/, '').slice(0, 8)) + '</code></button>').join('') + '</div></section>').join('') + '</div>' : '') + '</section>'
           }).join('') + '</div></aside>')
       }
       parts.push('<div class="tb-pane-body tb-pane-col">')
       if (!shownCards.length) {
-        parts.push('<div class="tb-notice">' + (st.zoomScope === 'run' ? '还没有并发记录——输入任务后点「⚡ 同时开始」' : '没有可显示的会话') + '</div>')
+        parts.push('<div class="tb-notice">' + (st.zoomScope === 'run' ? FLOW_T('还没有并发记录——输入任务后点「⚡ 同时开始」', 'No concurrency records yet — enter a task and click “⚡ Start together”') : FLOW_T('没有可显示的会话', 'No sessions to display')) + '</div>')
       } else if (nearFlow && selectedCard) {
         // 近观不是单列 diff：直接复用原单会话流镜节点，铺满大流镜画布。
         const nearRows = await renderFlowNodeRows(nearFlow.shown, st, null)
-        if (nearFlow.hasOlder) nearRows.push('<div class="tb-notice fl-older" data-flow-older-hint>已显示最近 ' + nearFlow.shown.length + ' 个节点 · 继续向上滚动会自动加载更早 ' + Math.min(60, nearFlow.nodes.length - nearFlow.shown.length) + ' 条</div>')
+        if (nearFlow.hasOlder) nearRows.push('<div class="tb-notice fl-older" data-flow-older-hint>' + FLOW_T('已显示最近 ' + nearFlow.shown.length + ' 个节点 · 继续向上滚动会自动加载更早 ' + Math.min(60, nearFlow.nodes.length - nearFlow.shown.length) + ' 条', 'Showing the latest ' + nearFlow.shown.length + ' nodes · scroll up to load ' + Math.min(60, nearFlow.nodes.length - nearFlow.shown.length) + ' earlier event(s)') + '</div>')
         // 普通流镜把 rows.reverse() 作为 tb-pane-body 的直接子项，再由 column-reverse 还原视觉时间序。
         // 近观多了一层 wrapper，不能再 reverse，否则视觉顺序会变成“助手在上、用户在下”。
-        parts.push('<div class="fl-zoom-near-flow" data-flow-near-session="' + esc(selectedCard.rec.sid) + '">' + (nearRows.length ? nearRows.join('') : '<div class="tb-notice">当前会话还没有事件</div>') + '</div>')
+        parts.push('<div class="fl-zoom-near-flow" data-flow-near-session="' + esc(selectedCard.rec.sid) + '">' + (nearRows.length ? nearRows.join('') : '<div class="tb-notice">' + FLOW_T('当前会话还没有事件', 'This session has no events yet') + '</div>') + '</div>')
       } else if (zoomView === 'compact') {
-        if (rootC) parts.push('<div class="fl-overview-source"><span class="tb-sec-label">来源会话</span><span>' + esc(oneLine((rootC.sum && rootC.sum.title) || rootC.rec.sid, 80)) + '</span><button type="button" class="tb-btn tb-btn-sm" data-action="fzoom-open" data-sid="' + esc(rootC.rec.sid) + '">查看来源会话</button></div>')
-        if (!branches.length) parts.push('<div class="tb-notice">尚无并发分支。使用“创建并发任务”开始比较。</div>')
+        if (rootC) parts.push('<div class="fl-overview-source"><span class="tb-sec-label">' + FLOW_T('来源会话', 'Source session') + '</span><span>' + esc(oneLine((rootC.sum && rootC.sum.title) || rootC.rec.sid, 80)) + '</span><button type="button" class="tb-btn tb-btn-sm" data-action="fzoom-open" data-sid="' + esc(rootC.rec.sid) + '">' + FLOW_T('查看来源会话', 'View source session') + '</button></div>')
+        if (!branches.length) parts.push('<div class="tb-notice">' + FLOW_T('尚无并发分支。使用“创建并发任务”开始比较。', 'No concurrent branches yet. Use “New concurrency task” to start comparing.') + '</div>')
         parts.push('<div class="fl-overview-list">' + branches.map((c, i) => '<article class="fl-overview-card' + (c.sum && c.sum.latestError ? ' has-errors' : '') + '" data-flow-detail-session="' + esc(c.rec.sid) + '">' +
-          '<div class="fl-diff-session-label">分支 ' + (i + 1) + '</div>' + headOf(c, false, true) +
-          (c.sum && c.sum.currentStep ? '<p class="fl-current-step">当前步骤：' + esc(c.sum.currentStep) + '</p>' : '') +
+          '<div class="fl-diff-session-label">' + FLOW_T('分支 ' + (i + 1), 'Branch ' + (i + 1)) + '</div>' + headOf(c, false, true) +
+          (c.sum && c.sum.currentStep ? '<p class="fl-current-step">' + FLOW_T('当前步骤：', 'Current step: ') + esc(c.sum.currentStep) + '</p>' : '') +
           (c.sum && c.sum.latestError ? '<p class="fl-detail-error">' + esc(c.sum.latestError) + '</p>' : '') +
-          (c.sum && c.sum.strip.length ? '<div class="fl-overview-process"><span class="tb-sec-label">最近执行过程</span>' + zoomFlowHtml(c.sum) + '</div>' : '') +
-          '<div class="fl-overview-conclusion"><span class="tb-sec-label">最新结论</span><p>' + esc(c.sum && c.sum.unavailable ? '会话日志暂不可用，请稍后刷新重试。' + (c.sum.unavailableReason ? '（' + c.sum.unavailableReason + '）' : '') : c.sum && c.sum.conclusion ? oneLine(c.sum.conclusion.text, 260) : c.running ? '正在执行，尚无已完成结论。' : '尚无已完成结论。') + '</p></div>' +
-          '<div class="fl-overview-actions"><button type="button" class="tb-btn tb-btn-sm" data-action="fzoom-open" data-sid="' + esc(c.rec.sid) + '">查看分支过程</button>' +
+          (c.sum && c.sum.strip.length ? '<div class="fl-overview-process"><span class="tb-sec-label">' + FLOW_T('最近执行过程', 'Recent activity') + '</span>' + zoomFlowHtml(c.sum) + '</div>' : '') +
+          '<div class="fl-overview-conclusion"><span class="tb-sec-label">' + FLOW_T('最新结论', 'Latest conclusion') + '</span><p>' + esc(c.sum && c.sum.unavailable ? FLOW_T('会话日志暂不可用，请稍后刷新重试。', 'Session log unavailable; refresh and retry later.') + (c.sum.unavailableReason ? FLOW_T('（' + c.sum.unavailableReason + '）', ' (' + c.sum.unavailableReason + ')') : '') : c.sum && c.sum.conclusion ? oneLine(c.sum.conclusion.text, 260) : c.running ? FLOW_T('正在执行，尚无已完成结论。', 'Still running; no completed conclusion yet.') : FLOW_T('尚无已完成结论。', 'No completed conclusion yet.')) + '</p></div>' +
+          '<div class="fl-overview-actions"><button type="button" class="tb-btn tb-btn-sm" data-action="fzoom-open" data-sid="' + esc(c.rec.sid) + '">' + FLOW_T('查看分支过程', 'View branch history') + '</button>' +
           (c.sum && c.sum.conclusion ? conclusionSelector(c.rec.sid, c.sum.conclusion.seq, activeRound && activeRound.id) : '') + '</div></article>').join('') + '</div>')
       } else {
         if ((st.zoomScope === 'run' || inferredFleet || zoomView === 'detail') && branches.length) {
@@ -2471,12 +2478,12 @@ return {
               const rootX = Math.round((canvasW - rootW) / 2)
               canvasH = Math.max(520, firstRowY + nodeRows.length * nodeH + Math.max(0, nodeRows.length - 1) * rowGap + 44)
               nodePos.set('root', { x: rootX, y: rootY, w: rootW, h: 84 })
-              nodeHtml.push('<article class="fl-map-node fl-map-root" data-map-node="root" data-map-default-x="' + rootX + '" data-map-default-y="' + rootY + '" style="left:' + rootX + 'px;top:' + rootY + 'px;width:' + rootW + 'px"><button type="button" class="fl-map-select" data-map-select aria-pressed="false" aria-label="选中并发任务">' + esc(oneLine((activeRun && activeRun.prompt) || '当前并发', 28)) + '</button><span>' + esc(zoomTopology(activeRun)) + ' · ' + laneOrder.length + ' 个会话</span></article>')
+              nodeHtml.push('<article class="fl-map-node fl-map-root" data-map-node="root" data-map-default-x="' + rootX + '" data-map-default-y="' + rootY + '" style="left:' + rootX + 'px;top:' + rootY + 'px;width:' + rootW + 'px"><button type="button" class="fl-map-select" data-map-select aria-pressed="false" aria-label="' + FLOW_T('选中并发任务', 'Select concurrency task') + '">' + esc(oneLine((activeRun && activeRun.prompt) || FLOW_T('当前并发', 'Current concurrency'), 28)) + '</button><span>' + esc(zoomTopology(activeRun)) + ' · ' + FLOW_T(laneOrder.length + ' 个会话', laneOrder.length + ' session(s)') + '</span></article>')
               nodeRows.forEach((rowNodes2, rowIdx) => {
                 if (!rowNodes2.length) return
                 const ri = rowNodes2[0].ri
                 const rowY = firstRowY + rowIdx * (nodeH + rowGap)
-                turnHtml.push('<div class="fl-map-turn-label" style="left:' + Math.max(12, laneStartX - 86) + 'px;top:' + (rowY + Math.round(nodeH / 2) - 15) + 'px"><span>' + ri + '</span><strong>第 ' + ri + ' 轮</strong></div>')
+                turnHtml.push('<div class="fl-map-turn-label" style="left:' + Math.max(12, laneStartX - 86) + 'px;top:' + (rowY + Math.round(nodeH / 2) - 15) + 'px"><span>' + ri + '</span><strong>' + FLOW_T('第 ' + ri + ' 轮', 'Round ' + ri) + '</strong></div>')
                 // 同一轮内先成节点、再统一连边：边的来源解析到「上一轮」的状态（分叉边从被分叉的那一轮连出），
                 // 最后才更新 latestNode——避免同轮相邻节点互相串链。
                 for (const n of rowNodes2) {
@@ -2491,14 +2498,14 @@ return {
                   const value = grouped ? grouped.get(n.turn) : null
                   const lastAi = value ? value.items.filter((it) => it.kind === 'msg' && it.role === 'ai' && !it.streaming).slice(-1)[0] : null
                   const branchSeq = lastAi ? (lastAi.finalSeq != null ? lastAi.finalSeq : lastAi.seq) : null
-                  const result = oneLine((value && value.result) || '（本轮尚无完整回答）', 92)
+                  const result = oneLine((value && value.result) || FLOW_T('（本轮尚无完整回答）', '(no full answer this round yet)'), 92)
                   const card = bySid.get(n.sid)
                   const title = titleIndex.get(n.sid) || (card && card.sum && card.sum.title) || ''
-                  const label = title ? oneLine(title, 16) : '会话 ' + (lane + 1)
+                  const label = title ? oneLine(title, 16) : FLOW_T('会话 ' + (lane + 1), 'Session ' + (lane + 1))
                   nodeHtml.push('<article class="fl-map-node" data-map-node="' + nodeId + '" data-map-default-x="' + x + '" data-map-default-y="' + y + '" data-flow-detail-session="' + esc(n.sid) + '" style="left:' + x + 'px;top:' + y + 'px;width:' + nodeW + 'px">' +
-                    '<header><button type="button" class="fl-map-select" data-map-select aria-pressed="false" aria-label="选中' + esc(label) + '第 ' + n.ri + ' 轮">' + esc(label) + '</button><span>第 ' + n.ri + ' 轮</span></header>' +
+                    '<header><button type="button" class="fl-map-select" data-map-select aria-pressed="false" aria-label="' + FLOW_T('选中', 'Select ') + esc(label) + FLOW_T('第 ' + n.ri + ' 轮', ' round ' + n.ri) + '">' + esc(label) + '</button><span>' + FLOW_T('第 ' + n.ri + ' 轮', 'Round ' + n.ri) + '</span></header>' +
                     '<p>' + esc(result) + '</p>' +
-                    (branchSeq == null ? '' : '<button type="button" class="fl-map-branch" data-flow-branch data-history="' + esc(activeRun.id) + '" data-round="' + esc(n.round.id) + '" data-turn="' + n.ri + '" data-seq="' + branchSeq + '" title="以 ' + esc(label) + ' 的第 ' + n.ri + ' 轮回答为唯一来源，创建 ' + targetBranchCount + ' 个新 Session">从这里发起 1→' + targetBranchCount + '</button>') +
+                    (branchSeq == null ? '' : '<button type="button" class="fl-map-branch" data-flow-branch data-history="' + esc(activeRun.id) + '" data-round="' + esc(n.round.id) + '" data-turn="' + n.ri + '" data-seq="' + branchSeq + '" title="' + FLOW_T('以 ' + label + ' 的第 ' + n.ri + ' 轮回答为唯一来源，创建 ' + targetBranchCount + ' 个新 Session', 'Create ' + targetBranchCount + ' new Session(s) using the round ' + n.ri + ' answer of ' + label + ' as the sole source') + '">' + FLOW_T('从这里发起 1→' + targetBranchCount, 'Fan out 1→' + targetBranchCount + ' from here') + '</button>') +
                   '</article>')
                 }
                 for (const n of rowNodes2) {
@@ -2515,12 +2522,12 @@ return {
             const rootX = Math.round((canvasW - rootW) / 2)
             canvasH = Math.max(520, firstRowY + rows.length * nodeH + Math.max(0, rows.length - 1) * rowGap + 44)
             nodePos.set('root', { x: rootX, y: rootY, w: rootW, h: 84 })
-            nodeHtml.push('<article class="fl-map-node fl-map-root" data-map-node="root" data-map-default-x="' + rootX + '" data-map-default-y="' + rootY + '" style="left:' + rootX + 'px;top:' + rootY + 'px;width:' + rootW + 'px"><button type="button" class="fl-map-select" data-map-select aria-pressed="false" aria-label="选中并发任务">' + esc(oneLine((activeRun && activeRun.prompt) || '当前并发', 28)) + '</button><span>' + esc(zoomTopology(activeRun)) + ' · ' + branches.length + ' 个会话</span></article>')
+            nodeHtml.push('<article class="fl-map-node fl-map-root" data-map-node="root" data-map-default-x="' + rootX + '" data-map-default-y="' + rootY + '" style="left:' + rootX + 'px;top:' + rootY + 'px;width:' + rootW + 'px"><button type="button" class="fl-map-select" data-map-select aria-pressed="false" aria-label="' + FLOW_T('选中并发任务', 'Select concurrency task') + '">' + esc(oneLine((activeRun && activeRun.prompt) || FLOW_T('当前并发', 'Current concurrency'), 28)) + '</button><span>' + esc(zoomTopology(activeRun)) + ' · ' + FLOW_T(branches.length + ' 个会话', branches.length + ' session(s)') + '</span></article>')
             for (let r = 0; r < rows.length; r++) {
               const row = rows[r]
               const displayTurn = row.turn === 0 ? 1 : row.turn
               const rowY = firstRowY + r * (nodeH + rowGap)
-              turnHtml.push('<div class="fl-map-turn-label" style="left:' + Math.max(12, laneStartX - 86) + 'px;top:' + (rowY + Math.round(nodeH / 2) - 15) + 'px"><span>' + displayTurn + '</span><strong>第 ' + displayTurn + ' 轮</strong></div>')
+              turnHtml.push('<div class="fl-map-turn-label" style="left:' + Math.max(12, laneStartX - 86) + 'px;top:' + (rowY + Math.round(nodeH / 2) - 15) + 'px"><span>' + displayTurn + '</span><strong>' + FLOW_T('第 ' + displayTurn + ' 轮', 'Round ' + displayTurn) + '</strong></div>')
               for (let i = 0; i < branches.length; i++) {
                 const value = row.values[i]
                 if (!value) continue
@@ -2532,11 +2539,11 @@ return {
                 if (nodePos.has(previous)) edges.push({ from: previous, to: nodeId })
                 const lastAi = value.items.filter((it) => it.kind === 'msg' && it.role === 'ai' && !it.streaming).slice(-1)[0]
                 const branchSeq = lastAi ? (lastAi.finalSeq != null ? lastAi.finalSeq : lastAi.seq) : null
-                const result = oneLine(value.result || '（本轮尚无完整回答）', 92)
+                const result = oneLine(value.result || FLOW_T('（本轮尚无完整回答）', '(no full answer this round yet)'), 92)
                 nodeHtml.push('<article class="fl-map-node" data-map-node="' + nodeId + '" data-map-default-x="' + x + '" data-map-default-y="' + y + '" data-flow-detail-session="' + esc(branches[i].rec.sid) + '" style="left:' + x + 'px;top:' + y + 'px;width:' + nodeW + 'px">' +
-                  '<header><button type="button" class="fl-map-select" data-map-select aria-pressed="false" aria-label="选中分支 ' + (i + 1) + ' 第 ' + displayTurn + ' 轮">分支 ' + (i + 1) + '</button><span>第 ' + displayTurn + ' 轮</span></header>' +
+                  '<header><button type="button" class="fl-map-select" data-map-select aria-pressed="false" aria-label="' + FLOW_T('选中分支 ' + (i + 1) + ' 第 ' + displayTurn + ' 轮', 'Select branch ' + (i + 1) + ' round ' + displayTurn) + '">' + FLOW_T('分支 ' + (i + 1), 'Branch ' + (i + 1)) + '</button><span>' + FLOW_T('第 ' + displayTurn + ' 轮', 'Round ' + displayTurn) + '</span></header>' +
                   '<p>' + esc(result) + '</p>' +
-                  (branchSeq == null || !activeRun || !activeRound ? '' : '<button type="button" class="fl-map-branch" data-flow-branch data-history="' + esc(activeRun.id) + '" data-round="' + esc(activeRound.id) + '" data-turn="' + displayTurn + '" data-seq="' + branchSeq + '" title="以会话 ' + (i + 1) + ' 的第 ' + displayTurn + ' 轮回答为唯一来源，创建 ' + targetBranchCount + ' 个新 Session">从这里发起 1→' + targetBranchCount + '</button>') +
+                  (branchSeq == null || !activeRun || !activeRound ? '' : '<button type="button" class="fl-map-branch" data-flow-branch data-history="' + esc(activeRun.id) + '" data-round="' + esc(activeRound.id) + '" data-turn="' + displayTurn + '" data-seq="' + branchSeq + '" title="' + FLOW_T('以会话 ' + (i + 1) + ' 的第 ' + displayTurn + ' 轮回答为唯一来源，创建 ' + targetBranchCount + ' 个新 Session', 'Create ' + targetBranchCount + ' new Session(s) using the round ' + displayTurn + ' answer of session ' + (i + 1) + ' as the sole source') + '">' + FLOW_T('从这里发起 1→' + targetBranchCount, 'Fan out 1→' + targetBranchCount + ' from here') + '</button>') +
                 '</article>')
               }
             }
@@ -2573,46 +2580,46 @@ return {
               const a = nodePos.get(edge.from), b = nodePos.get(edge.to)
               return '<path data-map-from="' + edge.from + '" data-map-to="' + edge.to + '" d="' + connectorPath(a, b, edge.from, edge.to) + '" />'
             }).join('')
-            parts.push('<div class="fl-mindmap-wrap"><div class="fl-mindmap-help"><strong>关系图</strong><span>选择节点后可定位；方向键切换节点，Shift + 方向键平移，Ctrl + 方向键整理位置。</span>' +
-              '<div class="fl-map-controls" role="toolbar" aria-label="关系图视口">' +
-                '<button type="button" data-map-fit="1">适应画布</button><button type="button" data-map-center="1">定位选中</button><button type="button" data-map-reset="1">恢复布局</button>' +
-                '<span class="fl-map-zoom-controls"><button type="button" data-map-zoom="out" aria-label="缩小关系图">−</button><button type="button" data-map-zoom="reset" title="恢复 100%"><output data-map-zoom-value aria-live="polite">100%</output></button><button type="button" data-map-zoom="in" aria-label="放大关系图">+</button></span>' +
-                '<span class="fl-map-pan-controls"><button type="button" data-map-pan="left" aria-label="向左平移画布">←</button><button type="button" data-map-pan="up" aria-label="向上平移画布">↑</button><button type="button" data-map-pan="down" aria-label="向下平移画布">↓</button><button type="button" data-map-pan="right" aria-label="向右平移画布">→</button></span>' +
+            parts.push('<div class="fl-mindmap-wrap"><div class="fl-mindmap-help"><strong>' + FLOW_T('关系图', 'Graph') + '</strong><span>' + FLOW_T('选择节点后可定位；方向键切换节点，Shift + 方向键平移，Ctrl + 方向键整理位置。', 'Select a node to focus it; arrow keys move between nodes, Shift + arrows pan, Ctrl + arrows tidy positions.') + '</span>' +
+              '<div class="fl-map-controls" role="toolbar" aria-label="' + FLOW_T('关系图视口', 'Graph viewport') + '">' +
+                '<button type="button" data-map-fit="1">' + FLOW_T('适应画布', 'Fit canvas') + '</button><button type="button" data-map-center="1">' + FLOW_T('定位选中', 'Focus selection') + '</button><button type="button" data-map-reset="1">' + FLOW_T('恢复布局', 'Reset layout') + '</button>' +
+                '<span class="fl-map-zoom-controls"><button type="button" data-map-zoom="out" aria-label="' + FLOW_T('缩小关系图', 'Zoom out graph') + '">−</button><button type="button" data-map-zoom="reset" title="' + FLOW_T('恢复 100%', 'Reset to 100%') + '"><output data-map-zoom-value aria-live="polite">100%</output></button><button type="button" data-map-zoom="in" aria-label="' + FLOW_T('放大关系图', 'Zoom in graph') + '">+</button></span>' +
+                '<span class="fl-map-pan-controls"><button type="button" data-map-pan="left" aria-label="' + FLOW_T('向左平移画布', 'Pan canvas left') + '">←</button><button type="button" data-map-pan="up" aria-label="' + FLOW_T('向上平移画布', 'Pan canvas up') + '">↑</button><button type="button" data-map-pan="down" aria-label="' + FLOW_T('向下平移画布', 'Pan canvas down') + '">↓</button><button type="button" data-map-pan="right" aria-label="' + FLOW_T('向右平移画布', 'Pan canvas right') + '">→</button></span>' +
               '</div></div>' +
-              '<div class="fl-mindmap-viewport" data-flow-mindmap="1" tabindex="0" role="region" aria-label="关系图画布，方向键平移" data-map-scope="' + esc((activeRun && activeRun.id) || 'current') + '"><div class="fl-mindmap-canvas" style="width:' + canvasW + 'px;height:' + canvasH + 'px"><svg class="fl-mindmap-edges" aria-hidden="true" width="' + canvasW + '" height="' + canvasH + '">' + lineHtml + '</svg>' + turnHtml.join('') + nodeHtml.join('') + '</div></div></div>')
+              '<div class="fl-mindmap-viewport" data-flow-mindmap="1" tabindex="0" role="region" aria-label="' + FLOW_T('关系图画布，方向键平移', 'Graph canvas; arrow keys pan') + '" data-map-scope="' + esc((activeRun && activeRun.id) || 'current') + '"><div class="fl-mindmap-canvas" style="width:' + canvasW + 'px;height:' + canvasH + 'px"><svg class="fl-mindmap-edges" aria-hidden="true" width="' + canvasW + '" height="' + canvasH + '">' + lineHtml + '</svg>' + turnHtml.join('') + nodeHtml.join('') + '</div></div></div>')
           } else {
           parts.push('<div class="fl-zoom-diff-scroll"><div class="fl-zoom-diff-board" style="grid-template-columns:92px ' + widths.join(' ') + '">')
-          parts.push('<div class="fl-diff-corner">轮次</div>')
+          parts.push('<div class="fl-diff-corner">' + FLOW_T('轮次', 'Rounds') + '</div>')
           for (const c of branches) {
             const branchIndex = branches.indexOf(c) + 1
-            parts.push('<div class="fl-diff-session-head" data-action="fzoom-open" data-sid="' + esc(c.rec.sid) + '" role="button" tabindex="0" title="' + openTip + '"><div class="fl-diff-session-label">会话 ' + branchIndex + '</div>' + headOf(c, false) + '</div>')
+            parts.push('<div class="fl-diff-session-head" data-action="fzoom-open" data-sid="' + esc(c.rec.sid) + '" role="button" tabindex="0" title="' + openTip + '"><div class="fl-diff-session-label">' + FLOW_T('会话 ' + branchIndex, 'Session ' + branchIndex) + '</div>' + headOf(c, false) + '</div>')
           }
-          if (st.flowDifferences && comparison.rows.every((row) => row.identical)) parts.push('<div class="tb-notice" style="grid-column:1 / -1">已对齐的轮次没有差异。切换“显示全部”可查看完整过程。</div>')
+          if (st.flowDifferences && comparison.rows.every((row) => row.identical)) parts.push('<div class="tb-notice" style="grid-column:1 / -1">' + FLOW_T('已对齐的轮次没有差异。切换“显示全部”可查看完整过程。', 'Aligned rounds have no differences. Switch to “Show all” to see the full history.') + '</div>')
           for (const row of comparison.rows) {
             if (st.flowDifferences && row.identical) continue
             const displayTurn = row.turn === 0 ? 1 : row.turn
-            const label = !row.aligned ? '未对齐 · 缺少同源输入证据' : row.same ? '流程一致' : row.values.some((v) => !v) ? '流程缺失' : '流程有差异'
+            const label = !row.aligned ? FLOW_T('未对齐 · 缺少同源输入证据', 'Unaligned · missing shared-input evidence') : row.same ? FLOW_T('流程一致', 'Flow identical') : row.values.some((v) => !v) ? FLOW_T('流程缺失', 'Flow missing') : FLOW_T('流程有差异', 'Flow differs')
             const gutterCls = !row.aligned ? ' fl-diff-unaligned' : row.same ? ' fl-diff-same' : row.values.some((v) => !v) ? ' fl-diff-missing' : ' fl-diff-change'
-            const dim = (name, value) => '<span class="fl-diff-dim fl-diff-dim-' + (value === '同' ? 'same' : value === '异' ? 'change' : 'missing') + '">' + name + ' ' + value + '</span>'
+            const dim = (name, value) => '<span class="fl-diff-dim fl-diff-dim-' + (value === '同' ? 'same' : value === '异' ? 'change' : 'missing') + '">' + name + ' ' + (FLOW_DIM_EN[value] || value) + '</span>'
             const roundFork = []
             for (let i = 0; i < branches.length; i++) {
               const value = row.values[i]
               const lastAi = value && value.items.filter((it) => it.kind === 'msg' && it.role === 'ai' && !it.streaming).slice(-1)[0]
               if (lastAi) roundFork.push({ sid: branches[i].rec.sid, seq: lastAi.finalSeq != null ? lastAi.finalSeq : lastAi.seq })
             }
-            if (row.sharedInput) parts.push('<div class="fl-diff-shared-input" style="grid-column:1 / -1"><span class="tb-sec-label">共享输入 · 已对齐</span><p>' + esc(oneLine(row.sharedInput, 400)) + '</p></div>')
-            parts.push('<div class="fl-diff-gutter' + gutterCls + '"><strong>第 ' + displayTurn + ' 轮</strong><span>' + label + '</span>' +
-              (row.aligned ? '<small>' + dim('输入', row.dims.input) + dim('流程', row.dims.flow) + dim('文件', row.dims.files) + dim('结果', row.dims.result) + '</small>' : '') +
-              (roundFork.length < 2 || !activeRun || !activeRound ? '' : '<button type="button" class="fl-diff-round-fork" data-zoom-round-fork="1" data-history="' + esc(activeRun.id) + '" data-round="' + esc(activeRound.id) + '" data-turn="' + displayTurn + '" data-spec="' + esc(JSON.stringify(roundFork)) + '" title="以本轮全部 ' + roundFork.length + ' 个会话为来源，创建 ' + targetBranchCount + ' 个新 Session">本轮全部：' + roundFork.length + '→' + targetBranchCount + '</button>') +
+            if (row.sharedInput) parts.push('<div class="fl-diff-shared-input" style="grid-column:1 / -1"><span class="tb-sec-label">' + FLOW_T('共享输入 · 已对齐', 'Shared input · aligned') + '</span><p>' + esc(oneLine(row.sharedInput, 400)) + '</p></div>')
+            parts.push('<div class="fl-diff-gutter' + gutterCls + '"><strong>' + FLOW_T('第 ' + displayTurn + ' 轮', 'Round ' + displayTurn) + '</strong><span>' + label + '</span>' +
+              (row.aligned ? '<small>' + dim(FLOW_T('输入', 'Input'), row.dims.input) + dim(FLOW_T('流程', 'Flow'), row.dims.flow) + dim(FLOW_T('文件', 'Files'), row.dims.files) + dim(FLOW_T('结果', 'Result'), row.dims.result) + '</small>' : '') +
+              (roundFork.length < 2 || !activeRun || !activeRound ? '' : '<button type="button" class="fl-diff-round-fork" data-zoom-round-fork="1" data-history="' + esc(activeRun.id) + '" data-round="' + esc(activeRound.id) + '" data-turn="' + displayTurn + '" data-spec="' + esc(JSON.stringify(roundFork)) + '" title="' + FLOW_T('以本轮全部 ' + roundFork.length + ' 个会话为来源，创建 ' + targetBranchCount + ' 个新 Session', 'Create ' + targetBranchCount + ' new Session(s) from all ' + roundFork.length + ' sessions of this round') + '">' + FLOW_T('本轮全部：' + roundFork.length + '→' + targetBranchCount, 'Whole round: ' + roundFork.length + '→' + targetBranchCount) + '</button>') +
               '</div>')
             const baseline = row.values.find((v) => v) || null
             const baselineSig = baseline ? baseline.input + '\n' + baseline.tools + '\n' + baseline.files : ''
             for (let i = 0; i < branches.length; i++) {
               const c = branches[i]
               const value = row.values[i]
-              const branchLabel = '分支 ' + (i + 1) + ' · ' + oneLine((c.sum && c.sum.title) || c.rec.sid, 42)
+              const branchLabel = FLOW_T('分支 ' + (i + 1) + ' · ', 'Branch ' + (i + 1) + ' · ') + oneLine((c.sum && c.sum.title) || c.rec.sid, 42)
               if (!value) {
-                parts.push('<div class="fl-diff-cell fl-diff-cell-missing" data-branch-label="' + esc(branchLabel) + '"><span>− 此对话缺少本轮</span></div>')
+                parts.push('<div class="fl-diff-cell fl-diff-cell-missing" data-branch-label="' + esc(branchLabel) + '"><span>− ' + FLOW_T('此对话缺少本轮', 'This conversation lacks this round') + '</span></div>')
                 continue
               }
               const sig = value.input + '\n' + value.tools + '\n' + value.files
@@ -2631,16 +2638,16 @@ return {
                 const tools = value.items.filter((it) => it.kind === 'call').map((it) => it.name)
                 flowHtml = '<div class="fl-compact-diff">' +
                   (user ? '<div><b>▲</b><span>' + esc(oneLine(user.preview || user.full || '', 72)) + '</span></div>' : '') +
-                  (tools.length ? '<div><b>◇</b><span>' + esc([...new Set(tools)].join(' → ')) + '</span></div>' : '<div><b>◇</b><span>无工具调用</span></div>') +
+                  (tools.length ? '<div><b>◇</b><span>' + esc([...new Set(tools)].join(' → ')) + '</span></div>' : '<div><b>◇</b><span>' + FLOW_T('无工具调用', 'No tool calls') + '</span></div>') +
                   (aiLast ? '<div><b>◆</b><span>' + esc(oneLine(aiLast.preview || aiLast.full || '', 82)) + '</span></div>' : '') +
                 '</div>'
               }
               parts.push('<div class="fl-diff-cell' + (!row.aligned ? ' fl-diff-cell-unaligned' : row.same ? ' fl-diff-cell-same' : changed ? ' fl-diff-cell-change' : ' fl-diff-cell-base') + '" data-branch-label="' + esc(branchLabel) + '" data-flow-detail-session="' + esc(c.rec.sid) + '">' +
                 '<div class="fl-diff-cell-head"><span class="fl-diff-mark">' + (row.same ? ' ' : changed ? '+' : '±') + '</span>' +
-                  '<span>' + (!row.aligned ? '未对齐' : row.same ? '本轮一致' : changed ? '与基准不同' : '对比基准') + '</span>' +
-                  '<span class="fl-comparison-status">' + (value.items.some((it) => it.kind === 'call' ? it.status === 'error' : it.failed || it.interrupted) ? '存在失败或中断' : value.items.some((it) => it.kind === 'call' ? it.status === 'pending' : it.streaming) ? '执行尚未完成' : '已记录结果') + '</span>' +
+                  '<span>' + (!row.aligned ? FLOW_T('未对齐', 'Unaligned') : row.same ? FLOW_T('本轮一致', 'Identical this round') : changed ? FLOW_T('与基准不同', 'Differs from baseline') : FLOW_T('对比基准', 'Baseline')) + '</span>' +
+                  '<span class="fl-comparison-status">' + (value.items.some((it) => it.kind === 'call' ? it.status === 'error' : it.failed || it.interrupted) ? FLOW_T('存在失败或中断', 'Has failures or interruptions') : value.items.some((it) => it.kind === 'call' ? it.status === 'pending' : it.streaming) ? FLOW_T('执行尚未完成', 'Still running') : FLOW_T('已记录结果', 'Result recorded')) + '</span>' +
                   (lastAi && !lastAi.failed && !lastAi.interrupted ? conclusionSelector(c.rec.sid, lastAi.seq, activeRound && activeRound.id) : '') +
-                  (branchSeq == null || !activeRun || !activeRound ? '' : '<button type="button" class="fl-diff-branch" data-flow-branch data-history="' + esc(activeRun.id) + '" data-round="' + esc(activeRound.id) + '" data-turn="' + displayTurn + '" data-seq="' + branchSeq + '" title="以会话 ' + (i + 1) + ' 的第 ' + displayTurn + ' 轮回答为唯一来源，创建 ' + targetBranchCount + ' 个新 Session">会话 ' + (i + 1) + '：从第 ' + displayTurn + ' 轮发起 1→' + targetBranchCount + '</button>') +
+                  (branchSeq == null || !activeRun || !activeRound ? '' : '<button type="button" class="fl-diff-branch" data-flow-branch data-history="' + esc(activeRun.id) + '" data-round="' + esc(activeRound.id) + '" data-turn="' + displayTurn + '" data-seq="' + branchSeq + '" title="' + FLOW_T('以会话 ' + (i + 1) + ' 的第 ' + displayTurn + ' 轮回答为唯一来源，创建 ' + targetBranchCount + ' 个新 Session', 'Create ' + targetBranchCount + ' new Session(s) using the round ' + displayTurn + ' answer of session ' + (i + 1) + ' as the sole source') + '">' + FLOW_T('会话 ' + (i + 1) + '：从第 ' + displayTurn + ' 轮发起 1→' + targetBranchCount, 'Session ' + (i + 1) + ': fan out 1→' + targetBranchCount + ' from round ' + displayTurn) + '</button>') +
                 '</div>' + flowHtml + '</div>')
             }
           }
@@ -2652,22 +2659,22 @@ return {
         if (rootC) {
           parts.push('<div class="fl-zoom-card fl-zoom-rootcard' + (rootC.running ? ' fl-live' : '') + '" data-action="fzoom-open" data-sid="' + esc(rootC.rec.sid) + '" role="button" tabindex="0" title="' + openTip + '">' + headOf(rootC, true) + '</div>')
         } else {
-          parts.push('<div class="fl-zoom-rootcard fl-zoom-rootcard-virtual"><span class="fl-zoom-title">⚡ ' + esc(activeRun && activeRun.prompt ? oneLine(activeRun.prompt, 54) : inferredFleetPrompt ? oneLine(inferredFleetPrompt, 54) : '本次并发') + ' · ' + total + ' 个会话</span></div>')
+          parts.push('<div class="fl-zoom-rootcard fl-zoom-rootcard-virtual"><span class="fl-zoom-title">⚡ ' + esc(activeRun && activeRun.prompt ? oneLine(activeRun.prompt, 54) : inferredFleetPrompt ? oneLine(inferredFleetPrompt, 54) : FLOW_T('本次并发', 'This concurrency')) + ' · ' + FLOW_T(total + ' 个会话', total + ' session(s)') + '</span></div>')
         }
         if (!branches.length) {
-          parts.push('<div class="tb-notice">还没有分支会话——用开工台「⚡ 同时开始」并发开工，或在单会话里派生子代理</div>')
+          parts.push('<div class="tb-notice">' + FLOW_T('还没有分支会话——用开工台「⚡ 同时开始」并发开工，或在单会话里派生子代理', 'No branch sessions yet — start together with “⚡ Start together” in the composer, or fork subagents from a single session') + '</div>')
         } else {
           parts.push('<div class="fl-zoom-trunk"></div>')
           parts.push('<div class="fl-zoom-branches">' + branches.map((c) => {
             const flowHtml = c.sum && c.sum.strip.length
               ? zoomFlowHtml(c.sum)
-              : '<div class="fl-zoom-flow"><div class="fl-zoom-step"><span class="fl-zoom-more">（暂无事件）</span></div></div>'
+              : '<div class="fl-zoom-flow"><div class="fl-zoom-step"><span class="fl-zoom-more">' + FLOW_T('（暂无事件）', '(no events yet)') + '</span></div></div>'
             return '<div class="fl-zoom-branch" data-action="fzoom-open" data-sid="' + esc(c.rec.sid) + '" role="button" tabindex="0" title="' + openTip + '">' +
               '<div class="fl-zoom-card fl-zoom-branch-head' + (c.running ? ' fl-live' : '') + '">' + headOf(c, false) + '</div>' +
               flowHtml +
             '</div>'
           }).join('') + '</div>')
-          if (total > shownCards.length) parts.push('<div class="tb-notice">仅显示前 ' + shownCards.length + ' 个分支 · 共 ' + total + ' 个会话</div>')
+          if (total > shownCards.length) parts.push('<div class="tb-notice">' + FLOW_T('仅显示前 ' + shownCards.length + ' 个分支 · 共 ' + total + ' 个会话', 'Showing first ' + shownCards.length + ' branches · ' + total + ' session(s) in total') + '</div>')
         }
         parts.push('</div>')
         }
@@ -2724,7 +2731,7 @@ return {
           it.streaming = false
           it.interrupted = true
           it.runDur = Math.max(0, (settledAt != null ? settledAt : it.runStart) - it.runStart)
-          it.preview = (it.full ? oneLine(it.full, 100) + ' ' : '') + '（生成失败或已中断）'
+          it.preview = (it.full ? oneLine(it.full, 100) + ' ' : '') + FLOW_T('（生成失败或已中断）', '(generation failed or was interrupted)')
         }
       }
       const liveAiSeq = !replaying && (overlayLive || (hasAgentStatus ? sessionLive : active)) && lastIt && lastIt.kind === 'msg' && lastIt.role === 'ai' && !lastIt.interrupted ? lastIt.seq : null
@@ -2740,43 +2747,43 @@ return {
       parts.push('<div class="tb-pane-head">')
       // 钻取态：查看的不是面板所属会话 → 头部给「← 返回」+ 层级标注（crumbs 栈深度）
       const drilled = !!((st.home && sid !== st.home) || (Array.isArray(st.crumbs) && st.crumbs.length))
-      const breadcrumbs = st.crumbs.length ? st.crumbs : drilled && st.home ? [{ sid: st.home, label: '当前会话' }] : []
+      const breadcrumbs = st.crumbs.length ? st.crumbs : drilled && st.home ? [{ sid: st.home, label: FLOW_T('当前会话', 'Current session') }] : []
       const firstUser = items.find((it) => it.kind === 'msg' && it.role === 'user')
-      const sessionTitle = oneLine((!replaying && r.header && (r.header.title || r.header.name)) || (firstUser && firstUser.preview) || (drilled ? '子代理过程' : '会话执行过程'), 64)
+      const sessionTitle = oneLine((!replaying && r.header && (r.header.title || r.header.name)) || (firstUser && firstUser.preview) || (drilled ? FLOW_T('子代理过程', 'Subagent history') : FLOW_T('会话执行过程', 'Session history')), 64)
       const pendingTools = items.filter((it) => it.kind === 'call' && it.status === 'pending').length
       const errors = items.filter((it) => it.kind === 'call' ? it.status === 'error' : it.failed || (it.interrupted && it.failCode)).length
       const running = overlayLive || sessionLive || pendingTools > 0
-      const executionStatus = (replaying ? '只读回放 · seq ' + st.replaySeq : running ? '运行中' + (pendingTools ? ' · ' + pendingTools + ' 个工具' : '') : '暂无运行任务') + (errors ? ' · ' + errors + ' 项失败' : '')
+      const executionStatus = (replaying ? FLOW_T('只读回放 · seq ' + st.replaySeq, 'Read-only replay · seq ' + st.replaySeq) : running ? FLOW_T('运行中', 'Running') + (pendingTools ? FLOW_T(' · ' + pendingTools + ' 个工具', ' · ' + pendingTools + ' tool(s)') : '') : FLOW_T('暂无运行任务', 'No running task')) + (errors ? FLOW_T(' · ' + errors + ' 项失败', ' · ' + errors + ' failed') : '')
       const help = [
-        '• 中列是用户/助手主线，右列是工具调用（输入 ▶ / 输出 ◀），左列是子代理分支。',
-        '• 点击卡片查看完整内容。',
-        '• 悬停助手卡可从该节点创建 Harness 分支。',
-        '• 画布默认可拖动框选，点击空白处取消框选并收起详情；左下可新建仅所选内容的会话草稿或带入已有会话。',
-        '• 面板大小与全屏由 Harness 侧栏控制。',
-        '• 点击子代理卡查看执行过程；“查看时同步切换主会话”开启时 Harness 同步切换。',
-        '• 滚到顶部会每次自动加载更早 60 个节点。',
+        FLOW_T('• 中列是用户/助手主线，右列是工具调用（输入 ▶ / 输出 ◀），左列是子代理分支。', '• The middle column is the user/assistant main line, the right column is tool calls (input ▶ / output ◀), the left column is subagent branches.'),
+        FLOW_T('• 点击卡片查看完整内容。', '• Click a card to see its full content.'),
+        FLOW_T('• 悬停助手卡可从该节点创建 Harness 分支。', '• Hover an assistant card to create a Harness branch from that node.'),
+        FLOW_T('• 画布默认可拖动框选，点击空白处取消框选并收起详情；左下可新建仅所选内容的会话草稿或带入已有会话。', '• The canvas supports drag selection by default; clicking blank space clears the selection and collapses details; bottom-left can create a draft session from the selection or bring in an existing session.'),
+        FLOW_T('• 面板大小与全屏由 Harness 侧栏控制。', '• Panel size and fullscreen are controlled by the Harness sidebar.'),
+        FLOW_T('• 点击子代理卡查看执行过程；“查看时同步切换主会话”开启时 Harness 同步切换。', '• Click a subagent card to view its history; when “switch main session on view” is on, the Harness switches with it.'),
+        FLOW_T('• 滚到顶部会每次自动加载更早 60 个节点。', '• Scrolling to the top auto-loads 60 earlier nodes each time.'),
       ].join('\n')
-      parts.push('<div class="tb-row fl-context-bar"><nav class="fl-breadcrumbs" aria-label="观察范围">' +
-        (replaying ? '' : breadcrumbs.map((crumb, index) => '<button type="button" class="tb-chip" data-action="fback" data-depth="' + index + '" title="返回' + esc(crumb.label || '上级会话') + '">' + esc(index === 0 ? (crumb.zoom ? '并发任务' : '当前会话') : (crumb.label || '上级子代理')) + '</button><span aria-hidden="true">/</span>').join('')) +
-        '<span aria-current="page">' + (drilled ? '子代理' : '当前会话') + '</span></nav>' +
+      parts.push('<div class="tb-row fl-context-bar"><nav class="fl-breadcrumbs" aria-label="' + FLOW_T('观察范围', 'Observation scope') + '">' +
+        (replaying ? '' : breadcrumbs.map((crumb, index) => '<button type="button" class="tb-chip" data-action="fback" data-depth="' + index + '" title="' + FLOW_T('返回', 'Back to ') + esc(crumb.label || FLOW_T('上级会话', 'parent session')) + '">' + esc(index === 0 ? (crumb.zoom ? FLOW_T('并发任务', 'Concurrency task') : FLOW_T('当前会话', 'Current session')) : (crumb.label || FLOW_T('上级子代理', 'parent subagent'))) + '</button><span aria-hidden="true">/</span>').join('')) +
+        '<span aria-current="page">' + (drilled ? FLOW_T('子代理', 'Subagent') : FLOW_T('当前会话', 'Current session')) + '</span></nav>' +
         '<span class="fl-execution-status' + (errors ? ' has-errors' : '') + '">' + executionStatus + '</span>' + (replaying ? '' : syncStatusHtml(st)) + '</div>')
       parts.push('<div class="tb-row fl-toolbar"><span class="fl-session-title">' + esc(sessionTitle) + '</span>' +
-        (flowPreferencesOf(st).zoomEnabled && !replaying ? '<button type="button" class="tb-btn tb-btn-sm" data-action="fzoom">并发任务</button>' : '') +
-        '<button type="button" class="tb-btn tb-btn-sm" data-flow-bookmarks="1">标记</button><button type="button" class="tb-btn tb-btn-sm" data-flow-export="1">导出</button>' +
-        toolbarMoreHtml(st, help, 'Session ' + sid + ' · ' + items.length + ' 条事件 · ' + nodes.length + ' 个节点') + '</div>')
+        (flowPreferencesOf(st).zoomEnabled && !replaying ? '<button type="button" class="tb-btn tb-btn-sm" data-action="fzoom">' + FLOW_T('并发任务', 'Concurrency task') + '</button>' : '') +
+        '<button type="button" class="tb-btn tb-btn-sm" data-flow-bookmarks="1">' + FLOW_T('标记', 'Bookmark') + '</button><button type="button" class="tb-btn tb-btn-sm" data-flow-export="1">' + FLOW_T('导出', 'Export') + '</button>' +
+        toolbarMoreHtml(st, help, 'Session ' + sid + ' · ' + FLOW_T(items.length + ' 条事件 · ' + nodes.length + ' 个节点', items.length + ' events · ' + nodes.length + ' nodes')) + '</div>')
       parts.push(queryToolbarHtml(st, selection, r.events || []))
-      if (errors) parts.push('<button type="button" class="fl-attention tb-chip" data-action="ffilter" data-status="failed">需要关注 · ' + errors + ' 项失败</button>')
+      if (errors) parts.push('<button type="button" class="fl-attention tb-chip" data-action="ffilter" data-status="failed">' + FLOW_T('需要关注 · ' + errors + ' 项失败', 'Needs attention · ' + errors + ' failed') + '</button>')
       if (st.flowNotice) parts.push('<div class="tb-notice fl-unavailable" role="status">' + esc(st.flowNotice) + '</div>')
       parts.push('</div>')
       // 流程体：tb-pane-body 为 column-reverse——这里以「视觉最新在底」渲染：DOM 先放最新节点，滚动条默认贴底
       parts.push('<div class="tb-pane-body">')
       if (!shown.length) {
-        parts.push('<div class="tb-notice">' + (r.unavailable ? '会话日志暂不可用。<button type="button" class="tb-btn tb-btn-sm" data-action="refresh">重试</button>' : selection.filtered ? '没有匹配的节点。可清除筛选或改为搜索全会话日志。' : replaying ? '此时点还没有可显示的节点。' : '当前会话还没有事件') + '</div>')
+        parts.push('<div class="tb-notice">' + (r.unavailable ? FLOW_T('会话日志暂不可用。', 'Session log unavailable.') + '<button type="button" class="tb-btn tb-btn-sm" data-action="refresh">' + FLOW_T('重试', 'Retry') + '</button>' : selection.filtered ? FLOW_T('没有匹配的节点。可清除筛选或改为搜索全会话日志。', 'No matching nodes. Clear filters or switch to searching the full session log.') : replaying ? FLOW_T('此时点还没有可显示的节点。', 'No nodes to display at this point in time.') : FLOW_T('当前会话还没有事件', 'This session has no events yet')) + '</div>')
       } else {
         const rows = await renderFlowNodeRows(shown, st, liveAiSeq)
         parts.push(rows.reverse().join(''))
         if (hasOlder) parts.push('<div class="tb-notice fl-older" data-flow-older-hint>' +
-          '已显示最近 ' + shown.length + ' 个节点 · 继续向上滚动会自动加载更早 ' + Math.min(PAGE, nodes.length - shown.length) + ' 条' +
+          FLOW_T('已显示最近 ' + shown.length + ' 个节点 · 继续向上滚动会自动加载更早 ' + Math.min(PAGE, nodes.length - shown.length) + ' 条', 'Showing the latest ' + shown.length + ' nodes · scroll up to load ' + Math.min(PAGE, nodes.length - shown.length) + ' earlier event(s)') +
         '</div>')
       }
       parts.push('</div>')
@@ -2791,8 +2798,9 @@ return {
       return parts.join('')
     }
 
-    const handler = async ({ action, fields, state, session, live }) => {
-      if (!sq) return { ok: false, error: 'sessionQuery 服务不可用', html: '' }
+    const handler = async ({ action, fields, state, session, live, lang }) => {
+      FLOW_UI_LANG = lang === 'en' ? 'en' : 'zh'
+      if (!sq) return { ok: false, error: FLOW_T('sessionQuery 服务不可用', 'sessionQuery service unavailable'), html: '' }
       const st = (state && typeof state === 'object' && state) ? state : { live: true, follow: true, limit: 60, sid: null, home: null, expanded: null, crumbs: [] }
       const wireState = () => {
         for (const key of ['__flowPreferences', '__flowBookmarks', '__zoomSessionIndex', '__archivedSessionIds']) {
@@ -2927,7 +2935,7 @@ return {
       const carriedFollow = st.follow === true && st.home && session && st.sid === session
         && (st.crumbs.length > 0 || (st.zoom && st.zoomFocusSid === session))
       const home = carriedFollow ? st.home : (session || st.home || st.sid)
-      if (!home) return { ok: true, html: '<div class="jr-tabpanel tb-root"><div class="tb-notice">未找到当前会话</div></div>', state: wireState() }
+      if (!home) return { ok: true, html: '<div class="jr-tabpanel tb-root"><div class="tb-notice">' + FLOW_T('未找到当前会话', 'Current session not found') + '</div></div>', state: wireState() }
       st.home = home
       if (!st.sid) st.sid = home
       let navigateSession = null
@@ -2972,7 +2980,7 @@ return {
         let log = { events: [] }
         try { if (targetSid && !st.__archivedSessionIds.has(targetSid)) log = await readLog(targetSid) } catch (e) {}
         const target = parseItems(log.events || []).find((it) => it.seq === seq && it.kind === el.kind)
-        if (!target) st.flowNotice = '此标记的节点已不可用；会话可能已归档、移除，或节点记录已经变化。'
+        if (!target) st.flowNotice = FLOW_T('此标记的节点已不可用；会话可能已归档、移除，或节点记录已经变化。', 'This bookmarked node is no longer available; the session may be archived, removed, or its node records changed.')
         else {
           st.sid = targetSid; st.zoom = false; st.replaySeq = null; st.expanded = seq; st.freshSeq = seq
           st.flowSearch = ''; st.flowRole = 'all'; st.flowStatus = 'all'; st.flowNotice = ''
@@ -3078,7 +3086,7 @@ return {
           const appendExisting = !!(base && baseAt === base.rounds.length - 1 && !st.zoomRuns.some((x) => x.parentId === base.id))
           const prefix = base ? base.rounds.slice(0, baseAt >= 0 ? baseAt + 1 : base.rounds.length).map((x) => ({ ...x, sids: x.sids.slice(), sourceSids: x.sourceSids.slice(), routes: x.routes.slice(), efforts: x.efforts.slice() })) : []
           const sourceSids = Array.isArray(meta.sourceSids) ? [...new Set(meta.sourceSids.map(String).filter((s) => /^[\w-]{1,80}$/.test(s)))].slice(0, 4) : []
-          if (!base && sourceSids.length) prefix.push({ id: 'round-' + now.toString(36) + '-0-initial', kind: 'initial', at: now, prompt: '初始', sourceSids: [], sids: sourceSids, routes: sourceSids.map(() => ''), efforts: sourceSids.map(() => '') })
+          if (!base && sourceSids.length) prefix.push({ id: 'round-' + now.toString(36) + '-0-initial', kind: 'initial', at: now, prompt: FLOW_T('初始', 'Initial'), sourceSids: [], sids: sourceSids, routes: sourceSids.map(() => ''), efforts: sourceSids.map(() => '') })
           const round = {
             id: 'round-' + now.toString(36) + '-' + prefix.length + '-' + hashText(sids.join(',')), kind: prefix.length ? 'round' : 'initial', at: now,
             prompt: typeof meta.prompt === 'string' ? meta.prompt.slice(0, 240) : '',
@@ -3091,7 +3099,7 @@ return {
           const run = appendExisting ? base : {
             id: 'run-' + now.toString(36) + '-' + st.zoomRuns.length + '-' + hashText(sids.join(',')), at: now,
             prompt: typeof meta.prompt === 'string' ? meta.prompt.slice(0, 240) : '',
-            name: '大流镜 ' + String.fromCharCode(65 + (st.zoomRuns.length % 26)),
+            name: FLOW_T('大流镜 ', 'Zoom ') + String.fromCharCode(65 + (st.zoomRuns.length % 26)),
             parentId: base ? base.id : '', forkRoundId: base && baseAt >= 0 ? base.rounds[baseAt].id : '', rounds: [],
             sids: [], routes: [], efforts: [],
           }
@@ -3127,7 +3135,7 @@ return {
       else if (action === 'fzoom-run-add' && typeof el.sid === 'string' && /^[\w-]{1,100}$/.test(el.sid)) {
         const run = st.zoomRuns.find((x) => x.id === (el.run || st.zoomRunId))
         const round = run && (el.round ? run.rounds.find((x) => x.id === el.round) : run.rounds.find((x) => x.id === st.zoomRoundId) || run.rounds[run.rounds.length - 1])
-        if ((el.run || el.round) && (!run || !round)) return { ok: false, error: '恢复目标轮次已不可用，请在任务历史中核对。', html: '', state: wireState() }
+        if ((el.run || el.round) && (!run || !round)) return { ok: false, error: FLOW_T('恢复目标轮次已不可用，请在任务历史中核对。', 'The target round to restore is no longer available; check the task history.'), html: '', state: wireState() }
         if (run && round && !round.sids.includes(el.sid) && round.sids.length < 4) {
           round.sids.push(el.sid); round.routes.push(typeof el.route === 'string' ? el.route : ''); round.efforts.push(typeof el.effort === 'string' ? el.effort : '')
           if (round === run.rounds[run.rounds.length - 1]) { run.sids = round.sids; run.routes = round.routes; run.efforts = round.efforts }
@@ -3146,7 +3154,7 @@ return {
         }
       }
       else if (action === 'fzoom-relay' && typeof el.sid === 'string' && el.sid) {
-        if (st.replaySeq != null) return { ok: false, error: '只读回放中不能带入实时结论，请先返回最新。', html: '', state: wireState() }
+        if (st.replaySeq != null) return { ok: false, error: FLOW_T('只读回放中不能带入实时结论，请先返回最新。', 'Cannot relay live conclusions during read-only replay; return to the latest state first.'), html: '', state: wireState() }
         // 会话互通：取源会话最近一条助手结论全文，交 Client 带入/发送到目标会话（沿用「带入会话」机制）
         const r = await readLog(el.sid)
         const items = parseItems(r.events || [])
@@ -3155,11 +3163,11 @@ return {
           const it = items[i]
           if (it.kind === 'msg' && it.role === 'ai' && it.full && !it.streaming) { lastAi = it; break }
         }
-        if (!lastAi) return { ok: false, error: '该会话还没有可带入的助手结论', html: '', state: wireState() }
+        if (!lastAi) return { ok: false, error: FLOW_T('该会话还没有可带入的助手结论', 'This session has no assistant conclusion to relay yet'), html: '', state: wireState() }
         const text = String(lastAi.full)
         zoomRelay = {
           sourceSessionId: el.sid,
-          text: '【来自会话 ' + el.sid.replace(/^session-/, '').slice(0, 8) + ' 的最新结论】\n' + (text.length > 12000 ? text.slice(0, 12000) + '\n…（截断，共 ' + text.length + ' 字符）' : text),
+          text: FLOW_T('【来自会话 ' + el.sid.replace(/^session-/, '').slice(0, 8) + ' 的最新结论】\n', '[Latest conclusion from session ' + el.sid.replace(/^session-/, '').slice(0, 8) + ']\n') + (text.length > 12000 ? text.slice(0, 12000) + '\n' + FLOW_T('…（截断，共 ' + text.length + ' 字符）', '… (truncated, ' + text.length + ' characters in total)') : text),
         }
       }
       else if (action === 'fzoom-open' && typeof el.sid === 'string' && el.sid) {
@@ -3200,42 +3208,42 @@ return {
       }
       else if (action === 'fsave-rule') {
         const index = Number(el.index)
-        if (!Number.isInteger(index) || index < 0 || index >= st.presentationRules.length) throw new Error('要保存的显示规则不存在')
+        if (!Number.isInteger(index) || index < 0 || index >= st.presentationRules.length) throw new Error(FLOW_T('要保存的显示规则不存在', 'The display rule to save does not exist'))
         const next = normalizePresentationRules([ruleFromFields(fields, 'flowRule.' + index)])[0]
         st.presentationRules = st.presentationRules.map((rule, at) => at === index ? next : rule)
         st.settings = true
-        st.ruleNotice = '已保存规则 ' + (index + 1)
+        st.ruleNotice = FLOW_T('已保存规则 ' + (index + 1), 'Saved rule ' + (index + 1))
       }
       else if (action === 'fcreate-rule') {
-        if (st.presentationRules.length >= MAX_PRESENTATION_RULES) throw new Error('显示规则最多 ' + MAX_PRESENTATION_RULES + ' 条')
+        if (st.presentationRules.length >= MAX_PRESENTATION_RULES) throw new Error(FLOW_T('显示规则最多 ' + MAX_PRESENTATION_RULES + ' 条', 'At most ' + MAX_PRESENTATION_RULES + ' display rules'))
         const next = normalizePresentationRules([ruleFromFields(fields, 'flowRule.new')])[0]
         st.presentationRules = [...st.presentationRules, next]
         st.settings = true
-        st.ruleNotice = '已添加规则 ' + st.presentationRules.length
+        st.ruleNotice = FLOW_T('已添加规则 ' + st.presentationRules.length, 'Added rule ' + st.presentationRules.length)
       }
       else if (action === 'fapply-rule-json') {
         st.presentationRules = normalizePresentationRules(fields.flowPresentationRules || '[]')
         st.settings = true
-        st.ruleNotice = '已从 JSON 应用 ' + st.presentationRules.length + ' 条规则'
+        st.ruleNotice = FLOW_T('已从 JSON 应用 ' + st.presentationRules.length + ' 条规则', 'Applied ' + st.presentationRules.length + ' rule(s) from JSON')
       }
       else if (action === 'ftoggle-rule') {
         const index = Number(el.index)
-        if (!Number.isInteger(index) || index < 0 || index >= st.presentationRules.length) throw new Error('要切换的显示规则不存在')
+        if (!Number.isInteger(index) || index < 0 || index >= st.presentationRules.length) throw new Error(FLOW_T('要切换的显示规则不存在', 'The display rule to toggle does not exist'))
         st.presentationRules = st.presentationRules.map((rule, at) => at === index ? { ...rule, enabled: !rule.enabled } : rule)
         st.settings = true
-        st.ruleNotice = st.presentationRules[index].enabled ? '已启用规则 ' + (index + 1) : '已停用规则 ' + (index + 1)
+        st.ruleNotice = st.presentationRules[index].enabled ? FLOW_T('已启用规则 ' + (index + 1), 'Enabled rule ' + (index + 1)) : FLOW_T('已停用规则 ' + (index + 1), 'Disabled rule ' + (index + 1))
       }
       else if (action === 'fdelete-rule') {
         const index = Number(el.index)
-        if (!Number.isInteger(index) || index < 0 || index >= st.presentationRules.length) throw new Error('要删除的显示规则不存在')
+        if (!Number.isInteger(index) || index < 0 || index >= st.presentationRules.length) throw new Error(FLOW_T('要删除的显示规则不存在', 'The display rule to delete does not exist'))
         st.presentationRules = st.presentationRules.filter((_rule, at) => at !== index)
         st.settings = true
-        st.ruleNotice = '已删除规则 ' + (index + 1)
+        st.ruleNotice = FLOW_T('已删除规则 ' + (index + 1), 'Deleted rule ' + (index + 1))
       }
       else if (action === 'freset-rules') {
         st.presentationRules = []
         st.settings = true
-        st.ruleNotice = '已清空显示规则'
+        st.ruleNotice = FLOW_T('已清空显示规则', 'Cleared all display rules')
       }
       else if (action === 'fmore') st.limit = Math.min(100000, Number(st.limit) + 60)
       else if (action === 'fcontext' && typeof el.seqs === 'string') {
@@ -3243,7 +3251,7 @@ return {
         const r = await readLog(st.sid)
         const items = parseItems(replayEventsOf(r.events || [], st), st.replaySeq == null ? liveOverlay : null)
         if (el.requireCompleted === '1' && (seqs.length !== 1 || !items.some((it) => it.seq === seqs[0] && it.kind === 'msg' && it.role === 'ai' && !it.streaming && !it.failed && !it.interrupted && !it.abandoned))) {
-          return { ok: false, error: '所选结论已不可用或尚未完成，请重新选择已完成的助手节点。', html: '', state: wireState() }
+          return { ok: false, error: FLOW_T('所选结论已不可用或尚未完成，请重新选择已完成的助手节点。', 'The selected conclusion is no longer available or not yet complete; pick a completed assistant node again.'), html: '', state: wireState() }
         }
         flowContext = flowContextOf(items, seqs, st.sid)
       }
@@ -3260,7 +3268,7 @@ return {
         if (cid && cid !== st.sid) {
           const parentSid = st.sid
           const firstUser = parseItems(r.events || []).find((it) => it.kind === 'msg' && it.role === 'user')
-          st.crumbs.push({ sid: st.sid, label: oneLine((r.header && (r.header.title || r.header.name)) || (firstUser && firstUser.preview) || '上级会话', 32) })
+          st.crumbs.push({ sid: st.sid, label: oneLine((r.header && (r.header.title || r.header.name)) || (firstUser && firstUser.preview) || FLOW_T('上级会话', 'Parent session'), 32) })
           st.sid = cid
           st.expanded = null
           if (st.follow) navigateSession = { sessionId: cid, parentSessionId: parentSid, kind: 'subagent' }
@@ -3286,7 +3294,7 @@ return {
       }
     }
 
-    tryRegisterTool(ctx, { id: 'flow', label: '流镜', order: 2, icon: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="3" r="1.5"/><circle cx="4" cy="12.5" r="1.5"/><circle cx="12" cy="12.5" r="1.5"/><path d="M8 4.5v2.2M8 6.7L4 11M8 6.7l4 4.3"/></svg>' }, handler)
+    tryRegisterTool(ctx, { id: 'flow', label: FLOW_T('流镜', 'Flow'), order: 2, icon: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="3" r="1.5"/><circle cx="4" cy="12.5" r="1.5"/><circle cx="12" cy="12.5" r="1.5"/><path d="M8 4.5v2.2M8 6.7L4 11M8 6.7l4 4.3"/></svg>' }, handler)
   },
 }
 

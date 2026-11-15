@@ -165,7 +165,8 @@ const runFlowLaunchBatch = async (batch, api, changed) => {
 }
 
 // Plain-script factory: state belongs to one Client instance and bundle.
-const createFlowStableRuntime = (RT, React) => {
+const createFlowStableRuntime = (RT, React, lang) => {
+  const TB_T = (zh, en) => lang === 'en' ? en : zh
   const flowDrafts = new Map()
   const actionIcons = {
     bookmark: '<path d="M4 2.5h8v11l-4-2.5-4 2.5z"/>',
@@ -177,7 +178,7 @@ const createFlowStableRuntime = (RT, React) => {
     if (!root) return root
     for (const button of root.querySelectorAll('[data-flow-bookmark],.fl-zoom-relay,.fl-toolbar>[data-flow-bookmarks],.fl-toolbar>[data-flow-export],.fl-toolbar>[data-flow-compare-preview]')) {
       const kind = button.matches('.fl-zoom-relay') ? 'relay' : button.hasAttribute('data-flow-export') ? 'export' : button.hasAttribute('data-flow-compare-preview') ? 'compare' : 'bookmark'
-      const label = button.getAttribute('aria-label') || (button.hasAttribute('data-flow-bookmarks') ? '查看标记' : button.textContent.trim())
+      const label = button.getAttribute('aria-label') || (button.hasAttribute('data-flow-bookmarks') ? TB_T('查看标记', 'View bookmarks') : button.textContent.trim())
       button.setAttribute('aria-label', label)
       button.setAttribute('title', button.getAttribute('title') || label)
       button.classList.add('fl-icon-button')
@@ -243,7 +244,7 @@ const createFlowStableRuntime = (RT, React) => {
     if (node.nodeType !== 1 || ['SCRIPT', 'IFRAME'].includes(node.tagName)) return null
     const tag = node.tagName.toLowerCase()
     const props = { ...flowElementProps(node), key }
-    if (tag === 'select' && node.hasAttribute('data-lane')) props['aria-label'] = '分支 ' + (Number(node.getAttribute('data-lane')) + 1) + (node.hasAttribute('data-zoom-effort') ? ' 思考强度' : ' 模型')
+    if (tag === 'select' && node.hasAttribute('data-lane')) props['aria-label'] = TB_T('分支 ', 'Branch ') + (Number(node.getAttribute('data-lane')) + 1) + (node.hasAttribute('data-zoom-effort') ? TB_T(' 思考强度', ' thinking effort') : TB_T(' 模型', ' model'))
     if (tag === 'input' || tag === 'textarea' || tag === 'select') {
       props.defaultValue = node.value || node.getAttribute('value') || ''
       if (node.hasAttribute('data-zoom-prompt')) {
@@ -266,7 +267,7 @@ const createFlowStableRuntime = (RT, React) => {
     const children = [...node.childNodes].map((child, index) => flowReactContent(child, child.nodeType === 1 && (child.getAttribute('data-field') || child.getAttribute('data-flow-disclosure')) || index, draftKey))
     if (node.classList.contains('fl-zoom-lane-group')) {
       const lane = node.querySelector('[data-lane]')
-      if (lane) children.unshift(React.createElement('span', { className: 'fl-zoom-lane-label', key: 'lane-label' }, '分支 ' + (Number(lane.getAttribute('data-lane')) + 1)))
+      if (lane) children.unshift(React.createElement('span', { className: 'fl-zoom-lane-label', key: 'lane-label' }, TB_T('分支 ', 'Branch ') + (Number(lane.getAttribute('data-lane')) + 1)))
     }
     return React.createElement(tag, props, children)
   }
@@ -333,12 +334,19 @@ return {
   apply(ctx) {
     // ===== 命名空间（TOOLBOX_RUNTIME 由拼接的 shared/runtime.js 提供；动态默认=历史名称）=====
     const RT = TOOLBOX_RUNTIME
+    // ===== UI 语言（Flowglass 双语）：跟随浏览器语言，en-* 显示英文，其余/默认中文 =====
+    const TB_UI_LANG = (() => { try { return /^en\b/i.test(String((typeof navigator !== 'undefined' && navigator.language) || '')) ? 'en' : 'zh' } catch (e) { return 'zh' } })()
+    const TB_T = (zh, en) => TB_UI_LANG === 'en' ? en : zh
+    const TB_DISPLAY_NAME_EN = { '流镜': 'Flowglass', '工具箱': 'Toolbox' }
     // Full bundle names are useful for tooltips and accessibility, but they
     // are too long for the drawer/sidebar chrome. Keep the descriptive name
     // as the accessible label and use a compact visible label in the UI.
-    const fullDisplayName = String(RT.displayName || '工具箱')
+    const fullDisplayName = (() => {
+      const name = String(RT.displayName || '工具箱')
+      return TB_UI_LANG === 'en' ? (TB_DISPLAY_NAME_EN[name] || name) : name
+    })()
     const compactDisplayName = fullDisplayName.length > 24
-      ? '工具箱'
+      ? (TB_UI_LANG === 'en' ? 'Toolbox' : '工具箱')
       : fullDisplayName
     // 原生 Flowglass bundle 注入 Harness 官方 Markdown renderer；其他静态合集与
     // 动态开发模式没有这两个词法绑定时保持纯文本详情，不改变 Toolbox 通用契约。
@@ -364,12 +372,12 @@ return {
     // DSH alpha.2 uses labels.code while the rc.2 primitive uses codeLabels.
     // Keep both shapes stable so the renderer can be shared across either host.
     const FLOW_MARKDOWN_LABELS = Object.freeze({
-      code: Object.freeze({ copyLabel: '复制代码', copiedLabel: '已复制' }),
-      footnotes: '脚注',
+      code: Object.freeze({ copyLabel: TB_T('复制代码', 'Copy code'), copiedLabel: TB_T('已复制', 'Copied') }),
+      footnotes: TB_T('脚注', 'Footnotes'),
     })
     // Stable React islands keep editable and readable DOM outside canvas HTML
     // replacement. The wire contract remains compatible with older consumers.
-    const { FlowStablePanel, clearFlowDraft } = createFlowStableRuntime(RT, React)
+    const { FlowStablePanel, clearFlowDraft } = createFlowStableRuntime(RT, React, TB_UI_LANG)
     // 进程级单例（bundle 级）：页面已有本 bundle 主实例的抽屉时，本会话 Client 半空转——避免重复注册
     // sidebar.footer.action / shell.overlay 造成双抽屉。marker 值为空格分隔的 bundleId 列表
     // （多 bundle 同进程各挂各的抽屉，互不抢占）；标记随 fiber 卸载只移除自己那一份。
@@ -400,7 +408,7 @@ return {
     // 子代理优先使用 Harness 的精确 address；新宿主先加载父会话投影，旧宿主刷新 catalog。
     const navigateHarnessSession = async (request) => {
       if (!request || !request.sessionId) return
-      if (!sessionsClient) throw new Error('sessions 服务不可用')
+      if (!sessionsClient) throw new Error(TB_T('sessions 服务不可用', 'sessions service unavailable'))
       const target = String(request.sessionId)
       const parent = request.parentSessionId ? String(request.parentSessionId) : ''
       let navigationTarget = target
@@ -432,7 +440,7 @@ return {
         sessionsClient.openSubagent(navigationTarget)
         return
       }
-      if (typeof sessionsClient.open !== 'function') throw new Error('sessions.open 不可用')
+      if (typeof sessionsClient.open !== 'function') throw new Error(TB_T('sessions.open 不可用', 'sessions.open unavailable'))
       sessionsClient.open(target)
     }
 
@@ -1745,14 +1753,14 @@ return {
     const splitFlowRuleList = (value) => String(value || '').split(',').map((item) => item.trim()).filter(Boolean)
     const normalizeFlowRulesForStorage = (value) => {
       const rules = typeof value === 'string' ? JSON.parse(value || '[]') : value
-      if (!Array.isArray(rules) || rules.length > 24) throw new Error('显示规则必须是数组，最多 24 条')
+      if (!Array.isArray(rules) || rules.length > 24) throw new Error(TB_T('显示规则必须是数组，最多 24 条', 'Presentation rules must be an array of at most 24 rules'))
       return rules.map((rule, index) => {
-        if (!rule || typeof rule !== 'object' || Array.isArray(rule)) throw new Error('第 ' + (index + 1) + ' 条显示规则无效')
+        if (!rule || typeof rule !== 'object' || Array.isArray(rule)) throw new Error(TB_T('第 ' + (index + 1) + ' 条显示规则无效', 'Invalid presentation rule #' + (index + 1)))
         const tools = Array.isArray(rule.tools) ? rule.tools.map(String).map((item) => item.trim()).filter(Boolean) : []
         const executables = Array.isArray(rule.executables) ? rule.executables.map(String).map((item) => item.trim()).filter(Boolean) : []
-        if (!tools.length || !executables.length) throw new Error('第 ' + (index + 1) + ' 条规则需要原始工具和可执行文件')
+        if (!tools.length || !executables.length) throw new Error(TB_T('第 ' + (index + 1) + ' 条规则需要原始工具和可执行文件', 'Rule #' + (index + 1) + ' needs raw tools and executables'))
         const color = String(rule.color || '#81c784').toLowerCase()
-        if (!/^#[0-9a-f]{6}$/.test(color)) throw new Error('第 ' + (index + 1) + ' 条规则颜色无效')
+        if (!/^#[0-9a-f]{6}$/.test(color)) throw new Error(TB_T('第 ' + (index + 1) + ' 条规则颜色无效', 'Rule #' + (index + 1) + ' has an invalid color'))
         return {
           enabled: rule.enabled !== false,
           tools: [...new Set(tools)].slice(0, 8),
@@ -1779,10 +1787,10 @@ return {
       localStorage.setItem(FLOW_RULES_KEY, raw)
     }
     const writeFlowSettings = (preferences, rules) => {
-      if (!parseFlowLaneRatio(preferences && preferences.laneRatio)) throw new Error('三列宽度比例必须都是 10%–80% 的 5% 倍数，且合计 100%')
+      if (!parseFlowLaneRatio(preferences && preferences.laneRatio)) throw new Error(TB_T('三列宽度比例必须都是 10%–80% 的 5% 倍数，且合计 100%', 'Lane widths must be multiples of 5% between 10% and 80% and total 100%'))
       const nextPreferences = normalizeFlowPreferences(preferences)
       const nextRules = normalizeFlowRulesForStorage(rules)
-      if (typeof localStorage === 'undefined') throw new Error('当前浏览器不支持本地设置')
+      if (typeof localStorage === 'undefined') throw new Error(TB_T('当前浏览器不支持本地设置', 'Local settings are not supported in this browser'))
       localStorage.setItem(FLOW_PREFERENCES_KEY, JSON.stringify(nextPreferences))
       localStorage.setItem(FLOW_RULES_KEY, JSON.stringify(nextRules))
       try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(FLOW_SETTINGS_EVENT)) } catch (e) {}
@@ -1854,13 +1862,13 @@ return {
         {
           type: 'button',
           className: 'tb-entry' + (isOpen && !nativeActive ? ' tb-entry-active' : ''),
-          title: fullDisplayName + (nativeActive ? '（在右侧栏打开流镜）' : '（工具集）'),
+          title: fullDisplayName + (nativeActive ? TB_T('（在右侧栏打开流镜）', ' (open Flowglass in the right sidebar)') : TB_T('（工具集）', ' (toolbox)')),
           onClick: () => {
             if (nativeActive && nativeOpenTab) { try { nativeOpenTab() } catch (e) {} return }
             store.toggle()
           },
         },
-        props.wide ? compactDisplayName : '箱',
+        props.wide ? compactDisplayName : TB_T('箱', 'Box'),
       )
     }
 
@@ -2005,9 +2013,9 @@ return {
     // ---- 工具分类（导航第二行 + 管理树共用）：默认表 + 用户覆盖（localStorage 持久化；键 = 工具/清单条目 id） ----
     const TOOL_CATS = [
       { id: 'ai', label: 'AI' },
-      { id: 'dev', label: '开发' },
-      { id: 'session', label: '会话' },
-      { id: 'system', label: '系统' },
+      { id: 'dev', label: TB_T('开发', 'Development') },
+      { id: 'session', label: TB_T('会话', 'Session') },
+      { id: 'system', label: TB_T('系统', 'System') },
     ]
     const DEFAULT_CAT = {
       aiassist: 'ai', aiusage: 'ai', quota: 'ai',
@@ -2181,19 +2189,19 @@ return {
       const a = useAppearance()
       const dft = appearanceDefaults()
       return React.createElement('section', { className: 'fg-settings-section' },
-        React.createElement('div', { className: 'fg-settings-section-head' }, React.createElement('h3', null, '流镜字号')),
+        React.createElement('div', { className: 'fg-settings-section-head' }, React.createElement('h3', null, TB_T('流镜字号', 'Flow font size'))),
         React.createElement('div', { className: 'fg-settings-row' },
           React.createElement('label', { className: 'fg-settings-copy', htmlFor: 'flowglass-font-scale' },
-            React.createElement('strong', null, '界面字号'),
-            React.createElement('small', null, '统一调整流镜标题、节点、按钮与说明文字；即时生效并保存在当前浏览器。')),
+            React.createElement('strong', null, TB_T('界面字号', 'UI font size')),
+            React.createElement('small', null, TB_T('统一调整流镜标题、节点、按钮与说明文字；即时生效并保存在当前浏览器。', 'Scales Flowglass titles, nodes, buttons and helper text at once; takes effect immediately and is saved in this browser.'))),
           React.createElement('input', { id: 'flowglass-font-scale', type: 'range', min: APPEARANCE_SCALE_MIN, max: APPEARANCE_SCALE_MAX, step: 0.05, value: a.uiScale,
-            'aria-label': '流镜字号', 'aria-valuetext': Math.round(a.uiScale * 100) + '%',
+            'aria-label': TB_T('流镜字号', 'Flow font size'), 'aria-valuetext': Math.round(a.uiScale * 100) + '%',
             style: { width: '180px', flex: '0 0 180px', maxWidth: '100%', accentColor: 'var(--fg-accent)' },
             onChange: (event) => appearanceWrite({ uiScale: Number(event.target.value) }) }),
           React.createElement('output', { htmlFor: 'flowglass-font-scale' }, Math.round(a.uiScale * 100) + '%'),
           React.createElement('button', { type: 'button', className: 'fg-settings-button', disabled: Math.abs(a.uiScale - dft.uiScale) < 0.001,
-            onClick: () => appearanceWrite({ uiScale: dft.uiScale }) }, '恢复默认')),
-        React.createElement('p', { className: 'fg-settings-font-preview', style: { fontSize: 'calc(var(--dsh-content-font-size,14px) * ' + a.uiScale + ')' } }, '字号预览：当前会话 · 并发任务 · 最新结论'))
+            onClick: () => appearanceWrite({ uiScale: dft.uiScale }) }, TB_T('恢复默认', 'Reset'))),
+        React.createElement('p', { className: 'fg-settings-font-preview', style: { fontSize: 'calc(var(--dsh-content-font-size,14px) * ' + a.uiScale + ')' } }, TB_T('字号预览：当前会话 · 并发任务 · 最新结论', 'Font preview: current session · concurrent tasks · latest conclusion')))
     }
     function AppearancePanel() {
       const a = useAppearance()
@@ -2206,7 +2214,7 @@ return {
         React.createElement('span', { style: lblStyle }, label),
         React.createElement('input', {
           type: 'range', min: min, max: max, step: 0.05, value: String(a[key]),
-          title: label + '缩放（' + Math.round(dft[key] * 100) + '% = 内置默认）',
+          title: label + TB_T('缩放（', ' scaling (') + Math.round(dft[key] * 100) + TB_T('% = 内置默认）', '% = built-in default)'),
           style: { flex: '1', minWidth: '110px', accentColor: 'var(--tb-accent,#3f6fd9)' },
           onChange: (e) => appearanceWrite({ [key]: Number(e.target.value) }),
         }),
@@ -2214,50 +2222,50 @@ return {
         Math.abs(a[key] - 1) > 0.001
           ? React.createElement('button', {
             type: 'button', style: Object.assign({}, chipBase, { padding: '0 6px', opacity: 0.65 }),
-            title: '恢复 100%', onClick: () => appearanceWrite({ [key]: 1 }),
+            title: TB_T('恢复 100%', 'Reset to 100%'), onClick: () => appearanceWrite({ [key]: 1 }),
           }, '↺')
           : null,
       )
       return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
         React.createElement('div', { style: rowStyle },
-          React.createElement('span', { style: lblStyle }, '主题'),
+          React.createElement('span', { style: lblStyle }, TB_T('主题', 'Theme')),
           Object.keys(APPEARANCE_PRESETS).map((k) => {
             const active = !a.accent && a.preset === k
             return React.createElement('button', {
               key: k, type: 'button',
-              title: k === 'default' ? '内置默认蓝' : k === 'teal' ? '青绿（原主题插件色）' : '暖橙（原主题插件色）',
+              title: k === 'default' ? TB_T('内置默认蓝', 'Built-in default blue') : k === 'teal' ? TB_T('青绿（原主题插件色）', 'Teal (from the old theme plugin)') : TB_T('暖橙（原主题插件色）', 'Amber (from the old theme plugin)'),
               style: Object.assign({}, chipBase, active ? { borderColor: 'var(--tb-accent,#3f6fd9)', color: 'var(--tb-accent-text,#7fa7f0)', fontWeight: 600 } : null),
               onClick: () => appearanceWrite({ preset: k }),
-            }, (k === 'default' ? '默认' : k === 'teal' ? '青绿' : '暖橙') + (APPEARANCE_PRESETS[k] ? '' : ''))
+            }, (k === 'default' ? TB_T('默认', 'Default') : k === 'teal' ? TB_T('青绿', 'Teal') : TB_T('暖橙', 'Amber')) + (APPEARANCE_PRESETS[k] ? '' : ''))
           }),
           React.createElement('input', {
             type: 'color', value: a.accent || APPEARANCE_PRESETS[a.preset] || '#3f6fd9',
-            title: '自定义主色（优先于主题预设）',
+            title: TB_T('自定义主色（优先于主题预设）', 'Custom accent (overrides theme presets)'),
             onChange: (e) => appearanceWrite({ accent: e.target.value }),
             style: { width: '26px', height: '22px', padding: '0', border: '1px solid rgba(128,128,128,.45)', borderRadius: '5px', background: 'transparent', cursor: 'pointer' },
           }),
           a.accent
             ? React.createElement('button', {
               type: 'button', style: Object.assign({}, chipBase, { padding: '0 8px', opacity: 0.75 }),
-              title: '清除自定义主色，回到主题预设', onClick: () => appearanceWrite({ accent: '' }),
-            }, '✕ 自定义')
+              title: TB_T('清除自定义主色，回到主题预设', 'Clear custom accent and return to the theme preset'), onClick: () => appearanceWrite({ accent: '' }),
+            }, TB_T('✕ 自定义', '✕ Custom'))
             : null,
         ),
-        sliderRow('界面字号', 'uiScale', APPEARANCE_SCALE_MIN, APPEARANCE_SCALE_MAX),
-        sliderRow('详情字号', 'detailScale', APPEARANCE_SCALE_MIN, APPEARANCE_SCALE_MAX),
+        sliderRow(TB_T('界面字号', 'UI font size'), 'uiScale', APPEARANCE_SCALE_MIN, APPEARANCE_SCALE_MAX),
+        sliderRow(TB_T('详情字号', 'Detail font size'), 'detailScale', APPEARANCE_SCALE_MIN, APPEARANCE_SCALE_MAX),
         // 详情侧拉框宽度：0 = 默认 350px；拖 rail 左缘手柄与滑杆写同一配置
         React.createElement('div', { style: rowStyle },
-          React.createElement('span', { style: lblStyle }, '详情宽度'),
+          React.createElement('span', { style: lblStyle }, TB_T('详情宽度', 'Detail width')),
           React.createElement('input', {
             type: 'range', min: APPEARANCE_RAIL_MIN, max: APPEARANCE_RAIL_MAX, step: 10, value: String(a.railW || 350),
-            title: '详情侧拉框宽度（拖侧拉框左缘也可调，自动记忆）',
+            title: TB_T('详情侧拉框宽度（拖侧拉框左缘也可调，自动记忆）', 'Inspector width (also adjustable by dragging its left edge; remembered automatically)'),
             style: { flex: '1', minWidth: '110px', accentColor: 'var(--tb-accent,#3f6fd9)' },
             onChange: (e) => appearanceWrite({ railW: Number(e.target.value) }),
           }),
-          React.createElement('span', { style: numStyle }, a.railW ? a.railW + 'px' : '默认'),
+          React.createElement('span', { style: numStyle }, a.railW ? a.railW + 'px' : TB_T('默认', 'Default')),
           React.createElement('button', {
             type: 'button', style: Object.assign({}, chipBase, { padding: '0 6px', opacity: 0.65 }),
-            title: '恢复默认 350px', onClick: () => appearanceWrite({ railW: 0 }),
+            title: TB_T('恢复默认 350px', 'Reset to default 350px'), onClick: () => appearanceWrite({ railW: 0 }),
           }, '↺'),
         ),
         // 预览块：内联按倍率现算 px（不依赖 CSS 变量）——管理页看不到流镜本体、sidebar 设置弹层
@@ -2265,15 +2273,15 @@ return {
         React.createElement('div', {
           style: { border: '1px solid rgba(128,128,128,.35)', borderRadius: '6px', padding: '7px 9px', display: 'flex', flexDirection: 'column', gap: '5px', background: 'rgba(128,128,128,.07)' },
         },
-          React.createElement('span', { style: { fontSize: '10px', opacity: 0.6, letterSpacing: '.4px' } }, '预览（拖动滑杆即时变化）'),
+          React.createElement('span', { style: { fontSize: '10px', opacity: 0.6, letterSpacing: '.4px' } }, TB_T('预览（拖动滑杆即时变化）', 'Preview (updates as you drag the sliders)')),
           React.createElement('div', { style: { fontSize: (12.5 * a.uiScale).toFixed(1) + 'px', lineHeight: 1.5 } },
-            '界面文字 Aa123 — 按钮 / 标签 / 消息预览'),
+            TB_T('界面文字 Aa123 — 按钮 / 标签 / 消息预览', 'UI text Aa123 — buttons / labels / message preview')),
           React.createElement('div', {
             style: {
               fontFamily: 'ui-monospace,Consolas,monospace', fontSize: (12 * a.detailScale).toFixed(1) + 'px', lineHeight: 1.5,
               whiteSpace: 'pre-wrap', wordBreak: 'break-all', border: '1px solid rgba(128,128,128,.35)', borderRadius: '5px', padding: '4px 6px',
             },
-          }, '入 · 完整传入 {"seq": 12}\n出 · 完整返回 文本详情示例 Aa123'),
+          }, TB_T('入 · 完整传入 {"seq": 12}\n出 · 完整返回 文本详情示例 Aa123', 'In · full input {"seq": 12}\nOut · full output text detail sample Aa123')),
         ),
       )
     }
@@ -2283,7 +2291,7 @@ return {
       const headStyle = { fontSize: '11px', fontWeight: 600, opacity: 0.7, letterSpacing: '.4px' }
       return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12.5px' } },
         React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
-          React.createElement('span', { style: headStyle }, '外观（主题 / 主色 / 字号）'),
+          React.createElement('span', { style: headStyle }, TB_T('外观（主题 / 主色 / 字号）', 'Appearance (theme / accent / font size)')),
           React.createElement(AppearancePanel, null),
         ),
       )
@@ -2358,13 +2366,13 @@ return {
           setPreferences(saved.preferences)
           setRules(nextRules)
           setSavedKey(JSON.stringify({ preferences: saved.preferences, rules: nextRules }))
-          setNotice({ error: false, text: '设置已保存，并已应用到当前浏览器中的流镜。' })
+          setNotice({ error: false, text: TB_T('设置已保存，并已应用到当前浏览器中的流镜。', 'Settings saved and applied to Flowglass in this browser.') })
         } catch (error) {
           setNotice({ error: true, text: String((error && error.message) || error) })
         }
       }
       const ruleCards = rules.map((rule, index) => {
-        const title = rule.displayName || rule.executables[0] || '未命名规则'
+        const title = rule.displayName || rule.executables[0] || TB_T('未命名规则', 'Unnamed rule')
         const input = (label, key, value, placeholder, list) => h('label', { key },
           h('span', null, label),
           h(UiInput || 'input', {
@@ -2374,32 +2382,32 @@ return {
         )
         return h('article', { key: index, className: 'fg-settings-rule' + (rule.enabled ? '' : ' is-off') },
           h('div', { className: 'fg-settings-rule-head' },
-            toggle('启用规则 ' + (index + 1), rule.enabled, (enabled) => setRule(index, { enabled })),
+            toggle(TB_T('启用规则 ', 'Enable rule ') + (index + 1), rule.enabled, (enabled) => setRule(index, { enabled })),
             h('span', { className: 'fl-rule-dot', style: { background: rule.color } }),
             h('strong', null, title),
-            button({ type: 'button', className: 'fg-settings-button', 'aria-label': '上移规则 ' + title, disabled: index === 0, onClick: () => moveRule(index, -1) }, '上移'),
-            button({ type: 'button', className: 'fg-settings-button', 'aria-label': '下移规则 ' + title, disabled: index === rules.length - 1, onClick: () => moveRule(index, 1) }, '下移'),
-            button({ type: 'button', className: 'fg-settings-button', 'aria-expanded': editingRule === index, 'aria-label': '编辑规则 ' + title,
-              onClick: () => setEditingRule(editingRule === index ? null : index) }, editingRule === index ? '收起' : '编辑'),
+            button({ type: 'button', className: 'fg-settings-button', 'aria-label': TB_T('上移规则 ' + title, 'Move rule up: ' + title), disabled: index === 0, onClick: () => moveRule(index, -1) }, TB_T('上移', 'Move up')),
+            button({ type: 'button', className: 'fg-settings-button', 'aria-label': TB_T('下移规则 ' + title, 'Move rule down: ' + title), disabled: index === rules.length - 1, onClick: () => moveRule(index, 1) }, TB_T('下移', 'Move down')),
+            button({ type: 'button', className: 'fg-settings-button', 'aria-expanded': editingRule === index, 'aria-label': TB_T('编辑规则 ' + title, 'Edit rule: ' + title),
+              onClick: () => setEditingRule(editingRule === index ? null : index) }, editingRule === index ? TB_T('收起', 'Collapse') : TB_T('编辑', 'Edit')),
             button({
               type: 'button', className: 'fg-settings-button danger',
-              'aria-label': '删除规则 ' + title,
+              'aria-label': TB_T('删除规则 ' + title, 'Delete rule: ' + title),
               onClick: () => {
                 setRules((current) => current.filter((_item, at) => at !== index))
                 setEditingRule((current) => current === index ? null : current > index ? current - 1 : current)
                 setNotice(null)
               },
-            }, '删除'),
+            }, TB_T('删除', 'Delete')),
           ),
-          h('p', { className: 'fg-settings-rule-summary' }, (rule.tools || []).join(' / ') + ' · ' + ((rule.executables || []).join(' / ') || '尚未设置可执行文件') + ((rule.actions || []).length ? ' · ' + rule.actions.join(' / ') : ' · 任意子命令')),
-          h('p', { className: 'fg-settings-rule-preview' }, '显示预览：' + (rule.badge ? '[' + rule.badge + '] ' : '') + (rule.displayName || rule.executables[0] || '原始工具名')),
+          h('p', { className: 'fg-settings-rule-summary' }, (rule.tools || []).join(' / ') + ' · ' + ((rule.executables || []).join(' / ') || TB_T('尚未设置可执行文件', 'no executables set')) + ((rule.actions || []).length ? ' · ' + rule.actions.join(' / ') : TB_T(' · 任意子命令', ' · any subcommand'))),
+          h('p', { className: 'fg-settings-rule-preview' }, TB_T('显示预览：', 'Preview: ') + (rule.badge ? '[' + rule.badge + '] ' : '') + (rule.displayName || rule.executables[0] || TB_T('原始工具名', 'raw tool name'))),
           editingRule === index ? h('div', { className: 'fg-settings-rule-grid' },
-            input('原始工具（逗号分隔）', 'tools', (rule.tools || []).join(', '), 'pwsh, bash', true),
-            input('可执行文件（逗号分隔）', 'executables', (rule.executables || []).join(', '), 'git, git.exe', true),
-            input('显示名称', 'displayName', rule.displayName || '', '可留空', false),
-            input('子命令（逗号分隔）', 'actions', (rule.actions || []).join(', '), '为空时匹配任意子命令', true),
-            input('徽章', 'badge', rule.badge || '', '可留空', false),
-            h('label', { key: 'color' }, h('span', null, '颜色'), h('input', {
+            input(TB_T('原始工具（逗号分隔）', 'Raw tools (comma-separated)'), 'tools', (rule.tools || []).join(', '), 'pwsh, bash', true),
+            input(TB_T('可执行文件（逗号分隔）', 'Executables (comma-separated)'), 'executables', (rule.executables || []).join(', '), 'git, git.exe', true),
+            input(TB_T('显示名称', 'Display name'), 'displayName', rule.displayName || '', TB_T('可留空', 'optional'), false),
+            input(TB_T('子命令（逗号分隔）', 'Subcommands (comma-separated)'), 'actions', (rule.actions || []).join(', '), TB_T('为空时匹配任意子命令', 'matches any subcommand when empty'), true),
+            input(TB_T('徽章', 'Badge'), 'badge', rule.badge || '', TB_T('可留空', 'optional'), false),
+            h('label', { key: 'color' }, h('span', null, TB_T('颜色', 'Color')), h('input', {
               type: 'color', className: 'fg-settings-color', value: rule.color || '#81c784',
               onChange: (event) => setRule(index, { color: event.currentTarget.value }),
             })),
@@ -2410,71 +2418,71 @@ return {
         h('form', { className: 'fg-settings', onSubmit: save },
           h('div', { className: 'fg-settings-head' },
             h('div', null,
-              h('h2', { className: 'fg-settings-title' }, 'Flowglass 设置'),
-              h('p', { className: 'fg-settings-sub' }, '配置仅保存在当前浏览器；内置默认规则随插件包发布，自定义规则不会写入 Git 或 npm 包。'),
+              h('h2', { className: 'fg-settings-title' }, TB_T('Flowglass 设置', 'Flowglass settings')),
+              h('p', { className: 'fg-settings-sub' }, TB_T('配置仅保存在当前浏览器；内置默认规则随插件包发布，自定义规则不会写入 Git 或 npm 包。', 'Settings are stored only in this browser; built-in default rules ship with the plugin package, and custom rules are never written to Git or npm packages.')),
             ),
           ),
           h(FlowFontSettings),
           h('section', { className: 'fg-settings-section' },
               h('div', { className: 'fg-settings-section-head' },
-              h('div', null, h('h3', null, '布局'), h('p', { className: 'fg-settings-note' }, '拖动任意圆点会自动联动另外两列，三列宽度始终合计 100%。')),
+              h('div', null, h('h3', null, TB_T('布局', 'Layout')), h('p', { className: 'fg-settings-note' }, TB_T('拖动任意圆点会自动联动另外两列，三列宽度始终合计 100%。', 'Dragging any handle rebalances the other two columns; the three lane widths always total 100%.'))),
             ),
             h('div', { className: 'fg-settings-lane-ratio' },
               h('div', { className: 'fg-settings-lane-track' },
                 h('span', { className: 'fg-settings-lane-rail', 'aria-hidden': true }),
-                ['子代理', '主干', '工具'].map((label, index) => h('input', {
+                [TB_T('子代理', 'Subagents'), TB_T('主干', 'Main'), TB_T('工具', 'Tools')].map((label, index) => h('input', {
                   key: label, type: 'range', min: 10, max: 80, step: 5,
-                  className: 'fg-settings-lane-range', 'aria-label': label + '列宽百分比',
+                  className: 'fg-settings-lane-range', 'aria-label': label + TB_T('列宽百分比', ' lane width %'),
                   value: String(preferences.laneRatio[index]),
                   style: { '--fg-ratio-color': ['var(--fg-accent,#7fa7f0)', 'var(--fg-success,#81c784)', 'var(--fg-warning,#d4b95c)'][index], zIndex: index + 1 },
                   onChange: (event) => setLaneRatio(index, event.currentTarget.value),
                 })),
               ),
               h('div', { className: 'fg-settings-lane-legend' },
-                ['子代理', '主干', '工具'].map((label, index) => h('span', { key: label, className: 'fg-settings-lane-value' },
+                [TB_T('子代理', 'Subagents'), TB_T('主干', 'Main'), TB_T('工具', 'Tools')].map((label, index) => h('span', { key: label, className: 'fg-settings-lane-value' },
                   h('i', { className: 'fg-settings-lane-dot', style: { '--fg-ratio-color': ['var(--fg-accent,#7fa7f0)', 'var(--fg-success,#81c784)', 'var(--fg-warning,#d4b95c)'][index] } }),
                   label + ' ' + preferences.laneRatio[index] + '%',
                 )),
-                h('span', { className: 'fg-settings-lane-total' }, '合计 100%'),
-                button({ type: 'button', className: 'fg-settings-button', onClick: () => setPreference('laneRatio', [20, 35, 45]) }, '恢复 20 / 35 / 45'),
+                h('span', { className: 'fg-settings-lane-total' }, TB_T('合计 100%', 'Total 100%')),
+                button({ type: 'button', className: 'fg-settings-button', onClick: () => setPreference('laneRatio', [20, 35, 45]) }, TB_T('恢复 20 / 35 / 45', 'Reset to 20 / 35 / 45')),
               ),
             ),
           ),
           h('section', { className: 'fg-settings-section' },
-            h('div', { className: 'fg-settings-section-head' }, h('h3', null, '行为与并发任务')),
+            h('div', { className: 'fg-settings-section-head' }, h('h3', null, TB_T('行为与并发任务', 'Behavior & concurrent tasks'))),
             h('div', { className: 'fg-settings-grid' },
-              preferenceRow('切换 Session 时保持展开', '仅延续已展开的流镜；主动关闭后不会自动弹回。',
-                toggle('切换 Session 时保持展开', preferences.keepOpenOnSessionSwitch, (value) => setPreference('keepOpenOnSessionSwitch', value))),
-              preferenceRow('启用并发任务', '关闭后隐藏并发任务入口，并返回当前会话。',
-                toggle('启用并发任务', preferences.zoomEnabled, (value) => setPreference('zoomEnabled', value))),
-              preferenceRow('默认分支数量', '新会话第一次打开并发开工台时使用。',
+              preferenceRow(TB_T('切换 Session 时保持展开', 'Keep open when switching sessions'), TB_T('仅延续已展开的流镜；主动关闭后不会自动弹回。', 'Only keeps Flowglass views that are already open; closing it manually will not reopen it automatically.'),
+                toggle(TB_T('切换 Session 时保持展开', 'Keep open when switching sessions'), preferences.keepOpenOnSessionSwitch, (value) => setPreference('keepOpenOnSessionSwitch', value))),
+              preferenceRow(TB_T('启用并发任务', 'Enable concurrent tasks'), TB_T('关闭后隐藏并发任务入口，并返回当前会话。', 'Hides the concurrent tasks entry when off and returns to the current session.'),
+                toggle(TB_T('启用并发任务', 'Enable concurrent tasks'), preferences.zoomEnabled, (value) => setPreference('zoomEnabled', value))),
+              preferenceRow(TB_T('默认分支数量', 'Default branch count'), TB_T('新会话第一次打开并发开工台时使用。', 'Used the first time a new session opens the concurrent launch composer.'),
                 h('select', { className: 'fg-settings-select', value: String(preferences.defaultBranchCount), onChange: (event) => setPreference('defaultBranchCount', Number(event.currentTarget.value)) },
-                  option(2, '2 个分支'), option(3, '3 个分支'), option(4, '4 个分支'))),
-              preferenceRow('并发任务默认视图', '没有已保存历史视图时采用；已有视图保持不变。',
+                  option(2, TB_T('2 个分支', '2 branches')), option(3, TB_T('3 个分支', '3 branches')), option(4, TB_T('4 个分支', '4 branches')))),
+              preferenceRow(TB_T('并发任务默认视图', 'Default concurrent-tasks view'), TB_T('没有已保存历史视图时采用；已有视图保持不变。', 'Used when no saved view exists; existing views are kept.'),
                 h('select', { className: 'fg-settings-select', value: preferences.defaultZoomView, onChange: (event) => setPreference('defaultZoomView', event.currentTarget.value) },
-                  option('compact', '概览'), option('detail', '对比'), option('map', '关系图'))),
-              preferenceRow('轮询刷新', '事件推送仍然生效；关闭表示只使用事件驱动刷新。',
+                  option('compact', TB_T('概览', 'Overview')), option('detail', TB_T('对比', 'Compare')), option('map', TB_T('关系图', 'Map')))),
+              preferenceRow(TB_T('轮询刷新', 'Polling refresh'), TB_T('事件推送仍然生效；关闭表示只使用事件驱动刷新。', 'Event pushes still apply; off means event-driven refresh only.'),
                 h('select', { className: 'fg-settings-select', value: String(preferences.refreshMs), onChange: (event) => setPreference('refreshMs', Number(event.currentTarget.value)) },
-                  option(0, '关闭轮询'), option(1000, '1 秒'), option(2000, '2 秒'), option(5000, '5 秒'), option(10000, '10 秒'))),
+                  option(0, TB_T('关闭轮询', 'Polling off')), option(1000, TB_T('1 秒', '1 second')), option(2000, TB_T('2 秒', '2 seconds')), option(5000, TB_T('5 秒', '5 seconds')), option(10000, TB_T('10 秒', '10 seconds')))),
             ),
           ),
           h('section', { className: 'fg-settings-section' },
             h('div', { className: 'fg-settings-section-head' },
-              h('div', null, h('h3', null, '工具显示规则'), h('p', { className: 'fg-settings-note' }, '按顺序匹配，首条命中生效；默认规则和自定义规则都可关闭、编辑或删除。')),
+              h('div', null, h('h3', null, TB_T('工具显示规则', 'Tool display rules')), h('p', { className: 'fg-settings-note' }, TB_T('按顺序匹配，首条命中生效；默认规则和自定义规则都可关闭、编辑或删除。', 'Matched in order, first hit wins; default and custom rules can all be toggled, edited or deleted.'))),
               h('div', { className: 'fg-settings-actions' },
                 button({
                   type: 'button', className: 'fg-settings-button', disabled: rules.length >= 24,
                   onClick: () => { setEditingRule(rules.length); setRules((current) => [...current, { enabled: true, tools: ['pwsh'], executables: [], displayName: '', actions: [], badge: '', color: '#81c784' }]); setNotice(null) },
-                }, '添加规则'),
-                button({ type: 'button', className: 'fg-settings-button', title: '替换当前规则列表；保存设置后生效，保存前可放弃更改。', onClick: () => { setRules(cloneFlowRules(FLOW_DEFAULT_PRESENTATION_RULES)); setEditingRule(null); setNotice(null) } }, '恢复内置规则'),
+                }, TB_T('添加规则', 'Add rule')),
+                button({ type: 'button', className: 'fg-settings-button', title: TB_T('替换当前规则列表；保存设置后生效，保存前可放弃更改。', 'Replaces the current rule list; takes effect after saving settings, and changes can be discarded before saving.'), onClick: () => { setRules(cloneFlowRules(FLOW_DEFAULT_PRESENTATION_RULES)); setEditingRule(null); setNotice(null) } }, TB_T('恢复内置规则', 'Restore built-in rules')),
               ),
             ),
-            h('div', { className: 'fg-settings-rules' }, ruleCards.length ? ruleCards : h('p', { className: 'fg-settings-note' }, '当前没有显示规则。保存空列表后，刷新也不会恢复默认规则。')),
+            h('div', { className: 'fg-settings-rules' }, ruleCards.length ? ruleCards : h('p', { className: 'fg-settings-note' }, TB_T('当前没有显示规则。保存空列表后，刷新也不会恢复默认规则。', 'No display rules yet. After saving an empty list, a refresh will not restore the default rules.'))),
           ),
           h('div', { className: 'fg-settings-actions' },
             notice ? h('span', { className: 'fg-settings-status' + (notice.error ? ' is-error' : ''), role: notice.error ? 'alert' : 'status' }, notice.text) : null,
-            button({ type: 'button', className: 'fg-settings-button', disabled: !dirty, onClick: reloadStaged }, '放弃更改'),
-            button({ type: 'submit', primary: true, className: 'fg-settings-button primary', disabled: !dirty }, '保存设置'),
+            button({ type: 'button', className: 'fg-settings-button', disabled: !dirty, onClick: reloadStaged }, TB_T('放弃更改', 'Discard changes')),
+            button({ type: 'submit', primary: true, className: 'fg-settings-button primary', disabled: !dirty }, TB_T('保存设置', 'Save settings')),
           ),
         ),
       )
@@ -2692,7 +2700,7 @@ return {
             } catch (e) {}
           }
           syncTheme()
-          win.document.title = RT.displayName + ' · 画中画'
+          win.document.title = RT.displayName + TB_T(' · 画中画', ' · Picture-in-Picture')
           win.document.body.style.margin = '0'
           // 3. 结构：顶部工具条（pip 原生，非镜像）+ 镜像容器
           const rootEl = win.document.createElement('div')
@@ -2703,16 +2711,16 @@ return {
           barEl.className = 'jr-pip-bar'
           const barTitle = win.document.createElement('span')
           barTitle.className = 'jr-pip-bar-title'
-          barTitle.textContent = compactDisplayName + ' · 画中画（内容与主窗口一致，操作实时同步）'
+          barTitle.textContent = compactDisplayName + TB_T(' · 画中画（内容与主窗口一致，操作实时同步）', ' · Picture-in-Picture (mirrors the main window; interactions sync live)')
           barTitle.title = fullDisplayName
           const btnMax = win.document.createElement('button')
           btnMax.className = 'jr-pip-bar-btn'
-          btnMax.textContent = '⤢ 放大'
-          btnMax.title = '放大到屏幕 72%×88%（再点还原）'
+          btnMax.textContent = TB_T('⤢ 放大', '⤢ Enlarge')
+          btnMax.title = TB_T('放大到屏幕 72%×88%（再点还原）', 'Enlarge to 72%×88% of the screen (click again to restore)')
           const btnBack = win.document.createElement('button')
           btnBack.className = 'jr-pip-bar-btn'
-          btnBack.textContent = '✕ 回主窗口'
-          btnBack.title = '关闭画中画，回主窗口抽屉'
+          btnBack.textContent = TB_T('✕ 回主窗口', '✕ Back to main window')
+          btnBack.title = TB_T('关闭画中画，回主窗口抽屉', 'Close Picture-in-Picture and return to the main window drawer')
           barEl.appendChild(barTitle)
           barEl.appendChild(btnMax)
           barEl.appendChild(btnBack)
@@ -2822,11 +2830,11 @@ return {
                 win.resizeTo(w, h)
                 win.moveTo(Math.round((sw - w) / 2), Math.round((sh - h) / 2))
                 entry.enlarged = true
-                btnMax.textContent = '⤡ 还原'
+                btnMax.textContent = TB_T('⤡ 还原', '⤡ Restore')
               } else {
                 win.resizeTo(entry.baseW || 560, entry.baseH || 620)
                 entry.enlarged = false
-                btnMax.textContent = '⤢ 放大'
+                btnMax.textContent = TB_T('⤢ 放大', '⤢ Enlarge')
               }
             } catch (err) {}
           }
@@ -2852,7 +2860,7 @@ return {
       React.useLayoutEffect(() => {
         const label = active === 'flow' && panelRef.current && panelRef.current.querySelector('[data-flow-sync-state]')
         if (!label) return
-        label.textContent = flowSyncFailure ? '同步失败' : label.getAttribute('data-flow-sync-state') === 'paused' ? '已暂停同步' : busyTool === 'flow' ? '更新中' : '已同步'
+        label.textContent = flowSyncFailure ? TB_T('同步失败', 'Sync failed') : label.getAttribute('data-flow-sync-state') === 'paused' ? TB_T('已暂停同步', 'Sync paused') : busyTool === 'flow' ? TB_T('更新中', 'Updating') : TB_T('已同步', 'Synced')
       }, [active, html, busyTool, flowSyncFailure])
       const seqRef = React.useRef({}) // toolId -> 最新请求序号：丢弃过期响应，防 provider/模型联动竞态
       const interactiveActionSeqRef = React.useRef({}) // toolId -> 在途显式动作；后台重挂/轮询不得抢占用户点击
@@ -2890,7 +2898,7 @@ return {
         setFlowZen(true) // 先进入 CSS 全视口 Zen，Fullscreen API 被禁时仍可用。
         if (!el || typeof el.requestFullscreen !== 'function') return
         try { await el.requestFullscreen() }
-        catch (e) { setError('浏览器拒绝原生全屏，已回退到视口 Zen 模式') }
+        catch (e) { setError(TB_T('浏览器拒绝原生全屏，已回退到视口 Zen 模式', 'The browser refused native fullscreen; falling back to viewport Zen mode')) }
       }
 
       // 停靠模式/激活 Tab/分类工具记忆变化即落盘（宽/高/浮动位置在手势结束时单独落盘，避免每帧写）
@@ -3299,8 +3307,8 @@ return {
         if (!root) return undefined
         for (const button of root.querySelectorAll('[data-flow-copy]')) {
           if (!button.querySelector('svg')) button.innerHTML = FLOW_COPY_ICON_HTML
-          button.setAttribute('title', '复制内容到剪贴板')
-          button.setAttribute('aria-label', '复制内容到剪贴板')
+          button.setAttribute('title', TB_T('复制内容到剪贴板', 'Copy content to clipboard'))
+          button.setAttribute('aria-label', TB_T('复制内容到剪贴板', 'Copy content to clipboard'))
         }
         const target = root.querySelector('[data-flow-markdown-body]')
         const source = target && target.querySelector('[data-flow-markdown-source]')
@@ -3321,8 +3329,8 @@ return {
           previewButton.className = 'fl-md-preview-btn'
           previewButton.setAttribute('data-flow-markdown-preview', '1')
           previewButton.setAttribute('data-flow-markdown-key', key)
-          previewButton.setAttribute('title', 'Markdown 预览')
-          previewButton.setAttribute('aria-label', 'Markdown 预览')
+          previewButton.setAttribute('title', TB_T('Markdown 预览', 'Markdown preview'))
+          previewButton.setAttribute('aria-label', TB_T('Markdown 预览', 'Markdown preview'))
           previewButton.setAttribute('aria-pressed', 'false')
           previewButton.innerHTML = FLOW_PREVIEW_ICON_HTML
           const head = source.closest('.fl-sec') && source.closest('.fl-sec').querySelector('.fl-sec-head')
@@ -3749,15 +3757,15 @@ return {
             const spans = button.querySelectorAll('span')
             if (spans[0]) spans[0].textContent = '＋'
             const round = activeRound()
-            let label = '加入当前并发分支'
+            let label = TB_T('加入当前并发分支', 'Join current concurrent run')
             let disabled = false
-            if (!round) { label = '暂无当前并发'; disabled = true }
-            else if (round.sids.includes(pending.sid)) { label = '已在当前并发中'; disabled = true }
-            else if (round.sids.length >= 4) { label = '当前并发已满'; disabled = true }
+            if (!round) { label = TB_T('暂无当前并发', 'No active concurrent run'); disabled = true }
+            else if (round.sids.includes(pending.sid)) { label = TB_T('已在当前并发中', 'Already in the current concurrent run'); disabled = true }
+            else if (round.sids.length >= 4) { label = TB_T('当前并发已满', 'Current concurrent run is full'); disabled = true }
             else {
               const member = flowSessionRow(round.sids[0]) || {}
               const candidate = flowSessionRow(pending.sid) || {}
-              if (member.cwd && candidate.cwd && member.cwd !== candidate.cwd) { label = '不在当前工作区'; disabled = true }
+              if (member.cwd && candidate.cwd && member.cwd !== candidate.cwd) { label = TB_T('不在当前工作区', 'Not in the current workspace'); disabled = true }
             }
             if (spans[1]) spans[1].textContent = label
             else button.textContent = label
@@ -3766,8 +3774,8 @@ return {
               event.preventDefault(); event.stopPropagation()
               if (button.disabled || typeof loadPanelRef.current !== 'function') return
               Promise.resolve(loadPanelRef.current('flow', 'fzoom-run-add', { dataset: { sid: pending.sid } }, { silent: true }))
-                .then(() => { setFlowUiNotice('已加入当前并发：' + titleOf(pending.sid)); try { pending.anchor.click() } catch (err) {} })
-                .catch((err) => { setError('加入当前并发失败: ' + String((err && err.message) || err)) })
+                .then(() => { setFlowUiNotice(TB_T('已加入当前并发：', 'Joined the current concurrent run: ') + titleOf(pending.sid)); try { pending.anchor.click() } catch (err) {} })
+                .catch((err) => { setError(TB_T('加入当前并发失败: ', 'Failed to join the current concurrent run: ') + String((err && err.message) || err)) })
             })
             viewport.appendChild(clone)
           }
@@ -3867,31 +3875,32 @@ return {
         if (flowMutationBlocked()) return
         const source = sourceSessionId || flowScope()
         if (!source || !Number.isFinite(Number(seq))) return
-        if (!sessionsClient || typeof sessionsClient.fork !== 'function') { setError('Harness 当前版本不支持会话分支'); return }
-        setFlowUiBusy(true); setFlowUiNotice('正在创建分支会话…')
+        if (!sessionsClient || typeof sessionsClient.fork !== 'function') { setError(TB_T('Harness 当前版本不支持会话分支', 'This Harness version does not support session forking')); return }
+        setFlowUiBusy(true); setFlowUiNotice(TB_T('正在创建分支会话…', 'Creating forked session…'))
         try {
           const childId = await sessionsClient.fork({ sessionId: source, atSeq: Number(seq), increaseTitle: true })
           await navigateHarnessSession({ sessionId: childId })
           const reopen = () => { try { if (nativeOpenTab) nativeOpenTab() } catch (e) {} }
           try { ctx.timeout(reopen, 0); ctx.timeout(reopen, 180) } catch (e) {}
-          setFlowUiNotice('已创建分支会话')
+          setFlowUiNotice(TB_T('已创建分支会话', 'Forked session created'))
           setFlowSelectedSeqs([])
           setFlowBringPopup(false)
           setFlowTreeOpen({})
-        } catch (e) { setError('分支失败: ' + String((e && e.message) || e)) }
+        } catch (e) { setError(TB_T('分支失败: ', 'Fork failed: ') + String((e && e.message) || e)) }
         finally { setFlowUiBusy(false) }
       }
 
       const fetchSelectedFlowContext = async () => {
-        if (!flowSelectedSeqs.length) throw new Error('请先框选流程卡片')
+        if (!flowSelectedSeqs.length) throw new Error(TB_T('请先框选流程卡片', 'Select flow cards first'))
         const res = await host.call(RT.rpc('panel'), {
           tool: 'flow', action: 'fcontext',
+          lang: TB_UI_LANG,
           fields: { __el: { seqs: flowSelectedSeqs.join(',') } },
           state: stateRef.current.flow || null,
           root: currentCwd || undefined,
           session: currentSessionId || undefined,
         })
-        if (!res || !res.ok || !res.flowContext || !res.flowContext.text) throw new Error((res && res.error) || '无法读取选中内容')
+        if (!res || !res.ok || !res.flowContext || !res.flowContext.text) throw new Error((res && res.error) || TB_T('无法读取选中内容', 'Unable to read the selection'))
         return res.flowContext
       }
 
@@ -3900,33 +3909,33 @@ return {
       const withSessionProvideInfo = async (sessionId, operation) => {
         const uiSession = ctx.get('uiSession')
         if (!uiSession || !uiSession.adapter) {
-          throw new Error('当前 Harness 不支持跨会话草稿写入（缺少 uiSession 绑定服务）')
+          throw new Error(TB_T('当前 Harness 不支持跨会话草稿写入（缺少 uiSession 绑定服务）', 'This Harness does not support cross-session draft writes (missing uiSession binding service)'))
         }
         if (sessionsClient && typeof sessionsClient.using === 'function'
           && typeof uiSession.adapter.bindingSource === 'function') {
           return sessionsClient.using(sessionId, { source: 'controllerOperation' }, (reference) => {
             const source = uiSession.adapter.bindingSource(reference)
             const binding = source && typeof source.getSnapshot === 'function' ? source.getSnapshot() : undefined
-            if (!binding || binding.key == null) throw new Error('目标会话的 UI 绑定不可用')
+            if (!binding || binding.key == null) throw new Error(TB_T('目标会话的 UI 绑定不可用', 'Target session UI binding is unavailable'))
             return operation({ props: binding.props, hooks: binding.hooks })
           })
         }
         if (typeof uiSession.adapter.resolve !== 'function') {
-          throw new Error('当前 Harness 不支持跨会话草稿写入（缺少 uiSession 解析器）')
+          throw new Error(TB_T('当前 Harness 不支持跨会话草稿写入（缺少 uiSession 解析器）', 'This Harness does not support cross-session draft writes (missing uiSession resolver)'))
         }
         for (let i = 0; i < 3; i++) {
           const binding = uiSession.adapter.resolve(sessionId)
           if (binding) return operation({ props: binding.props, hooks: binding.hooks })
           await new Promise((resolve) => setTimeout(resolve, 120))
         }
-        throw new Error('目标会话的 UI 绑定不可用')
+        throw new Error(TB_T('目标会话的 UI 绑定不可用', 'Target session UI binding is unavailable'))
       }
 
       const putFlowContextIntoDraft = async (sessionId, text, append) => {
         await withSessionProvideInfo(sessionId, (info) => {
           const actions = info && info.props && info.props.inputActions
           const input = info && info.hooks && info.hooks.input
-          if (!actions || typeof actions.setDraft !== 'function') throw new Error('目标会话的输入区不可用')
+          if (!actions || typeof actions.setDraft !== 'function') throw new Error(TB_T('目标会话的输入区不可用', 'Target session input area is unavailable'))
           let next = text
           if (append && input && typeof input.getSnapshot === 'function') {
             const snap = input.getSnapshot()
@@ -3939,8 +3948,8 @@ return {
 
       const createSelectedFlowSession = async () => {
         if (!flowSelectedSeqs.length) return
-        if (!sessionsClient || typeof sessionsClient.create !== 'function') { setError('Harness 当前版本不支持创建空白会话'); return }
-        setFlowUiBusy(true); setFlowUiNotice('正在用框选内容创建新会话…')
+        if (!sessionsClient || typeof sessionsClient.create !== 'function') { setError(TB_T('Harness 当前版本不支持创建空白会话', 'This Harness version does not support creating blank sessions')); return }
+        setFlowUiBusy(true); setFlowUiNotice(TB_T('正在用框选内容创建新会话…', 'Creating a new session from the selection…'))
         try {
           const context = await fetchSelectedFlowContext()
           const sessionId = await sessionsClient.create(currentCwd ? { cwd: currentCwd } : {})
@@ -3949,16 +3958,16 @@ return {
           setFlowSelectedSeqs([])
           setFlowBringPopup(false)
           setFlowTreeOpen({})
-          setFlowUiNotice('已创建只包含框选内容的新会话草稿')
-        } catch (e) { setError('新建会话失败: ' + String((e && e.message) || e)) }
+          setFlowUiNotice(TB_T('已创建只包含框选内容的新会话草稿', 'Created a new session draft containing only the selection'))
+        } catch (e) { setError(TB_T('新建会话失败: ', 'Failed to create session: ') + String((e && e.message) || e)) }
         finally { setFlowUiBusy(false) }
       }
 
       const sendSelectedFlow = async () => {
         const target = flowTargetSession
-        if (!target) { setFlowUiNotice('请选择目标会话'); return }
-        if (!sessionsClient) { setFlowUiNotice('Harness 会话服务不可用'); return }
-        setFlowUiBusy(true); setFlowUiNotice('正在整理并带入选中内容…')
+        if (!target) { setFlowUiNotice(TB_T('请选择目标会话', 'Choose a target session first')); return }
+        if (!sessionsClient) { setFlowUiNotice(TB_T('Harness 会话服务不可用', 'Harness session service is unavailable')); return }
+        setFlowUiBusy(true); setFlowUiNotice(TB_T('正在整理并带入选中内容…', 'Preparing and appending the selection…'))
         try {
           const context = await fetchSelectedFlowContext()
           await putFlowContextIntoDraft(target, context.text, true)
@@ -3966,8 +3975,8 @@ return {
           setFlowSelectedSeqs([])
           setFlowBringPopup(false)
           setFlowTreeOpen({})
-          setFlowUiNotice('已追加到目标会话草稿')
-        } catch (e) { setFlowUiNotice('带入失败: ' + String((e && e.message) || e)) }
+          setFlowUiNotice(TB_T('已追加到目标会话草稿', 'Appended to the target session draft'))
+        } catch (e) { setFlowUiNotice(TB_T('带入失败: ', 'Failed to append: ') + String((e && e.message) || e)) }
         finally { setFlowUiBusy(false) }
       }
 
@@ -3988,7 +3997,7 @@ return {
           return sessionsClient.using(sid, { source: 'controllerOperation' }, (reference) => operation(reference.binding))
         }
         const binding = await resolveZoomBinding(sid)
-        if (!binding) throw new Error('会话不可用或未上线')
+        if (!binding) throw new Error(TB_T('会话不可用或未上线', 'Session unavailable or not online'))
         return operation(binding)
       }
       // 直接发送 = 目标会话排队执行一条用户消息（ISession.prompt mode 'queue'：运行中排队、空闲立即开工）
@@ -3996,7 +4005,7 @@ return {
         await withZoomBinding(sid, async (binding) => {
           const res = await binding.session.prompt([{ type: 'text', text }], 'queue')
           if (!res || res.ok !== true) {
-            const error = new Error((res && res.error && res.error.message) || '未收到发送回执')
+            const error = new Error((res && res.error && res.error.message) || TB_T('未收到发送回执', 'No send acknowledgment received'))
             error.definite = !!(res && res.ok === false)
             throw error
           }
@@ -4018,26 +4027,26 @@ return {
         const slash = route.indexOf('/')
         if (slash <= 0) return
         const remoteSession = ctx.get('remote.session')
-        if (!remoteSession || typeof remoteSession.selectModel !== 'function') throw new Error('模型选择通道不可用')
+        if (!remoteSession || typeof remoteSession.selectModel !== 'function') throw new Error(TB_T('模型选择通道不可用', 'Model selection channel is unavailable'))
         const res = await remoteSession.selectModel({
           sessionId: sid,
           provider: route.slice(0, slash),
           model: route.slice(slash + 1),
           ...(reasoningEffort ? { reasoningEffort } : {}),
         })
-        if (!res || res.ok !== true) throw new Error((res && res.error && res.error.message) || 'selectModel 被拒绝')
+        if (!res || res.ok !== true) throw new Error((res && res.error && res.error.message) || TB_T('selectModel 被拒绝', 'selectModel was rejected'))
       }
       const renameSession = async (sid, title) => {
         await withZoomBinding(sid, async (binding) => {
           if (!binding.session || typeof binding.session.rename !== 'function') return
           const res = await binding.session.rename(String(title).slice(0, 120))
-          if (res && res.ok === false) throw new Error((res.error && res.error.message) || '会话重命名失败')
+          if (res && res.ok === false) throw new Error((res.error && res.error.message) || TB_T('会话重命名失败', 'Failed to rename session'))
         })
       }
       const zoomBranchTitle = (prompt, index, count, route) => {
-        const task = String(prompt || '并发任务').replace(/\s+/g, ' ').trim().slice(0, 42)
-        const model = route ? route.slice(route.indexOf('/') + 1) : '跟随当前'
-        return '⚡ ' + task + ' · 分支 ' + (index + 1) + '/' + count + ' · ' + model
+        const task = String(prompt || TB_T('并发任务', 'Concurrent task')).replace(/\s+/g, ' ').trim().slice(0, 42)
+        const model = route ? route.slice(route.indexOf('/') + 1) : TB_T('跟随当前', 'Follow current')
+        return '⚡ ' + task + ' · ' + TB_T('分支 ', 'Branch ') + (index + 1) + '/' + count + ' · ' + model
       }
       const currentSessionIsBlank = (sessionId) => {
         const row = sessionId ? flowSessionRow(sessionId) : null
@@ -4057,9 +4066,9 @@ return {
       // 并带 linkSource 让 Host 把新轮次接进来源会话所属的大流镜历史（延长或派生，原历史不覆盖）。
       const startZoomLaunch = async () => {
         const replay = panelRef.current && panelRef.current.querySelector('[data-flow-replay-active="1"]')
-        if (replay) { setFlowUiNotice('回放为只读，请先退出回放再发送。'); return }
+        if (replay) { setFlowUiNotice(TB_T('回放为只读，请先退出回放再发送。', 'Playback is read-only; exit replay before sending.')); return }
         const prompt = zoomComposerText().trim()
-        if (!prompt) { setFlowUiNotice('先输入同一个任务再同时开始'); return }
+        if (!prompt) { setFlowUiNotice(TB_T('先输入同一个任务再同时开始', 'Enter one shared task before starting all at once')); return }
         const lanes = zoomLaneValues()
         const efforts = zoomEffortValues()
         const board = flowZoomHostEl()
@@ -4067,7 +4076,7 @@ return {
         const continueExisting = activeSids.length >= 2
         const count = continueExisting ? activeSids.length : Math.max(1, Math.min(4, lanes.length || 2))
         if (flowLaunchBatch && (flowLaunchBatch.registrationPending || flowLaunchBatch.items.some((item) => item.status !== 'success'))) {
-          setFlowUiNotice('请先处理上次任务的失败或未知结果，再创建下一次任务。')
+          setFlowUiNotice(TB_T('请先处理上次任务的失败或未知结果，再创建下一次任务。', "Resolve the previous task's failures or unknown results before starting the next task."))
           return
         }
         // 近观（无 data-flow-board）才渲染「沿用当前会话」chip；全景 N→N 续跑天然复用现有分支
@@ -4104,14 +4113,16 @@ return {
         const forkCurrent = !continueExisting && Boolean(effSourceId) && !currentSessionIsBlank(effSourceId)
         // 按实际路径检查能力：已有会话的 1→N 只需要 fork；空白会话首次并发只需要 create；
         // N→N 继续只需要现有 Session binding。不能因无关 API 缺失让按钮静默返回。
-        if (!sessionsClient) { setError('Harness 会话服务不可用'); setFlowUiNotice('同时开始失败：Harness 会话服务不可用'); return }
-        if (forkCurrent && typeof sessionsClient.fork !== 'function') { setError('Harness 当前版本不支持从已有会话分支'); setFlowUiNotice('同时开始失败：缺少会话分支能力'); return }
-        if (!forkCurrent && !continueExisting && typeof sessionsClient.create !== 'function') { setError('Harness 当前版本不支持新建并发会话'); setFlowUiNotice('同时开始失败：缺少新建会话能力'); return }
+        if (!sessionsClient) { setError(TB_T('Harness 会话服务不可用', 'Harness session service is unavailable')); setFlowUiNotice(TB_T('同时开始失败：Harness 会话服务不可用', 'Start-all failed: Harness session service is unavailable')); return }
+        if (forkCurrent && typeof sessionsClient.fork !== 'function') { setError(TB_T('Harness 当前版本不支持从已有会话分支', 'This Harness version does not support forking existing sessions')); setFlowUiNotice(TB_T('同时开始失败：缺少会话分支能力', 'Start-all failed: session forking is unavailable')); return }
+        if (!forkCurrent && !continueExisting && typeof sessionsClient.create !== 'function') { setError(TB_T('Harness 当前版本不支持新建并发会话', 'This Harness version does not support creating concurrent sessions')); setFlowUiNotice(TB_T('同时开始失败：缺少新建会话能力', 'Start-all failed: session creation is unavailable')); return }
         setFlowUiBusy(true); setFlowUiNotice(reuseCurrent
-          ? '正在沿用当前会话开工（再新建 ' + Math.max(0, count - 1) + ' 个分支）…'
+          ? TB_T('正在沿用当前会话开工（再新建 ', 'Starting with the current session (creating ') + Math.max(0, count - 1) + TB_T(' 个分支）…', ' more branches)…')
           : continueExisting
-            ? '正在继续当前 ' + count + ' 个分支…'
-            : '正在' + (forkCurrent ? '从当前会话分叉 ' : '在当前工作区新建 ') + count + ' 个会话并开工…')
+            ? TB_T('正在继续当前 ', 'Continuing current ') + count + TB_T(' 个分支…', ' branches…')
+            : (forkCurrent
+              ? TB_T('正在从当前会话分叉 ', 'Forking ') + count + TB_T(' 个会话并开工…', ' sessions from the current session and starting…')
+              : TB_T('正在在当前工作区新建 ', 'Creating ') + count + TB_T(' 个会话并开工…', ' sessions in the current workspace and starting…')))
         const created = []
         const failed = []
         try {
@@ -4133,7 +4144,7 @@ return {
           await runFlowLaunchBatch(batch, flowLaunchApi(batch), saveFlowLaunchBatch)
           for (const item of batch.items) {
             if (item.status === 'success') created.push(item.sid)
-            else failed.push('分支 ' + (item.index + 1) + '：' + (item.status === 'unknown' ? '结果未知，需核对' : item.error))
+            else failed.push(TB_T('分支 ', 'Branch ') + (item.index + 1) + TB_T('：', ': ') + (item.status === 'unknown' ? TB_T('结果未知，需核对', 'result unknown; needs verification') : item.error))
           }
           await registerFlowLaunch(batch)
           // 空白“新会话”只承担开工入口；分支启动后直接进入第一条实际工作会话。
@@ -4158,11 +4169,14 @@ return {
             if (input && input.value.trim() === prompt) { input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); zoomPromptRef.current = '' }
           }
           setFlowUiNotice((reuseCurrent
-            ? '已沿用当前会话开工' + (created.length > 1 ? '，新建 ' + (created.length - 1) + ' 个分支' : '')
+            ? TB_T('已沿用当前会话开工', 'Started with the current session') + (created.length > 1 ? TB_T('，新建 ', ', created ') + (created.length - 1) + TB_T(' 个分支', ' branches') : '')
             : continueExisting
-              ? '已继续当前 ' + created.length + ' 个分支'
-              : '已' + (forkCurrent ? '从当前会话分叉并' : '在当前工作区新建并') + '开工 ' + created.length + ' 个会话') + (failed.length ? '，' + failed.length + ' 个失败：' + failed[0] : ''))
-        } catch (e) { setError('同时开始失败: ' + String((e && e.message) || e)) }
+              ? TB_T('已继续当前 ', 'Continued current ') + created.length + TB_T(' 个分支', ' branches')
+              : (forkCurrent
+                ? TB_T('已从当前会话分叉并开工 ', 'Forked from the current session and started ')
+                : TB_T('已在当前工作区新建并开工 ', 'Created in the current workspace and started ')) + created.length + TB_T(' 个会话', ' sessions'))
+            + (failed.length ? TB_T('，', ', ') + failed.length + TB_T(' 个失败：', ' failed: ') + failed[0] : ''))
+        } catch (e) { setError(TB_T('同时开始失败: ', 'Start-all failed: ') + String((e && e.message) || e)) }
         finally { setFlowUiBusy(false) }
       }
       const executeZoomLaunch = async () => {
@@ -4224,7 +4238,7 @@ return {
       })
       const retryFlowLaunch = async () => {
         if (!flowLaunchBatch || flowLaunchBusyRef.current) return
-        if (panelRef.current && panelRef.current.querySelector('[data-flow-replay-active="1"]')) { setFlowUiNotice('请先退出只读回放再恢复发送。'); return }
+        if (panelRef.current && panelRef.current.querySelector('[data-flow-replay-active="1"]')) { setFlowUiNotice(TB_T('请先退出只读回放再恢复发送。', 'Exit read-only replay before retrying the send.')); return }
         flowLaunchBusyRef.current = true; setFlowUiBusy(true)
         try {
           await runFlowLaunchBatch(flowLaunchBatch, flowLaunchApi(flowLaunchBatch), saveFlowLaunchBatch)
@@ -4251,7 +4265,7 @@ return {
         }
         saveFlowLaunchBatch(flowLaunchBatch)
         await registerFlowLaunch(flowLaunchBatch)
-        setFlowUiNotice('已核对可用事件；未找到可靠回执的分支保留未知状态，不会重复发送。')
+        setFlowUiNotice(TB_T('已核对可用事件；未找到可靠回执的分支保留未知状态，不会重复发送。', 'Verified available events; branches without a reliable receipt stay unknown and will not be sent again.'))
         } finally { flowLaunchBusyRef.current = false; setFlowUiBusy(false) }
       }
       React.useEffect(() => {
@@ -4266,23 +4280,23 @@ return {
       // 从对比网格某一轮同时派生所有会话，形成新的并发批次（不自动追加消息）。
       const executeZoomRoundFork = async (el) => {
         if (flowMutationBlocked()) return
-        if (!sessionsClient || typeof sessionsClient.fork !== 'function') { setError('Harness 当前版本不支持会话分支'); return }
+        if (!sessionsClient || typeof sessionsClient.fork !== 'function') { setError(TB_T('Harness 当前版本不支持会话分支', 'This Harness version does not support session forking')); return }
         let spec = []
         try { spec = JSON.parse(el.getAttribute('data-spec') || '[]') } catch (e) {}
         spec = Array.isArray(spec) ? spec.filter((x) => x && typeof x.sid === 'string' && Number.isFinite(Number(x.seq))).slice(0, 4) : []
-        if (spec.length < 2) { setFlowUiNotice('本轮至少需要两个可分支的会话'); return }
+        if (spec.length < 2) { setFlowUiNotice(TB_T('本轮至少需要两个可分支的会话', 'This round needs at least two forkable sessions')); return }
         const turn = el.getAttribute('data-turn') || ''
         const targetCount = Math.max(2, Math.min(4, zoomLaneValues().length || spec.length))
         const baseHistoryId = el.getAttribute('data-history') || ''
         const baseRoundId = el.getAttribute('data-round') || ''
-        setFlowUiBusy(true); setFlowUiNotice('正在从第 ' + turn + ' 轮执行 ' + spec.length + '→' + targetCount + '…')
+        setFlowUiBusy(true); setFlowUiNotice(TB_T('正在从第 ', 'Forking from round ') + turn + TB_T(' 轮执行 ', ': ') + spec.length + '→' + targetCount + '…')
         const created = [], failed = []
         try {
           for (let i = 0; i < targetCount; i++) {
             const item = spec[i % spec.length]
             try {
               const child = await sessionsClient.fork({ sessionId: item.sid, atSeq: Number(item.seq), increaseTitle: true })
-              await renameSession(child, '⚡ 第 ' + turn + ' 轮 · 分支 ' + (i + 1) + '/' + targetCount)
+              await renameSession(child, '⚡ ' + TB_T('第 ', 'Round ') + turn + TB_T(' 轮 · 分支 ', ' · Branch ') + (i + 1) + '/' + targetCount)
               created.push(child)
             }
             catch (e) { failed.push(String((e && e.message) || e)) }
@@ -4290,10 +4304,10 @@ return {
           if (created.length && typeof loadPanelRef.current === 'function') {
             await loadPanelRef.current('flow', 'fzoom-joined', { dataset: {
               sids: created.join(','),
-              meta: JSON.stringify({ prompt: '第 ' + turn + ' 轮并发', routes: created.map(() => ''), efforts: created.map(() => ''), sourceSids: spec.map((x) => x.sid), baseHistoryId, baseRoundId }),
+              meta: JSON.stringify({ prompt: TB_T('第 ', 'Round ') + turn + TB_T(' 轮并发', ' concurrent run'), routes: created.map(() => ''), efforts: created.map(() => ''), sourceSids: spec.map((x) => x.sid), baseHistoryId, baseRoundId }),
             } }, { silent: true })
           }
-          setFlowUiNotice('已从第 ' + turn + ' 轮完成 ' + spec.length + '→' + created.length + (failed.length ? '，失败 ' + failed.length + ' 个：' + failed[0] : ''))
+          setFlowUiNotice(TB_T('已从第 ', 'Finished forking round ') + turn + TB_T(' 轮完成 ', ': ') + spec.length + '→' + created.length + (failed.length ? TB_T('，失败 ', ', ') + failed.length + TB_T(' 个：', ' failed: ') + failed[0] : ''))
         } finally { setFlowUiBusy(false) }
       }
       // 单列本轮 1→N：N 取当前 composer 的并发数量，并继承所选历史的轮次前缀。
@@ -4301,43 +4315,43 @@ return {
         if (flowMutationBlocked()) return
         if (!sourceSid || !Number.isFinite(Number(seq)) || !sessionsClient || typeof sessionsClient.fork !== 'function') return
         const targetCount = Math.max(2, Math.min(4, zoomLaneValues().length || 2))
-        setFlowUiBusy(true); setFlowUiNotice('正在从第 ' + turn + ' 轮创建 1→' + targetCount + ' 分支…')
+        setFlowUiBusy(true); setFlowUiNotice(TB_T('正在从第 ', 'Forking from round ') + turn + TB_T(' 轮创建 1→', ': creating 1→') + targetCount + TB_T(' 分支…', ' branches…'))
         try {
           const created = []
           for (let i = 0; i < targetCount; i++) {
             const child = await sessionsClient.fork({ sessionId: sourceSid, atSeq: Number(seq), increaseTitle: true })
-            await renameSession(child, '⚡ 第 ' + turn + ' 轮 · 分支 ' + (i + 1) + '/' + targetCount)
+            await renameSession(child, '⚡ ' + TB_T('第 ', 'Round ') + turn + TB_T(' 轮 · 分支 ', ' · Branch ') + (i + 1) + '/' + targetCount)
             created.push(child)
           }
           if (typeof loadPanelRef.current === 'function') {
             loadPanelRef.current('flow', 'fzoom-joined', { dataset: {
               sids: created.join(','),
-              meta: JSON.stringify({ prompt: '第 ' + turn + ' 轮分支', routes: created.map(() => ''), efforts: created.map(() => ''), sourceSids: [sourceSid], baseHistoryId, baseRoundId }),
+              meta: JSON.stringify({ prompt: TB_T('第 ', 'Round ') + turn + TB_T(' 轮分支', ' branches'), routes: created.map(() => ''), efforts: created.map(() => ''), sourceSids: [sourceSid], baseHistoryId, baseRoundId }),
             } }, { silent: true })
           }
-          setFlowUiNotice('已从第 ' + turn + ' 轮建立 1→' + targetCount + ' 对比分支')
-        } catch (e) { setError('本轮分支失败: ' + String((e && e.message) || e)) }
+          setFlowUiNotice(TB_T('已从第 ', 'From round ') + turn + TB_T(' 轮建立 1→', ', created 1→') + targetCount + TB_T(' 对比分支', ' compare branches'))
+        } catch (e) { setError(TB_T('本轮分支失败: ', 'Forking this round failed: ') + String((e && e.message) || e)) }
         finally { setFlowUiBusy(false) }
       }
       // 不切换 Harness 当前会话：在当前工作区创建一个空 Session，并直接加入当前并发组。
       const executeZoomAddNewSession = async () => {
         if (flowMutationBlocked()) return
-        if (!sessionsClient || typeof sessionsClient.create !== 'function') { setFlowUiNotice('当前版本不支持新建 Session'); return }
+        if (!sessionsClient || typeof sessionsClient.create !== 'function') { setFlowUiNotice(TB_T('当前版本不支持新建 Session', 'This version does not support creating sessions')); return }
         const sourceSessionId = harnessSelectedSessionId || currentSessionId || flowScope()
         let workspaceId = ''
         if (sourceSessionId && Array.isArray(hookWorkspaceItems)) {
           const owner = hookWorkspaceItems.find((w) => w && Array.isArray(w.sessionIds) && w.sessionIds.some((sid) => String(sid) === sourceSessionId))
           if (owner && owner.workspaceId != null) workspaceId = String(owner.workspaceId)
         }
-        setFlowUiBusy(true); setFlowUiNotice('正在新建 Session 并加入当前并发…')
+        setFlowUiBusy(true); setFlowUiNotice(TB_T('正在新建 Session 并加入当前并发…', 'Creating a session and joining the current concurrent run…'))
         try {
           const sid = await sessionsClient.create(workspaceId ? { workspaceId } : (currentCwd ? { cwd: currentCwd } : {}))
-          await renameSession(sid, '⚡ 加入当前并发 · 新会话')
+          await renameSession(sid, '⚡ ' + TB_T('加入当前并发 · 新会话', 'Joined the current concurrent run · new session'))
           if (typeof loadPanelRef.current === 'function') {
             await loadPanelRef.current('flow', 'fzoom-run-add', { dataset: { sid } }, { silent: true })
           }
-          setFlowUiNotice('已新建并加入 Session ' + String(sid).replace(/^session-/, '').slice(0, 8))
-        } catch (e) { setError('新建并加入失败: ' + String((e && e.message) || e)) }
+          setFlowUiNotice(TB_T('已新建并加入 Session ', 'Created and joined session ') + String(sid).replace(/^session-/, '').slice(0, 8))
+        } catch (e) { setError(TB_T('新建并加入失败: ', 'Failed to create and join: ') + String((e && e.message) || e)) }
         finally { setFlowUiBusy(false) }
       }
       // 带入/发送到选中：文本源 = ⇪ 带入暂存优先，其次开工台输入；目标 = 点选集合（排除带入源自身）
@@ -4345,9 +4359,9 @@ return {
         if (send && flowMutationBlocked()) return
         const text = (zoomRelay && zoomRelay.text ? zoomRelay.text : zoomComposerText()).trim()
         const targets = zoomPick.filter((sid) => !zoomRelay || sid !== zoomRelay.source)
-        if (!text) { setFlowUiNotice('先输入任务，或点卡片的 ⇪ 带入它的最新结论'); return }
-        if (!targets.length) { setFlowUiNotice('先点选至少一个目标会话'); return }
-        setFlowUiBusy(true); setFlowUiNotice(send ? '正在直接发送到选中会话…' : '正在带入选中会话草稿…')
+        if (!text) { setFlowUiNotice(TB_T('先输入任务，或点卡片的 ⇪ 带入它的最新结论', 'Enter a task first, or click a card’s ⇪ to bring in its latest output')); return }
+        if (!targets.length) { setFlowUiNotice(TB_T('先点选至少一个目标会话', 'Pick at least one target session first')); return }
+        setFlowUiBusy(true); setFlowUiNotice(send ? TB_T('正在直接发送到选中会话…', 'Sending directly to the selected sessions…') : TB_T('正在带入选中会话草稿…', 'Appending to the selected sessions’ drafts…'))
         let okCount = 0, failCount = 0, firstErr = ''
         try {
           for (const sid of targets) {
@@ -4357,7 +4371,7 @@ return {
               okCount++
             } catch (e) { failCount++; if (!firstErr) firstErr = String((e && e.message) || e) }
           }
-          setFlowUiNotice((send ? '已直接发送 ' : '已带入草稿 ') + okCount + ' 个会话' + (failCount ? '，' + failCount + ' 个失败：' + firstErr : ''))
+          setFlowUiNotice((send ? TB_T('已直接发送 ', 'Sent directly to ') : TB_T('已带入草稿 ', 'Appended to drafts of ')) + okCount + TB_T(' 个会话', ' session(s)') + (failCount ? TB_T('，', ', ') + failCount + TB_T(' 个失败：', ' failed: ') + firstErr : ''))
           setZoomPick([]); setZoomRelay(null)
           if (!zoomRelay) {
             const board = flowZoomHostEl()
@@ -4905,6 +4919,7 @@ return {
           const callP = host.call(RT.rpc('panel'), {
             tool: toolId,
             action: action || '',
+            lang: TB_UI_LANG,
             fields,
             state: stateRef.current[toolId] || null,
             root: currentCwd || undefined,
@@ -4918,7 +4933,7 @@ return {
               : undefined,
           })
           const timeoutP = new Promise((_, reject) => {
-            try { ctx.timeout(() => reject(new Error('面板请求超时（5s）')), 5000) } catch (e) {}
+            try { ctx.timeout(() => reject(new Error(TB_T('面板请求超时（5s）', 'Panel request timed out (5s)'))), 5000) } catch (e) {}
           })
           const res = await Promise.race([callP, timeoutP])
           if (seqRef.current[toolId] !== seq) return // 已有更新的请求发出：过期响应直接丢弃（联动切换竞态修复）；DOM 由新请求的响应接管
@@ -4983,7 +4998,7 @@ return {
               catch (e) {
                 if (flowHarnessNavTargetRef.current === target) flowHarnessNavTargetRef.current = null
                 if (target) flowFollowStateBySessionRef.current.delete(target)
-                setError('Flowglass 已切换，但 Harness 跟随失败: ' + String((e && e.message) || e))
+                setError(TB_T('Flowglass 已切换，但 Harness 跟随失败: ', 'Flowglass switched, but Harness follow failed: ') + String((e && e.message) || e))
               }
               // 原生右侧栏是 Session 绑定视图；真正观察到 currentSessionId 变更后，
               // 下方会话 effect 只重开一次，避免导航前后的重复挂载闪屏。
@@ -5025,12 +5040,12 @@ return {
               try {
                 if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
                   await navigator.clipboard.writeText(res.copy)
-                  setCopied('已复制 ' + res.copy.length + ' 字符')
+                  setCopied(TB_T('已复制 ', 'Copied ') + res.copy.length + TB_T(' 字符', ' character(s)'))
                 } else {
-                  setCopied('当前环境无剪贴板 API')
+                  setCopied(TB_T('当前环境无剪贴板 API', 'No clipboard API in this environment'))
                 }
               } catch (e) {
-                setCopied('复制失败: ' + String((e && e.message) || e))
+                setCopied(TB_T('复制失败: ', 'Copy failed: ') + String((e && e.message) || e))
               }
             } else {
               setCopied(null)
@@ -5038,13 +5053,13 @@ return {
             return res
           } else {
             if (toolId === 'flow') setFlowSyncFailure(true)
-            setError((res && res.error) || '面板加载失败')
+            setError((res && res.error) || TB_T('面板加载失败', 'Failed to load panel'))
             retryOnce(toolId)
           }
         } catch (e) {
           if (seqRef.current[toolId] === seq) {
             if (toolId === 'flow') setFlowSyncFailure(true)
-            setError('面板请求异常: ' + String((e && e.message) || e))
+            setError(TB_T('面板请求异常: ', 'Panel request error: ') + String((e && e.message) || e))
             retryOnce(toolId)
           }
         } finally {
@@ -5161,10 +5176,10 @@ return {
             root: currentCwd || undefined,
             session: currentSessionId || undefined,
           })
-          if (r && !r.ok) setError(r.error || '插件操作失败')
+          if (r && !r.ok) setError(r.error || TB_T('插件操作失败', 'Plugin operation failed'))
           else if (r && r.warning) setRebuildLines(['⚠ ' + String(r.warning)]) // 启停已生效但启停记忆写盘失败：不静默
         } catch (e) {
-          setError('插件操作异常: ' + String((e && e.message) || e))
+          setError(TB_T('插件操作异常: ', 'Plugin operation error: ') + String((e && e.message) || e))
         }
         refreshPlugins()
         refreshTools() // 停止 → 注册表级联移除 Tab；启动 → 500ms 重试注册后自动回来
@@ -5190,9 +5205,9 @@ return {
             root: currentCwd || undefined,
             session: currentSessionId || undefined,
           })
-          if (r && !r.ok) setError(r.error || '插件重跑失败')
+          if (r && !r.ok) setError(r.error || TB_T('插件重跑失败', 'Failed to restart plugin'))
         } catch (e) {
-          setError('插件重跑异常: ' + String((e && e.message) || e))
+          setError(TB_T('插件重跑异常: ', 'Plugin restart error: ') + String((e && e.message) || e))
         }
         refreshPlugins()
         settleAfterRestart()
@@ -5204,18 +5219,18 @@ return {
         try {
           const r = await host.call(RT.rpc('plugin-toggle-all'), { enable, root: currentCwd || undefined, session: currentSessionId || undefined })
           const lines = []
-          if (!r) lines.push('批量操作无响应')
+          if (!r) lines.push(TB_T('批量操作无响应', 'Batch operation returned no response'))
           else {
             if (r.error) lines.push('✗ ' + r.error)
             if (r.warning) lines.push('⚠ ' + String(r.warning))
-            if (Array.isArray(r.done) && r.done.length) lines.push((enable ? '已启动: ' : '已停止: ') + r.done.join('、'))
-            if (Array.isArray(r.skippedClient) && r.skippedClient.length) lines.push('跳过（含 Client 半，需到 Cordis 面板）: ' + r.skippedClient.join('、'))
-            if (Array.isArray(r.failed) && r.failed.length) lines.push('失败: ' + r.failed.join('；'))
-            if (lines.length === 0) lines.push('没有可操作的插件')
+            if (Array.isArray(r.done) && r.done.length) lines.push((enable ? TB_T('已启动: ', 'Started: ') : TB_T('已停止: ', 'Stopped: ')) + r.done.join(TB_T('、', ', ')))
+            if (Array.isArray(r.skippedClient) && r.skippedClient.length) lines.push(TB_T('跳过（含 Client 半，需到 Cordis 面板）: ', 'Skipped (has a client half; use the Cordis panel): ') + r.skippedClient.join(TB_T('、', ', ')))
+            if (Array.isArray(r.failed) && r.failed.length) lines.push(TB_T('失败: ', 'Failed: ') + r.failed.join(TB_T('；', '; ')))
+            if (lines.length === 0) lines.push(TB_T('没有可操作的插件', 'No plugins to operate on'))
           }
           setRebuildLines(lines)
         } catch (e) {
-          setRebuildLines(['批量操作异常: ' + String((e && e.message) || e)])
+          setRebuildLines([TB_T('批量操作异常: ', 'Batch operation error: ') + String((e && e.message) || e)])
         }
         refreshPlugins()
         refreshTools()
@@ -5232,9 +5247,9 @@ return {
             root: currentCwd || undefined,
             session: currentSessionId || undefined,
           })
-          if (r && !r.ok) setError(r.error || '默认启停设置失败')
+          if (r && !r.ok) setError(r.error || TB_T('默认启停设置失败', 'Failed to set default start state'))
         } catch (e) {
-          setError('默认启停设置异常: ' + String((e && e.message) || e))
+          setError(TB_T('默认启停设置异常: ', 'Default start-state error: ') + String((e && e.message) || e))
         }
         refreshPlugins()
       }
@@ -5245,17 +5260,17 @@ return {
         try {
           const r = await host.call(RT.rpc('plugin-restart-all'), { root: currentCwd || undefined, session: currentSessionId || undefined })
           const lines = []
-          if (!r) lines.push('批量重跑无响应')
+          if (!r) lines.push(TB_T('批量重跑无响应', 'Batch restart returned no response'))
           else {
             if (r.error) lines.push('✗ ' + r.error)
-            if (Array.isArray(r.done) && r.done.length) lines.push('已重跑: ' + r.done.join('、') + '（面板大本体如预览/diff 已随闭包重置）')
-            if (Array.isArray(r.skippedClient) && r.skippedClient.length) lines.push('跳过（含 Client 半，需到 Cordis 面板）: ' + r.skippedClient.join('、'))
-            if (Array.isArray(r.failed) && r.failed.length) lines.push('失败: ' + r.failed.join('；'))
-            if (lines.length === 0) lines.push('没有运行中的 Host-only 插件')
+            if (Array.isArray(r.done) && r.done.length) lines.push(TB_T('已重跑: ', 'Restarted: ') + r.done.join(TB_T('、', ', ')) + TB_T('（面板大本体如预览/diff 已随闭包重置）', ' (panel bodies such as preview/diff were reset with their closures)'))
+            if (Array.isArray(r.skippedClient) && r.skippedClient.length) lines.push(TB_T('跳过（含 Client 半，需到 Cordis 面板）: ', 'Skipped (has a client half; use the Cordis panel): ') + r.skippedClient.join(TB_T('、', ', ')))
+            if (Array.isArray(r.failed) && r.failed.length) lines.push(TB_T('失败: ', 'Failed: ') + r.failed.join(TB_T('；', '; ')))
+            if (lines.length === 0) lines.push(TB_T('没有运行中的 Host-only 插件', 'No running Host-only plugins'))
           }
           setRebuildLines(lines)
         } catch (e) {
-          setRebuildLines(['批量重跑异常: ' + String((e && e.message) || e)])
+          setRebuildLines([TB_T('批量重跑异常: ', 'Batch restart error: ') + String((e && e.message) || e)])
         }
         refreshPlugins()
         settleAfterRestart()
@@ -5286,20 +5301,20 @@ return {
         try {
           const r = await host.call(RT.rpc('rebuild'), { root: currentCwd || undefined, session: currentSessionId || undefined })
           const lines = []
-          if (!r) lines.push('重建请求无响应')
+          if (!r) lines.push(TB_T('重建请求无响应', 'Rebuild request returned no response'))
           else {
             if (r.error) lines.push('✗ ' + r.error)
-            if (Array.isArray(r.defined) && r.defined.length) lines.push('新定义: ' + r.defined.join('、'))
-            if (Array.isArray(r.started) && r.started.length) lines.push('已启动: ' + r.started.join('、'))
-            if (Array.isArray(r.skipped) && r.skipped.length) lines.push('跳过（已定义/框架自身）: ' + r.skipped.join('、'))
-            if (Array.isArray(r.suppressed) && r.suppressed.length) lines.push('保持关闭（启停记忆）: ' + r.suppressed.join('、'))
-            if (Array.isArray(r.failed) && r.failed.length) lines.push('失败: ' + r.failed.join('；'))
-            if (typeof r.ms === 'number') lines.push('耗时: ' + r.ms + 'ms（payload 读盘 + define + run 串行）')
-            if (lines.length === 0) lines.push('plugins.json 内插件均已存在，无需重建')
+            if (Array.isArray(r.defined) && r.defined.length) lines.push(TB_T('新定义: ', 'Newly defined: ') + r.defined.join(TB_T('、', ', ')))
+            if (Array.isArray(r.started) && r.started.length) lines.push(TB_T('已启动: ', 'Started: ') + r.started.join(TB_T('、', ', ')))
+            if (Array.isArray(r.skipped) && r.skipped.length) lines.push(TB_T('跳过（已定义/框架自身）: ', 'Skipped (already defined / framework itself): ') + r.skipped.join(TB_T('、', ', ')))
+            if (Array.isArray(r.suppressed) && r.suppressed.length) lines.push(TB_T('保持关闭（启停记忆）: ', 'Kept off (start/stop memory): ') + r.suppressed.join(TB_T('、', ', ')))
+            if (Array.isArray(r.failed) && r.failed.length) lines.push(TB_T('失败: ', 'Failed: ') + r.failed.join(TB_T('；', '; ')))
+            if (typeof r.ms === 'number') lines.push(TB_T('耗时: ', 'Took: ') + r.ms + TB_T('ms（payload 读盘 + define + run 串行）', 'ms (payload read + define + run, serial)'))
+            if (lines.length === 0) lines.push(TB_T('plugins.json 内插件均已存在，无需重建', 'All plugins in plugins.json already exist; no rebuild needed'))
           }
           setRebuildLines(lines)
         } catch (e) {
-          setRebuildLines(['重建异常: ' + String((e && e.message) || e)])
+          setRebuildLines([TB_T('重建异常: ', 'Rebuild error: ') + String((e && e.message) || e)])
         } finally {
           setRebuilding(false)
         }
@@ -5480,42 +5495,43 @@ return {
           }
         } catch (e) { ok = false }
         btn.classList.add(ok ? 'fl-copied' : 'fl-copy-fail')
-        btn.setAttribute('title', ok ? '已复制' : '复制失败')
-        btn.setAttribute('aria-label', ok ? '已复制' : '复制失败')
+        btn.setAttribute('title', ok ? TB_T('已复制', 'Copied') : TB_T('复制失败', 'Copy failed'))
+        btn.setAttribute('aria-label', ok ? TB_T('已复制', 'Copied') : TB_T('复制失败', 'Copy failed'))
         ctx.timeout(() => {
           btn.classList.remove('fl-copied', 'fl-copy-fail')
-          btn.setAttribute('title', '复制内容到剪贴板')
-          btn.setAttribute('aria-label', '复制内容到剪贴板')
+          btn.setAttribute('title', TB_T('复制内容到剪贴板', 'Copy content to clipboard'))
+          btn.setAttribute('aria-label', TB_T('复制内容到剪贴板', 'Copy content to clipboard'))
         }, 1200)
       }
 
       const flowMutationBlocked = () => {
         if (!panelRef.current || !panelRef.current.querySelector('[data-flow-replay-active="1"]')) return false
-        setFlowUiNotice('回放为只读，请先退出回放再执行任务。')
+        setFlowUiNotice(TB_T('回放为只读，请先退出回放再执行任务。', 'Playback is read-only; exit replay before running tasks.'))
         return true
       }
       const prepareFlowConclusions = async () => {
         const box = panelRef.current
         const chosen = box ? [...box.querySelectorAll('[data-flow-conclusion]:checked')].slice(0, 4) : []
-        if (chosen.length < 2) { setFlowUiNotice('请选择 2–4 条已完成结论进行对比。'); return }
+        if (chosen.length < 2) { setFlowUiNotice(TB_T('请选择 2–4 条已完成结论进行对比。', 'Select 2–4 completed conclusions to compare.')); return }
         setFlowUiBusy(true)
         try {
           const results = []
           for (const node of chosen) {
             const sid = node.getAttribute('data-sid')
             const seq = Number(node.getAttribute('data-seq'))
-            const round = node.getAttribute('data-round') || '来源轮次未对齐'
+            const round = node.getAttribute('data-round') || TB_T('来源轮次未对齐', 'source round misaligned')
             const response = await host.call(RT.rpc('panel'), {
               tool: 'flow', action: 'fcontext', fields: { __el: { seqs: String(seq), requireCompleted: '1' } },
+              lang: TB_UI_LANG,
               state: { sid, home: sid, live: false, follow: false, zoom: false }, root: currentCwd || undefined, session: sid,
             })
             if (!response || !response.ok || !response.flowContext || !response.flowContext.text
-              || !Array.isArray(response.flowContext.seqs) || response.flowContext.seqs.length !== 1 || response.flowContext.seqs[0] !== seq) throw new Error('已完成结论不可用或节点已变化：' + sid)
+              || !Array.isArray(response.flowContext.seqs) || response.flowContext.seqs.length !== 1 || response.flowContext.seqs[0] !== seq) throw new Error(TB_T('已完成结论不可用或节点已变化：', 'Completed conclusion unavailable or node changed: ') + sid)
             results.push({ sid, seq, round, text: response.flowContext.text })
           }
-          const text = results.map((item, index) => '## 分支 ' + (index + 1) + '\n来源：' + item.sid + ' · ' + item.round + ' · 节点 ' + item.seq + '\n\n' + item.text).join('\n\n')
+          const text = results.map((item, index) => TB_T('## 分支 ', '## Branch ') + (index + 1) + TB_T('\n来源：', '\nSource: ') + item.sid + ' · ' + item.round + TB_T(' · 节点 ', ' · node ') + item.seq + '\n\n' + item.text).join('\n\n')
           setFlowWorkbench({ mode: 'compare', results, text, target: currentSessionId || '' })
-        } catch (e) { setFlowUiNotice('结论读取失败：' + String(e.message || e)) }
+        } catch (e) { setFlowUiNotice(TB_T('结论读取失败：', 'Failed to read conclusions: ') + String(e.message || e)) }
         finally { setFlowUiBusy(false) }
       }
       const prepareFlowExport = () => {
@@ -5526,7 +5542,7 @@ return {
           .filter((node) => node.getClientRects().length && !node.closest('.fl-rail'))
           .map((node) => {
             const rect = node.getBoundingClientRect()
-            return { kind: node.getAttribute('data-flow-role') || (node.hasAttribute('data-map-node') ? '关系节点' : '工具'),
+            return { kind: node.getAttribute('data-flow-role') || (node.hasAttribute('data-map-node') ? TB_T('关系节点', 'map node') : TB_T('工具', 'tool')),
               status: node.getAttribute('data-flow-status') || node.getAttribute('data-flow-state') || (node.closest('[data-flow-status]') && node.closest('[data-flow-status]').getAttribute('data-flow-status')) || (node.closest('.fl-tool-row') && node.closest('.fl-tool-row').querySelector('[data-flow-status]') && node.closest('.fl-tool-row').querySelector('[data-flow-status]').getAttribute('data-flow-status')) || 'unknown',
               x: Math.round(rect.left - bounds.left), y: Math.round(rect.top - bounds.top), width: Math.round(rect.width), height: Math.round(rect.height),
               visible: rect.bottom > bounds.top && rect.top < bounds.bottom && rect.right > bounds.left && rect.left < bounds.right,
@@ -5539,9 +5555,9 @@ return {
         const cards = workbench.cards.map(({ summary, visible, ...card }) => ({ ...card, ...(workbench.includeText ? { summary } : {}) }))
         if (workbench.format === 'svg') {
           const escape = (value) => String(value).replace(/[&<>\"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char]))
-          return '<svg xmlns="http://www.w3.org/2000/svg" width="' + workbench.width + '" height="' + workbench.height + '" viewBox="0 0 ' + workbench.width + ' ' + workbench.height + '"><rect width="100%" height="100%" fill="#f6f7f9"/><title>Flowglass 当前可见节点快照</title>' + cards.map((card) => '<g><rect x="' + card.x + '" y="' + card.y + '" width="' + card.width + '" height="' + Math.max(card.height, 32) + '" rx="8" fill="white" stroke="#758195"/><text x="' + (card.x + 8) + '" y="' + (card.y + 20) + '" font-family="sans-serif" font-size="12" fill="#263244">' + escape(card.kind + ' · ' + card.status) + '</text>' + (card.summary ? '<text x="' + (card.x + 8) + '" y="' + (card.y + 38) + '" font-family="sans-serif" font-size="11" fill="#465366">' + escape(card.summary.slice(0, Math.max(4, Math.floor(card.width / 12)))) + '</text>' : '') + '</g>').join('') + '</svg>'
+          return '<svg xmlns="http://www.w3.org/2000/svg" width="' + workbench.width + '" height="' + workbench.height + '" viewBox="0 0 ' + workbench.width + ' ' + workbench.height + '"><rect width="100%" height="100%" fill="#f6f7f9"/><title>' + TB_T('Flowglass 当前可见节点快照', 'Flowglass snapshot of currently visible nodes') + '</title>' + cards.map((card) => '<g><rect x="' + card.x + '" y="' + card.y + '" width="' + card.width + '" height="' + Math.max(card.height, 32) + '" rx="8" fill="white" stroke="#758195"/><text x="' + (card.x + 8) + '" y="' + (card.y + 20) + '" font-family="sans-serif" font-size="12" fill="#263244">' + escape(card.kind + ' · ' + card.status) + '</text>' + (card.summary ? '<text x="' + (card.x + 8) + '" y="' + (card.y + 38) + '" font-family="sans-serif" font-size="11" fill="#465366">' + escape(card.summary.slice(0, Math.max(4, Math.floor(card.width / 12)))) + '</text>' : '') + '</g>').join('') + '</svg>'
         }
-        return JSON.stringify({ schema: 'flowglass-diagnostic/1', version: '0.6.1', view: workbench.view, counts: workbench.counts, scope: '当前视口中的可见节点', includesSummaries: workbench.includeText, nodes: cards }, null, 2)
+        return JSON.stringify({ schema: 'flowglass-diagnostic/1', version: '0.6.1', view: workbench.view, counts: workbench.counts, scope: TB_T('当前视口中的可见节点', 'visible nodes in the current viewport'), includesSummaries: workbench.includeText, nodes: cards }, null, 2)
       }
       const downloadFlowExport = () => {
         if (!flowWorkbench || flowWorkbench.mode !== 'export') return
@@ -5582,7 +5598,7 @@ return {
         if (Date.now() < suppressFlowClickUntilRef.current) { e.preventDefault(); return }
         const branch = t && t.closest ? t.closest('[data-flow-branch]') : null
         if (active === 'flow' && branch) {
-          if (panelRef.current.querySelector('[data-flow-replay-active="1"]')) { e.preventDefault(); setFlowUiNotice('回放为只读，请先退出回放再创建分支。'); return }
+          if (panelRef.current.querySelector('[data-flow-replay-active="1"]')) { e.preventDefault(); setFlowUiNotice(TB_T('回放为只读，请先退出回放再创建分支。', 'Playback is read-only; exit replay before creating branches.')); return }
           e.preventDefault()
           e.stopPropagation()
           const detail = branch.closest('[data-flow-detail-session]')
@@ -5638,7 +5654,7 @@ return {
           e.preventDefault()
           e.stopPropagation()
           Promise.resolve(executeZoomLaunch()).catch((err) => {
-            const message = '同时开始失败: ' + String((err && err.message) || err)
+            const message = TB_T('同时开始失败: ', 'Start-all failed: ') + String((err && err.message) || err)
             setError(message)
             setFlowUiNotice(message)
             setFlowUiBusy(false)
@@ -5650,7 +5666,7 @@ return {
           e.preventDefault()
           e.stopPropagation()
           Promise.resolve(executeZoomAddNewSession()).catch((err) => {
-            const message = '新建并加入失败: ' + String((err && err.message) || err)
+            const message = TB_T('新建并加入失败: ', 'Failed to create and join: ') + String((err && err.message) || err)
             setError(message); setFlowUiNotice(message); setFlowUiBusy(false)
           })
           return
@@ -5876,7 +5892,7 @@ return {
         const groups = new Map()
         for (const id of flowSessionIds) {
           const row = flowSessionRow(id) || {}
-          const cwd = typeof row.cwd === 'string' && row.cwd ? row.cwd : '其他会话'
+          const cwd = typeof row.cwd === 'string' && row.cwd ? row.cwd : TB_T('其他会话', 'Other sessions')
           if (!groups.has(cwd)) groups.set(cwd, [])
           groups.get(cwd).push({ id, row })
         }
@@ -5886,7 +5902,7 @@ return {
           return a.localeCompare(b)
         }).map(([cwd, sessions]) => ({
           cwd,
-          label: cwd === '其他会话' ? cwd : (cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cwd),
+          label: cwd === TB_T('其他会话', 'Other sessions') ? cwd : (cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cwd),
           sessions,
         }))
       })()
@@ -5907,21 +5923,21 @@ return {
       })).filter((group) => group.sessions.length)
       const addSelectedFlowSession = async () => {
         if (!flowAddTargetSession || !flowAddRound || flowAddRound.sids.length >= 4 || typeof loadPanelRef.current !== 'function') return
-        setFlowUiBusy(true); setFlowUiNotice('正在加入当前并发…')
+        setFlowUiBusy(true); setFlowUiNotice(TB_T('正在加入当前并发…', 'Joining the current concurrent run…'))
         try {
           await loadPanelRef.current('flow', 'fzoom-run-add', { dataset: { sid: flowAddTargetSession } }, { silent: true })
-          setFlowAddPopup(false); setFlowAddTargetSession(''); setFlowUiNotice('已加入当前并发')
-        } catch (e) { setError('加入当前并发失败: ' + String((e && e.message) || e)) }
+          setFlowAddPopup(false); setFlowAddTargetSession(''); setFlowUiNotice(TB_T('已加入当前并发', 'Joined the current concurrent run'))
+        } catch (e) { setError(TB_T('加入当前并发失败: ', 'Failed to join the current concurrent run: ') + String((e && e.message) || e)) }
         finally { setFlowUiBusy(false) }
       }
 
       const flowZoomControl = active !== 'flow' || managing || flowBringPopup || flowAddPopup ? null : React.createElement('div', { className: 'tb-flow-zoom-float' + (flowSelectedSeqs.length ? ' with-selection' : '') },
-        React.createElement('div', { className: 'tb-flow-zoom', title: '缩放流镜画布，不改变 header 和滚动区尺寸' },
+        React.createElement('div', { className: 'tb-flow-zoom', title: TB_T('缩放流镜画布，不改变 header 和滚动区尺寸', 'Zoom the flow canvas; header and scroll area keep their size') },
           React.createElement('button', { type: 'button', className: 'tb-flow-zoom-btn', disabled: flowZoom <= 60, onClick: () => stepFlowZoom(-1) }, '−'),
-          React.createElement('button', { type: 'button', className: 'tb-flow-zoom-value tb-flow-zoom-btn', title: '恢复 100%', onClick: () => setFlowZoomLevel(100) }, flowZoom + '%'),
+          React.createElement('button', { type: 'button', className: 'tb-flow-zoom-value tb-flow-zoom-btn', title: TB_T('恢复 100%', 'Reset to 100%'), onClick: () => setFlowZoomLevel(100) }, flowZoom + '%'),
           React.createElement('button', { type: 'button', className: 'tb-flow-zoom-btn', disabled: flowZoom >= 150, onClick: () => stepFlowZoom(1) }, '+'),
           React.createElement('button', {
-            type: 'button', className: 'tb-flow-zoom-btn', title: flowZen ? '退出 Zen 原生全屏（Esc）' : '进入 Zen 原生全屏', onClick: toggleFlowZen,
+            type: 'button', className: 'tb-flow-zoom-btn', title: flowZen ? TB_T('退出 Zen 原生全屏（Esc）', 'Exit Zen native fullscreen (Esc)') : TB_T('进入 Zen 原生全屏', 'Enter Zen native fullscreen'), onClick: toggleFlowZen,
           }, React.createElement('svg', { viewBox: '0 0 16 16', width: 13, height: 13, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
             flowZen
               ? React.createElement('path', { d: 'M6 2v4H2M10 2v4h4M6 14v-4H2M10 14v-4h4' })
@@ -5931,24 +5947,24 @@ return {
       )
 
       const flowSelectionBar = active !== 'flow' || managing || !flowSelectedSeqs.length ? null : React.createElement('div', { className: 'tb-flow-selection-bar' },
-        React.createElement('span', { className: 'tb-flow-selection-count', title: '已选 ' + flowSelectedSeqs.length + ' 项' }, flowSelectedSeqs.length),
+        React.createElement('span', { className: 'tb-flow-selection-count', title: TB_T('已选 ', 'Selected ') + flowSelectedSeqs.length + TB_T(' 项', ' item(s)') }, flowSelectedSeqs.length),
         React.createElement('button', {
           type: 'button', className: 'tb-flow-icon-btn', disabled: flowUiBusy,
-          title: '所选新会话：只写入框选内容草稿，不继承其他历史', onClick: createSelectedFlowSession,
+          title: TB_T('所选新会话：只写入框选内容草稿，不继承其他历史', 'New session from selection: writes only the selected content into the draft; no other history is inherited'), onClick: createSelectedFlowSession,
         }, React.createElement('svg', { viewBox: '0 0 16 16', width: 14, height: 14, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
           React.createElement('rect', { x: 2, y: 2.5, width: 9, height: 9, rx: 2 }),
           React.createElement('path', { d: 'M8.5 13.5h5v-5M11 11h2.5' }),
         )),
         React.createElement('button', {
           type: 'button', className: 'tb-flow-icon-btn', disabled: flowUiBusy,
-          title: '带入会话', onClick: () => { setFlowBringPopup(true); setFlowTreeOpen({}); setFlowUiNotice('') },
+          title: TB_T('带入会话', 'Bring into session'), onClick: () => { setFlowBringPopup(true); setFlowTreeOpen({}); setFlowUiNotice('') },
         }, React.createElement('svg', { viewBox: '0 0 16 16', width: 14, height: 14, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
           React.createElement('path', { d: 'M2 4.5h7.5a3 3 0 0 1 3 3v4' }),
           React.createElement('path', { d: 'M4.5 2 2 4.5 4.5 7M10 10l2.5 2.5L15 10' }),
         )),
         React.createElement('button', {
           type: 'button', className: 'tb-flow-icon-btn', disabled: flowUiBusy,
-          title: '清除框选', onClick: () => { setFlowSelectedSeqs([]); setFlowBringPopup(false) },
+          title: TB_T('清除框选', 'Clear selection'), onClick: () => { setFlowSelectedSeqs([]); setFlowBringPopup(false) },
         }, React.createElement('svg', { viewBox: '0 0 16 16', width: 13, height: 13, fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', 'aria-hidden': true },
           React.createElement('path', { d: 'M3.5 3.5l9 9M12.5 3.5l-9 9' }),
         )),
@@ -5957,10 +5973,10 @@ return {
 
       const flowBringDialog = active !== 'flow' || managing || !flowSelectedSeqs.length || !flowBringPopup ? null : React.createElement('div', { className: 'tb-flow-bring-popup' },
         React.createElement('div', { className: 'tb-flow-popup-head' },
-          React.createElement('span', null, '带入会话 · ' + flowSelectedSeqs.length + ' 项'),
-          React.createElement('button', { type: 'button', className: 'tb-flow-icon-btn', title: '关闭', onClick: () => setFlowBringPopup(false) }, '×'),
+          React.createElement('span', null, TB_T('带入会话 · ', 'Bring into session · ') + flowSelectedSeqs.length + TB_T(' 项', ' item(s)')),
+          React.createElement('button', { type: 'button', className: 'tb-flow-icon-btn', title: TB_T('关闭', 'Close'), onClick: () => setFlowBringPopup(false) }, '×'),
         ),
-        React.createElement('div', { className: 'tb-flow-session-tree', role: 'tree', 'aria-label': '按工作区分组的会话' },
+        React.createElement('div', { className: 'tb-flow-session-tree', role: 'tree', 'aria-label': TB_T('按工作区分组的会话', 'Sessions grouped by workspace') },
           flowSessionGroups.map((group) => React.createElement('div', { className: 'tb-flow-tree-group', key: group.cwd, role: 'group' },
             React.createElement('button', {
               type: 'button', className: 'tb-flow-tree-workspace' + (flowTreeOpen[group.cwd] ? ' open' : ''), title: group.cwd,
@@ -5989,17 +6005,17 @@ return {
         ),
         flowUiNotice ? React.createElement('div', { className: 'tb-flow-toolbar-note', title: flowUiNotice }, flowUiNotice) : null,
         React.createElement('div', { className: 'tb-flow-popup-actions' },
-          React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, onClick: () => setFlowBringPopup(false) }, '取消'),
-          React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy || !flowTargetSession, title: '追加到目标会话草稿，不自动发送', onClick: sendSelectedFlow }, '带入草稿'),
+          React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, onClick: () => setFlowBringPopup(false) }, TB_T('取消', 'Cancel')),
+          React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy || !flowTargetSession, title: TB_T('追加到目标会话草稿，不自动发送', 'Append to the target session draft without sending'), onClick: sendSelectedFlow }, TB_T('带入草稿', 'Bring into draft')),
         ),
       )
 
       const flowAddDialog = active !== 'flow' || managing || !flowAddPopup ? null : React.createElement('div', { className: 'tb-flow-bring-popup tb-flow-add-popup', style: flowAddAnchor || undefined },
         React.createElement('div', { className: 'tb-flow-popup-head' },
-          React.createElement('span', null, '添加到当前并发 · ' + flowAddMemberIds.length + ' 个会话'),
-          React.createElement('button', { type: 'button', className: 'tb-flow-icon-btn', title: '关闭', onClick: () => setFlowAddPopup(false) }, '×'),
+          React.createElement('span', null, TB_T('添加到当前并发 · ', 'Add to current concurrent run · ') + flowAddMemberIds.length + TB_T(' 个会话', ' session(s)')),
+          React.createElement('button', { type: 'button', className: 'tb-flow-icon-btn', title: TB_T('关闭', 'Close'), onClick: () => setFlowAddPopup(false) }, '×'),
         ),
-        React.createElement('div', { className: 'tb-flow-session-tree', role: 'tree', 'aria-label': '按工作区分组选择要加入并发的会话' },
+        React.createElement('div', { className: 'tb-flow-session-tree', role: 'tree', 'aria-label': TB_T('按工作区分组选择要加入并发的会话', 'Pick sessions to join the concurrent run, grouped by workspace') },
           flowAddGroups.map((group) => {
             const sameWorkspace = !flowAddWorkspaceCwd || group.cwd === flowAddWorkspaceCwd
             return React.createElement('div', { className: 'tb-flow-tree-group', key: group.cwd, role: 'group' },
@@ -6022,7 +6038,7 @@ return {
                   type: 'button', role: 'treeitem', key: id, disabled: !sameWorkspace, draggable: sameWorkspace,
                   className: 'tb-flow-tree-session' + (flowAddTargetSession === id ? ' on' : ''),
                   'aria-selected': flowAddTargetSession === id,
-                  title: sameWorkspace ? label + '\n' + id : label + '\n不在当前并发的工作区',
+                  title: sameWorkspace ? label + '\n' + id : label + '\n' + TB_T('不在当前并发的工作区', 'not in the concurrent run’s workspace'),
                   onClick: () => { if (sameWorkspace) setFlowAddTargetSession(id) },
                   onDragStart: sameWorkspace ? (e) => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData('text/plain', id) } : undefined,
                 }, React.createElement('span', null, label), React.createElement('span', { className: 'tb-flow-tree-id' }, String(id).replace(/^session-/, '').slice(0, 8)))
@@ -6032,28 +6048,28 @@ return {
         ),
         flowUiNotice ? React.createElement('div', { className: 'tb-flow-toolbar-note', title: flowUiNotice }, flowUiNotice) : null,
         React.createElement('div', { className: 'tb-flow-popup-actions' },
-          React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, onClick: () => setFlowAddPopup(false) }, '取消'),
-          React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, onClick: () => Promise.resolve(executeZoomAddNewSession()).then(() => setFlowAddPopup(false)) }, '新建并加入'),
-          React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy || !flowAddTargetSession, onClick: addSelectedFlowSession }, '加入分支'),
+          React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, onClick: () => setFlowAddPopup(false) }, TB_T('取消', 'Cancel')),
+          React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, onClick: () => Promise.resolve(executeZoomAddNewSession()).then(() => setFlowAddPopup(false)) }, TB_T('新建并加入', 'Create & join')),
+          React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy || !flowAddTargetSession, onClick: addSelectedFlowSession }, TB_T('加入分支', 'Join run')),
         ),
       )
 
       // 大流镜操作条：点选模式/带入暂存激活时浮出——显示带入源、已选目标数，
       // 「带入草稿」追加到目标输入区（沿用带入会话机制，不自动发送），「直接发送」走 ISession.prompt 排队开工
       const zoomActionBar = active !== 'flow' || managing || !(zoomRelay || zoomPick.length) ? null : React.createElement('div', { className: 'tb-flow-selection-bar' },
-        zoomRelay ? React.createElement('span', { className: 'tb-flow-zoom-relay-src', title: '带入来源会话：' + zoomRelay.source }, '⇪ ' + String(zoomRelay.source).replace(/^session-/, '').slice(0, 8)) : null,
-        React.createElement('span', { className: 'tb-flow-selection-count', title: '已选 ' + zoomPick.length + ' 个目标会话' }, zoomPick.length),
-        React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, title: '把内容追加到目标会话输入区草稿（不自动发送）', onClick: () => executeZoomCast(false) }, '带入草稿'),
-        React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, title: '直接向目标会话发送（运行中排队、空闲立即开工）', onClick: () => executeZoomCast(true) }, '直接发送'),
-        React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, onClick: () => { setZoomPick([]); setZoomRelay(null); setFlowUiNotice('') } }, '清除'),
+        zoomRelay ? React.createElement('span', { className: 'tb-flow-zoom-relay-src', title: TB_T('带入来源会话：', 'Relay source session: ') + zoomRelay.source }, '⇪ ' + String(zoomRelay.source).replace(/^session-/, '').slice(0, 8)) : null,
+        React.createElement('span', { className: 'tb-flow-selection-count', title: TB_T('已选 ', 'Selected ') + zoomPick.length + TB_T(' 个目标会话', ' target session(s)') }, zoomPick.length),
+        React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, title: TB_T('把内容追加到目标会话输入区草稿（不自动发送）', 'Append content to the target sessions’ input drafts (no auto-send)'), onClick: () => executeZoomCast(false) }, TB_T('带入草稿', 'Bring into draft')),
+        React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, title: TB_T('直接向目标会话发送（运行中排队、空闲立即开工）', 'Send directly to the target sessions (queued while running; starts immediately when idle)'), onClick: () => executeZoomCast(true) }, TB_T('直接发送', 'Send now')),
+        React.createElement('button', { type: 'button', className: 'tb-flow-select-btn', disabled: flowUiBusy, onClick: () => { setZoomPick([]); setZoomRelay(null); setFlowUiNotice('') } }, TB_T('清除', 'Clear')),
         flowUiBusy ? React.createElement('span', { className: 'tb-tab-spin' }) : null,
         flowUiNotice ? React.createElement('span', { className: 'tb-flow-toolbar-note', title: flowUiNotice }, flowUiNotice) : null,
       )
       const fh = React.createElement
-      const workbenchTitle = flowWorkbench && ({ bookmarks: '节点标记', compare: '分支结论预览', relay: '带入会话', export: '本地导出预览' }[flowWorkbench.mode])
+      const workbenchTitle = flowWorkbench && ({ bookmarks: TB_T('节点标记', 'Node bookmarks'), compare: TB_T('分支结论预览', 'Branch conclusion preview'), relay: TB_T('带入会话', 'Bring into session'), export: TB_T('本地导出预览', 'Local export preview') }[flowWorkbench.mode])
       const workbenchDialog = !flowWorkbench ? null : fh('div', { className: 'fg-workbench-overlay' },
         fh('section', { className: 'fg-workbench', 'data-flow-workbench': '1', role: 'dialog', 'aria-modal': 'true', 'aria-label': workbenchTitle },
-          fh('header', { className: 'fg-workbench-head' }, fh('strong', null, workbenchTitle), fh('button', { type: 'button', className: 'tb-btn', onClick: () => setFlowWorkbench(null) }, '关闭')),
+          fh('header', { className: 'fg-workbench-head' }, fh('strong', null, workbenchTitle), fh('button', { type: 'button', className: 'tb-btn', onClick: () => setFlowWorkbench(null) }, TB_T('关闭', 'Close'))),
           fh('div', { className: 'fg-workbench-body' },
             flowWorkbench.mode === 'bookmarks' ? fh(React.Fragment, null,
               flowWorkbench.editing ? fh('form', { onSubmit: (event) => {
@@ -6062,66 +6078,66 @@ return {
                 try {
                   saveFlowBookmarks([...flowBookmarks.filter((saved) => !(saved.sessionId === item.sessionId && saved.seq === item.seq && saved.kind === item.kind)), item])
                   setFlowWorkbench({ mode: 'bookmarks' })
-                } catch (error) { setFlowUiNotice('标记保存失败：' + String(error.message || error)) }
+                } catch (error) { setFlowUiNotice(TB_T('标记保存失败：', 'Failed to save bookmark: ') + String(error.message || error)) }
               } },
-                fh('p', null, 'Session ' + flowWorkbench.editing.sessionId + ' · 节点 ' + flowWorkbench.editing.seq),
-                fh('label', null, '备注（可选）', fh('input', { className: 'tb-input fg-workbench-note', maxLength: 200, value: flowWorkbench.editing.note || '', onChange: (event) => setFlowWorkbench({ ...flowWorkbench, editing: { ...flowWorkbench.editing, note: event.currentTarget.value } }) })),
-                fh('button', { type: 'submit', className: 'tb-btn' }, '保存标记'),
+                fh('p', null, 'Session ' + flowWorkbench.editing.sessionId + TB_T(' · 节点 ', ' · node ') + flowWorkbench.editing.seq),
+                fh('label', null, TB_T('备注（可选）', 'Note (optional)'), fh('input', { className: 'tb-input fg-workbench-note', maxLength: 200, value: flowWorkbench.editing.note || '', onChange: (event) => setFlowWorkbench({ ...flowWorkbench, editing: { ...flowWorkbench.editing, note: event.currentTarget.value } }) })),
+                fh('button', { type: 'submit', className: 'tb-btn' }, TB_T('保存标记', 'Save bookmark')),
               ) : null,
-              !flowBookmarks.length ? fh('p', null, '还没有标记。打开节点详情后可标记重要内容。') : flowBookmarks.map((item) => fh('article', { className: 'fg-bookmark-item', key: item.sessionId + '|' + item.kind + '|' + item.seq },
-                fh('strong', null, item.note || '节点 ' + item.seq), fh('small', null, item.sessionId + ' · ' + item.kind),
+              !flowBookmarks.length ? fh('p', null, TB_T('还没有标记。打开节点详情后可标记重要内容。', 'No bookmarks yet. Open a node’s details to bookmark important content.')) : flowBookmarks.map((item) => fh('article', { className: 'fg-bookmark-item', key: item.sessionId + '|' + item.kind + '|' + item.seq },
+                fh('strong', null, item.note || TB_T('节点 ', 'Node ') + item.seq), fh('small', null, item.sessionId + ' · ' + item.kind),
                 fh('div', { className: 'fg-workbench-actions' },
                   fh('button', { type: 'button', className: 'tb-btn', onClick: () => {
                     setFlowWorkbench(null)
                     loadPanel('flow', 'fbookmark-jump', { dataset: { sid: item.sessionId, seq: String(item.seq), kind: item.kind } })
-                  } }, '定位'),
-                  fh('button', { type: 'button', className: 'tb-btn', onClick: () => setFlowWorkbench({ mode: 'bookmarks', editing: item }) }, '编辑备注'),
+                  } }, TB_T('定位', 'Jump to')),
+                  fh('button', { type: 'button', className: 'tb-btn', onClick: () => setFlowWorkbench({ mode: 'bookmarks', editing: item }) }, TB_T('编辑备注', 'Edit note')),
                   fh('button', { type: 'button', className: 'tb-btn', onClick: () => {
-                    try { saveFlowBookmarks(flowBookmarks.filter((saved) => saved !== item)) } catch (error) { setFlowUiNotice('删除标记失败：' + String(error.message || error)) }
-                  } }, '删除标记'),
+                    try { saveFlowBookmarks(flowBookmarks.filter((saved) => saved !== item)) } catch (error) { setFlowUiNotice(TB_T('删除标记失败：', 'Failed to delete bookmark: ') + String(error.message || error)) }
+                  } }, TB_T('删除标记', 'Delete bookmark')),
                 ),
               )),
             ) : null,
             (flowWorkbench.mode === 'compare' || flowWorkbench.mode === 'relay') ? fh(React.Fragment, null,
-              fh('p', null, '以下为已完成结论的确定性摘录。保留各分支来源；内容将在你确认后追加到所选会话草稿。'),
+              fh('p', null, TB_T('以下为已完成结论的确定性摘录。保留各分支来源；内容将在你确认后追加到所选会话草稿。', 'Below is a deterministic excerpt of the completed conclusions. Branch sources are kept; the content is appended to the chosen session draft after you confirm.')),
               fh('pre', { className: 'fg-workbench-preview', tabIndex: 0 }, flowWorkbench.text),
-              fh('label', null, '目标会话', fh('select', { className: 'tb-select', value: flowWorkbench.target, onChange: (event) => setFlowWorkbench({ ...flowWorkbench, target: event.currentTarget.value }) },
-                fh('option', { value: '' }, '选择会话'), flowSessionIds.map((sid) => fh('option', { key: sid, value: sid }, (flowSessionRow(sid) || {}).title || sid)))),
+              fh('label', null, TB_T('目标会话', 'Target session'), fh('select', { className: 'tb-select', value: flowWorkbench.target, onChange: (event) => setFlowWorkbench({ ...flowWorkbench, target: event.currentTarget.value }) },
+                fh('option', { value: '' }, TB_T('选择会话', 'Choose a session')), flowSessionIds.map((sid) => fh('option', { key: sid, value: sid }, (flowSessionRow(sid) || {}).title || sid)))),
               fh('button', { type: 'button', className: 'tb-btn', disabled: flowUiBusy || !flowWorkbench.target, onClick: async () => {
                 setFlowUiBusy(true)
-                try { await putFlowContextIntoDraft(flowWorkbench.target, flowWorkbench.text, true); setFlowUiNotice('已追加带来源的结论到目标草稿。'); setFlowWorkbench(null) }
-                catch (error) { setFlowUiNotice('带入失败：' + String(error.message || error)) }
+                try { await putFlowContextIntoDraft(flowWorkbench.target, flowWorkbench.text, true); setFlowUiNotice(TB_T('已追加带来源的结论到目标草稿。', 'Appended the sourced conclusions to the target draft.')); setFlowWorkbench(null) }
+                catch (error) { setFlowUiNotice(TB_T('带入失败：', 'Failed to append: ') + String(error.message || error)) }
                 finally { setFlowUiBusy(false) }
-              } }, '确认带入草稿'),
+              } }, TB_T('确认带入草稿', 'Confirm append to draft')),
             ) : null,
             flowWorkbench.mode === 'export' ? fh(React.Fragment, null,
-              fh('p', null, '导出范围：当前视口内 ' + flowWorkbench.cards.length + ' 个可见节点。默认只包含节点类型、状态、位置和计数。'),
-              fh('label', null, '格式', fh('select', { className: 'tb-select', value: flowWorkbench.format, onChange: (event) => setFlowWorkbench({ ...flowWorkbench, format: event.currentTarget.value }) }, fh('option', { value: 'json' }, '诊断摘要 JSON'), fh('option', { value: 'svg' }, '节点快照 SVG'))),
-              fh('label', null, fh('input', { type: 'checkbox', checked: flowWorkbench.includeText, onChange: (event) => setFlowWorkbench({ ...flowWorkbench, includeText: event.currentTarget.checked }) }), '包含当前可见节点摘要（请检查预览）'),
+              fh('p', null, TB_T('导出范围：当前视口内 ', 'Export scope: ') + flowWorkbench.cards.length + TB_T(' 个可见节点。默认只包含节点类型、状态、位置和计数。', ' visible nodes in the current viewport. By default only node kinds, statuses, positions, and counts are included.')),
+              fh('label', null, TB_T('格式', 'Format'), fh('select', { className: 'tb-select', value: flowWorkbench.format, onChange: (event) => setFlowWorkbench({ ...flowWorkbench, format: event.currentTarget.value }) }, fh('option', { value: 'json' }, TB_T('诊断摘要 JSON', 'Diagnostic JSON')), fh('option', { value: 'svg' }, TB_T('节点快照 SVG', 'Node snapshot SVG')))),
+              fh('label', null, fh('input', { type: 'checkbox', checked: flowWorkbench.includeText, onChange: (event) => setFlowWorkbench({ ...flowWorkbench, includeText: event.currentTarget.checked }) }), TB_T('包含当前可见节点摘要（请检查预览）', 'Include summaries of currently visible nodes (check the preview)')),
               fh('pre', { className: 'fg-workbench-preview', tabIndex: 0 }, flowExportText(flowWorkbench)),
-              fh('button', { type: 'button', className: 'tb-btn', onClick: downloadFlowExport }, '保存到本地'),
+              fh('button', { type: 'button', className: 'tb-btn', onClick: downloadFlowExport }, TB_T('保存到本地', 'Save locally')),
             ) : null,
           ),
         ),
       )
       const launchRecovery = active !== 'flow' || !flowLaunchBatch || (!flowLaunchBatch.registrationPending && flowLaunchBatch.items.every((item) => item.status === 'success')) ? null
-        : React.createElement('section', { className: 'fg-launch-recovery', 'aria-label': '分支发送结果' },
-          React.createElement('strong', null, '分支发送结果'),
-          flowLaunchBatch.registrationPending ? React.createElement('p', null, '部分会话尚未登记到并发记录。返回来源会话后，核对结果可补登记。',
-            flowLaunchBatch.originScope ? React.createElement('button', { type: 'button', className: 'tb-btn', onClick: () => navigateHarnessSession({ sessionId: flowLaunchBatch.originScope }) }, '返回来源会话') : null,
+        : React.createElement('section', { className: 'fg-launch-recovery', 'aria-label': TB_T('分支发送结果', 'Branch send results') },
+          React.createElement('strong', null, TB_T('分支发送结果', 'Branch send results')),
+          flowLaunchBatch.registrationPending ? React.createElement('p', null, TB_T('部分会话尚未登记到并发记录。返回来源会话后，核对结果可补登记。', 'Some sessions are not registered in the concurrent record yet. Return to the source session to verify the results and complete registration.'),
+            flowLaunchBatch.originScope ? React.createElement('button', { type: 'button', className: 'tb-btn', onClick: () => navigateHarnessSession({ sessionId: flowLaunchBatch.originScope }) }, TB_T('返回来源会话', 'Back to source session')) : null,
           ) : null,
           flowLaunchBatch.items.map((item) => React.createElement('div', { key: item.index, className: 'fg-launch-result' },
-            React.createElement('span', null, '分支 ' + (item.index + 1) + ' · ' + ({ create: '创建', configure: '配置', send: '发送' }[item.stage] || '') + ' · ' + ({ ready: '等待', pending: '进行中', success: '已完成', failed: '失败', unknown: '结果未知' }[item.status] || '状态未知')),
+            React.createElement('span', null, TB_T('分支 ', 'Branch ') + (item.index + 1) + ' · ' + ({ create: TB_T('创建', 'Create'), configure: TB_T('配置', 'Configure'), send: TB_T('发送', 'Send') }[item.stage] || '') + ' · ' + ({ ready: TB_T('等待', 'Waiting'), pending: TB_T('进行中', 'In progress'), success: TB_T('已完成', 'Done'), failed: TB_T('失败', 'Failed'), unknown: TB_T('结果未知', 'Unknown') }[item.status] || TB_T('状态未知', 'Unknown state'))),
             item.error ? React.createElement('small', null, item.error) : null,
-            item.sid ? React.createElement('button', { type: 'button', className: 'tb-btn', onClick: () => navigateHarnessSession({ sessionId: item.sid }) }, '查看会话') : null,
+            item.sid ? React.createElement('button', { type: 'button', className: 'tb-btn', onClick: () => navigateHarnessSession({ sessionId: item.sid }) }, TB_T('查看会话', 'View session')) : null,
           )),
           React.createElement('div', { className: 'fg-settings-actions' },
-            React.createElement('button', { type: 'button', className: 'tb-btn', disabled: flowUiBusy || !flowLaunchBatch.items.some((item) => item.status === 'failed'), onClick: retryFlowLaunch }, '仅重试明确失败项'),
-            React.createElement('button', { type: 'button', className: 'tb-btn', disabled: flowUiBusy, onClick: reconcileFlowLaunch }, '核对未知结果'),
-            React.createElement('button', { type: 'button', className: 'tb-btn', disabled: flowUiBusy, title: '停止本次恢复，已创建的会话与消息保留；未知结果仍需在会话中核对。', onClick: () => {
+            React.createElement('button', { type: 'button', className: 'tb-btn', disabled: flowUiBusy || !flowLaunchBatch.items.some((item) => item.status === 'failed'), onClick: retryFlowLaunch }, TB_T('仅重试明确失败项', 'Retry failed items only')),
+            React.createElement('button', { type: 'button', className: 'tb-btn', disabled: flowUiBusy, onClick: reconcileFlowLaunch }, TB_T('核对未知结果', 'Verify unknown results')),
+            React.createElement('button', { type: 'button', className: 'tb-btn', disabled: flowUiBusy, title: TB_T('停止本次恢复，已创建的会话与消息保留；未知结果仍需在会话中核对。', 'Stop this recovery; created sessions and messages are kept; unknown results still need checking in the sessions.'), onClick: () => {
               try { localStorage.removeItem(RT.storageKey('flow.launch.' + encodeURIComponent(currentCwd || ''))) } catch (e) {}
               setFlowLaunchBatch(null)
-            } }, '结束恢复'),
+            } }, TB_T('结束恢复', 'Finish recovery')),
           ),
         )
 
@@ -6129,8 +6145,8 @@ return {
       const themeButton = !themeSvc ? null : React.createElement('button', {
         type: 'button',
         className: 'jr-overlay-close',
-        title: themeScheme === 'dark' ? '切换到亮色主题' : '切换到暗色主题',
-        'aria-label': '切换明暗主题',
+        title: themeScheme === 'dark' ? TB_T('切换到亮色主题', 'Switch to light theme') : TB_T('切换到暗色主题', 'Switch to dark theme'),
+        'aria-label': TB_T('切换明暗主题', 'Toggle light/dark theme'),
         onPointerDown: (ev) => ev.stopPropagation(),
         onClick: (ev) => { ev.stopPropagation(); toggleTheme() },
       },
@@ -6148,8 +6164,8 @@ return {
       const pipButton = !pipSupported ? null : React.createElement('button', {
         type: 'button',
         className: 'jr-overlay-close',
-        title: '画中画：把工具箱放到独立小窗（脱离主窗口，可拖到任意位置）',
-        'aria-label': '画中画',
+        title: TB_T('画中画：把工具箱放到独立小窗（脱离主窗口，可拖到任意位置）', 'Picture-in-Picture: put the toolbox in a separate small window (detached from the main window, draggable anywhere)'),
+        'aria-label': TB_T('画中画', 'Picture-in-Picture'),
         onPointerDown: (ev) => ev.stopPropagation(),
         onClick: (ev) => { ev.stopPropagation(); openPip() },
       },
@@ -6162,8 +6178,8 @@ return {
       const gearButton = RT.capabilities.managePlugins === false ? null : React.createElement('button', {
         type: 'button',
         className: 'jr-overlay-close',
-        title: managing ? '返回工具面板' : '管理插件（停止/启动）',
-        'aria-label': '管理插件',
+        title: managing ? TB_T('返回工具面板', 'Back to tool panel') : TB_T('管理插件（停止/启动）', 'Manage plugins (stop/start)'),
+        'aria-label': TB_T('管理插件', 'Manage plugins'),
         onPointerDown: (ev) => ev.stopPropagation(),
         onClick: (ev) => { ev.stopPropagation(); const next = !managing; setManaging(next); if (next) { refreshPlugins(); loadRebuildHistory(); loadAiUsage() } },
       },
@@ -6178,7 +6194,7 @@ return {
       const dockButton = RT.bundleId === 'flow' ? null : React.createElement('button', {
         type: 'button',
         className: 'jr-overlay-close',
-        title: dockMode === 'right' ? '切换到三栏停靠（挤压聊天区，左中右并列）' : dockMode === 'full' ? '切换为浮动' : '停靠到右侧',
+        title: dockMode === 'right' ? TB_T('切换到三栏停靠（挤压聊天区，左中右并列）', 'Switch to three-column dock (squeezes the chat area; left/center/right side by side)') : dockMode === 'full' ? TB_T('切换为浮动', 'Switch to floating') : TB_T('停靠到右侧', 'Dock to the right'),
         onPointerDown: (ev) => ev.stopPropagation(),
         onClick: (ev) => {
           ev.stopPropagation()
@@ -6205,8 +6221,8 @@ return {
       const closeButton = React.createElement('button', {
         type: 'button',
         className: 'jr-overlay-close',
-        title: '关闭',
-        'aria-label': '关闭',
+        title: TB_T('关闭', 'Close'),
+        'aria-label': TB_T('关闭', 'Close'),
         onPointerDown: (ev) => ev.stopPropagation(),
         onClick: (ev) => { ev.stopPropagation(); if (pipOn) setMainHidden(true); else store.close() },
       },
@@ -6220,7 +6236,7 @@ return {
         handles.push(React.createElement('div', {
           key: 'resize-left',
           className: 'jr-resize-left',
-          title: '拖拽调整宽度',
+          title: TB_T('拖拽调整宽度', 'Drag to resize width'),
           onPointerDown: (e) => onResizeStart(e, 'left'),
           onPointerMove: onResizeMove,
           onPointerUp: onResizeEnd,
@@ -6230,7 +6246,7 @@ return {
         handles.push(React.createElement('div', {
           key: 'resize-right',
           className: 'jr-resize-right',
-          title: '拖拽调整宽度',
+          title: TB_T('拖拽调整宽度', 'Drag to resize width'),
           onPointerDown: (e) => onResizeStart(e, 'right'),
           onPointerMove: onResizeMove,
           onPointerUp: onResizeEnd,
@@ -6239,7 +6255,7 @@ return {
         handles.push(React.createElement('div', {
           key: 'resize-bottom',
           className: 'jr-resize-bottom',
-          title: '拖拽调整高度',
+          title: TB_T('拖拽调整高度', 'Drag to resize height'),
           onPointerDown: (e) => onResizeStart(e, 'bottom'),
           onPointerMove: onResizeMove,
           onPointerUp: onResizeEnd,
@@ -6248,7 +6264,7 @@ return {
         handles.push(React.createElement('div', {
           key: 'resize-corner',
           className: 'jr-resize-corner',
-          title: '拖拽调整大小',
+          title: TB_T('拖拽调整大小', 'Drag to resize'),
           onPointerDown: (e) => onResizeStart(e, 'corner'),
           onPointerMove: onResizeMove,
           onPointerUp: onResizeEnd,
@@ -6310,13 +6326,14 @@ return {
       const shownTools = searching
         ? tools.filter((t) => (String(t.label) + ' ' + String(t.id)).toLowerCase().indexOf(tabFilterLc) >= 0)
         : tools.filter((t) => catOf(t.id) === effCat)
+      const toolLabel = (t) => TB_UI_LANG === 'en' ? (TB_DISPLAY_NAME_EN[t.label] || t.label) : t.label
       const toolButton = (t) => React.createElement('button', {
         key: t.id,
         type: 'button',
         className: 'tb-tab' + (t.id === active ? ' tb-tab-active' : ''),
-        title: t.label + '（' + (TOOL_CATS.find((c) => c.id === catOf(t.id)) || {}).label + '）',
+        title: toolLabel(t) + TB_T('（', ' (') + (TOOL_CATS.find((c) => c.id === catOf(t.id)) || {}).label + TB_T('）', ')'),
         onClick: () => { setActive(t.id); lastNav = { cat: catOf(t.id), active: t.id } },
-      }, t.label,
+      }, toolLabel(t),
         tabBadges[t.id] ? React.createElement('span', { className: 'tb-tab-badge' }, tabBadges[t.id]) : null,
         t.id === busyTool ? React.createElement('span', { className: 'tb-tab-spin' }) : null)
 
@@ -6333,42 +6350,42 @@ return {
                   type: 'button',
                   className: 'tb-btn tb-btn-primary',
                   disabled: rebuilding,
-                  title: canRebuildFromDisk ? undefined : '编译合集：从固化的功能清单恢复 define/run（不读磁盘）',
+                  title: canRebuildFromDisk ? undefined : TB_T('编译合集：从固化的功能清单恢复 define/run（不读磁盘）', 'Build bundle: restore define/run from the frozen manifest (does not read disk)'),
                   onClick: runRebuild,
-                }, rebuilding ? '重建中…' : (canRebuildFromDisk ? '从 plugins.json 重建/补齐' : '恢复编译清单')),
+                }, rebuilding ? TB_T('重建中…', 'Rebuilding…') : (canRebuildFromDisk ? TB_T('从 plugins.json 重建/补齐', 'Rebuild from plugins.json') : TB_T('恢复编译清单', 'Restore compiled manifest'))),
                 React.createElement('button', {
                   type: 'button',
                   className: 'tb-btn',
                   onClick: () => toggleAll(true),
-                }, '全部启动'),
+                }, TB_T('全部启动', 'Start all')),
                 React.createElement('button', {
                   type: 'button',
                   className: 'tb-btn',
-                  title: '重跑全部运行中的 Host-only 插件（改完多个工具代码一键生效；停着的不动）',
+                  title: TB_T('重跑全部运行中的 Host-only 插件（改完多个工具代码一键生效；停着的不动）', 'Restart all running Host-only plugins (applies edited tool code in one click; stopped ones are untouched)'),
                   onClick: restartAll,
-                }, '全部重跑'),
+                }, TB_T('全部重跑', 'Restart all')),
                 React.createElement('button', {
                   type: 'button',
                   className: 'tb-btn tb-btn-ghost',
-                  title: '隐藏全部无界面（Host-only）工具，只显示含界面的插件；再次点击恢复',
+                  title: TB_T('隐藏全部无界面（Host-only）工具，只显示含界面的插件；再次点击恢复', 'Hide all headless (Host-only) tools and show only plugins with UI; click again to restore'),
                   onClick: () => toggleAll(false),
-                }, '全部停止'),
+                }, TB_T('全部停止', 'Stop all')),
                 panelHideSupported ? React.createElement('button', {
                   type: 'button',
                   className: 'tb-chip' + (hideHostOnly ? ' tb-chip-on' : ''),
-                  title: '隐藏左下角 Cordis 面板里的无界面（Host-only）插件（管理页清单不受影响）；亮起为隐藏中，再次点击恢复' + (hideHostOnly ? '；当前隐藏 ' + panelHide.headless.size + ' 个' : ''),
+                  title: TB_T('隐藏左下角 Cordis 面板里的无界面（Host-only）插件（管理页清单不受影响）；亮起为隐藏中，再次点击恢复', 'Hide headless (Host-only) plugins in the bottom-left Cordis panel (the manage-page list is unaffected); lit means hiding; click again to restore') + (hideHostOnly ? TB_T('；当前隐藏 ', '; currently hiding ') + panelHide.headless.size : ''),
                   onClick: () => { const nv = !hideHostOnly; setHideHostOnly(nv); setPanelHideOn(nv) },
-                }, '隐藏CordisPlugin') : null,
+                }, TB_T('隐藏CordisPlugin', 'Hide CordisPlugin')) : null,
                 React.createElement('input', {
                   className: 'tb-input',
                   style: { flex: '1', minWidth: '120px' },
-                  placeholder: '按名称 / ID 过滤插件',
+                  placeholder: TB_T('按名称 / ID 过滤插件', 'Filter plugins by name / ID'),
                   value: pluginFilter,
                   onChange: (e) => setPluginFilter(e.target.value),
                 }),
               ),
               React.createElement('div', { className: 'tb-note', style: { marginTop: '2px' } },
-                React.createElement('div', { style: { fontWeight: 600, marginBottom: '6px' } }, '外观（主题 / 主色 / 字号，即时生效并记住）'),
+                React.createElement('div', { style: { fontWeight: 600, marginBottom: '6px' } }, TB_T('外观（主题 / 主色 / 字号，即时生效并记住）', 'Appearance (theme / accent / font size, applied instantly and remembered)')),
                 React.createElement(AppearancePanel, null)),
               rebuildLines
                 ? React.createElement('div', { className: 'tb-note' }, rebuildLines.map((l, i) => React.createElement('div', { key: i }, l)))
@@ -6377,11 +6394,11 @@ return {
                 ? (() => {
                     const max = Math.max.apply(null, rebuildHistory.map((h) => h.ms || 0).concat([1]))
                     return React.createElement('div', { className: 'tb-note' },
-                      '重建耗时（最近 ' + rebuildHistory.length + ' 次，悬停看详情；红 = 有失败）',
+                      TB_T('重建耗时（最近 ', 'Rebuild durations (last ') + rebuildHistory.length + TB_T(' 次，悬停看详情；红 = 有失败）', ' runs; hover for details; red = failures)'),
                       React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '3px', height: '36px', marginTop: '6px' } },
                         rebuildHistory.map((h, i) => React.createElement('div', {
                           key: i,
-                          title: (h.at || '') + ' · ' + (h.ms == null ? '—' : h.ms + 'ms') + ' · 定义 ' + h.defined + ' / 启动 ' + h.started + ' / 关闭 ' + h.suppressed + ' / 失败 ' + h.failed,
+                          title: (h.at || '') + ' · ' + (h.ms == null ? '—' : h.ms + 'ms') + TB_T(' · 定义 ', ' · defined ') + h.defined + TB_T(' / 启动 ', ' / started ') + h.started + TB_T(' / 关闭 ', ' / kept off ') + h.suppressed + TB_T(' / 失败 ', ' / failed ') + h.failed,
                           style: {
                             width: '10px',
                             height: Math.max(2, Math.round(((h.ms || 0) / max) * 32)) + 'px',
@@ -6394,17 +6411,17 @@ return {
                 : null,
               aiUsage && canAiUsage && aiUsage.totals && aiUsage.totals.calls
                 ? React.createElement('div', { className: 'tb-note' },
-                    'AI 用量（台账最近 100 条）：共 ' + aiUsage.totals.calls + ' 次 · 输出 ' + aiUsage.totals.out + ' tok' + (aiUsage.totals.errors ? ' · 失败 ' + aiUsage.totals.errors + ' 次' : '') + (aiUsage.totals.todayCalls ? '；今日 ' + aiUsage.totals.todayCalls + ' 次 / ' + aiUsage.totals.todayOut + ' tok' : ''),
+                    TB_T('AI 用量（台账最近 100 条）：共 ', 'AI usage (last 100 ledger entries): ') + aiUsage.totals.calls + TB_T(' 次 · 输出 ', ' call(s) · ') + aiUsage.totals.out + ' tok' + (aiUsage.totals.errors ? TB_T(' · 失败 ', ' · ') + aiUsage.totals.errors + TB_T(' 次', ' failed') : '') + (aiUsage.totals.todayCalls ? TB_T('；今日 ', '; today ') + aiUsage.totals.todayCalls + TB_T(' 次 / ', ' call(s) / ') + aiUsage.totals.todayOut + ' tok' : ''),
                     React.createElement('div', { className: 'tb-pills', style: { marginTop: '4px' } },
                       aiUsage.tools.map((t) => React.createElement('span', {
                         key: t.tool,
                         className: 'tb-pill tb-pill-plain',
-                        title: t.tool + '：成功 ' + t.calls + ' 次 · 输出 ' + t.out + ' tok' + (t.errors ? ' · 失败 ' + t.errors + ' 次' : ''),
+                        title: t.tool + TB_T('：成功 ', ': ') + t.calls + TB_T(' 次 · 输出 ', ' call(s) · ') + t.out + ' tok' + (t.errors ? TB_T(' · 失败 ', ' · ') + t.errors + TB_T(' 次', ' failed') : ''),
                       }, t.tool + ' ' + t.calls + '/' + (t.out >= 10000 ? (t.out / 1000).toFixed(1) + 'k' : t.out) + ' tok')),
                       React.createElement('button', {
                         type: 'button',
                         className: 'tb-btn tb-btn-sm tb-btn-ghost',
-                        title: '复制台账汇总 CSV（tool,calls,output_tokens,errors）',
+                        title: TB_T('复制台账汇总 CSV（tool,calls,output_tokens,errors）', 'Copy ledger summary CSV (tool,calls,output_tokens,errors)'),
                         onClick: async () => {
                           if (!aiUsage || !Array.isArray(aiUsage.tools)) return
                           const csv = ['tool,calls,output_tokens,errors']
@@ -6413,22 +6430,22 @@ return {
                           try {
                             if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
                               await navigator.clipboard.writeText(csv)
-                              setCopied('台账 CSV 已复制（' + aiUsage.tools.length + ' 个工具）')
-                            } else setCopied('当前环境无剪贴板 API')
-                          } catch (e) { setCopied('复制失败: ' + String((e && e.message) || e)) }
+                              setCopied(TB_T('台账 CSV 已复制（', 'Ledger CSV copied (') + aiUsage.tools.length + TB_T(' 个工具）', ' tools)'))
+                            } else setCopied(TB_T('当前环境无剪贴板 API', 'No clipboard API in this environment'))
+                          } catch (e) { setCopied(TB_T('复制失败: ', 'Copy failed: ') + String((e && e.message) || e)) }
                         },
-                      }, '复制 CSV')))
+                      }, TB_T('复制 CSV', 'Copy CSV'))))
                 : null,
               React.createElement('div', { className: 'tb-note' }, canRebuildFromDisk
-                ? '开关 = 真停 / 真启插件（等同 Cordis 面板的停止/运行，两处状态同步），同时写入启停记忆 .dsh-dynamic-toolbox/toolbox-plugins.json；「重启后」pill = 下次重建的默认启停，点击切换、只改记忆不动当前状态。停止后 Tab 级联消失，启动后约 0.5s 自动挂回。含 Client 半的插件（框架）请到 Cordis 面板操作。'
-                : '开关 = 真停 / 真启插件（等同 Cordis 面板的停止/运行，两处状态同步），同时写入本合集的启停记忆；「重启后」pill = 下次启动的默认启停，点击切换、只改记忆不动当前状态。停止后 Tab 级联消失，启动后约 0.5s 自动挂回。含 Client 半的插件请到 Cordis 面板操作。'),
+                ? TB_T('开关 = 真停 / 真启插件（等同 Cordis 面板的停止/运行，两处状态同步），同时写入启停记忆 .dsh-dynamic-toolbox/toolbox-plugins.json；「重启后」pill = 下次重建的默认启停，点击切换、只改记忆不动当前状态。停止后 Tab 级联消失，启动后约 0.5s 自动挂回。含 Client 半的插件（框架）请到 Cordis 面板操作。', 'The switch truly stops / starts the plugin (same as the Cordis panel’s stop/run; both states stay in sync) and writes the start/stop memory to .dsh-dynamic-toolbox/toolbox-plugins.json; the “after rebuild” pill is the default start state for the next rebuild — clicking toggles memory only and never touches the current state. Stopped plugins lose their Tab immediately; started plugins re-mount in about 0.5s. Plugins with a client half (framework) are managed in the Cordis panel.')
+                : TB_T('开关 = 真停 / 真启插件（等同 Cordis 面板的停止/运行，两处状态同步），同时写入本合集的启停记忆；「重启后」pill = 下次启动的默认启停，点击切换、只改记忆不动当前状态。停止后 Tab 级联消失，启动后约 0.5s 自动挂回。含 Client 半的插件请到 Cordis 面板操作。', 'The switch truly stops / starts the plugin (same as the Cordis panel’s stop/run; both states stay in sync) and writes this bundle’s start/stop memory; the “after rebuild” pill is the default start state for the next start — clicking toggles memory only and never touches the current state. Stopped plugins lose their Tab immediately; started plugins re-mount in about 0.5s. Plugins with a client half are managed in the Cordis panel.')),
             ),
             React.createElement('div', { className: 'tb-pane-body tb-pane-col' },
               (() => {
                 // 管理页永远全量清单；「隐藏无界面」开关只作用于左下角 Cordis 面板
                 const visiblePlugins = plugins
                 if (visiblePlugins.length === 0) {
-                  return React.createElement('div', { className: 'tb-notice' }, '暂无动态插件')
+                  return React.createElement('div', { className: 'tb-notice' }, TB_T('暂无动态插件', 'No dynamic plugins'))
                 }
                 // 单个插件节点（行 key 用 pluginId，跨分类移动时稳定；条目 id 追加在副行便于辨认归属键）
                 const manageRow = (p) =>
@@ -6443,35 +6460,35 @@ return {
                         },
                         onDragEnd: () => setDragId(null),
                       },
-                        p.entryId ? React.createElement('span', { className: 'tb-drag', title: '拖拽到分类标题上调整归属' }, '⋮⋮') : null,
+                        p.entryId ? React.createElement('span', { className: 'tb-drag', title: TB_T('拖拽到分类标题上调整归属', 'Drag onto a category heading to recategorize') }, '⋮⋮') : null,
                         React.createElement('div', { className: 'tb-manage-main' },
                           React.createElement('span', { className: 'tb-manage-label' }, p.name),
                           React.createElement('span', { className: 'tb-manage-id' }, p.pluginId + (p.currentPackageId ? ' · ' + p.currentPackageId : '') + (p.entryId ? ' · ' + p.entryId : '')),
                         ),
-                        React.createElement('span', { className: 'tb-pill ' + (p.running ? 'tb-pill-done' : 'tb-pill-todo') }, p.running ? '运行中' : '已停止'),
+                        React.createElement('span', { className: 'tb-pill ' + (p.running ? 'tb-pill-done' : 'tb-pill-todo') }, p.running ? TB_T('运行中', 'Running') : TB_T('已停止', 'Stopped')),
                         p.defaultStart != null
                           ? React.createElement('button', {
                             type: 'button',
                             className: 'tb-pill-btn' + (p.defaultStart ? ' on' : ''),
-                            title: '下次重建的默认启停（启停记忆）——点击切换；只改记忆，不动当前运行状态',
+                            title: TB_T('下次重建的默认启停（启停记忆）——点击切换；只改记忆，不动当前运行状态', 'Default start state for the next rebuild (start/stop memory) — click to toggle; only the memory changes, the current running state is untouched'),
                             onClick: () => setDefaultPlugin(p),
-                          }, p.defaultStart ? '重启后启动' : '重启后关闭')
+                          }, p.defaultStart ? TB_T('重启后启动', 'Start after rebuild') : TB_T('重启后关闭', 'Off after rebuild'))
                           : null,
                         React.createElement('button', {
                           type: 'button',
                           className: 'tb-btn tb-btn-sm tb-btn-ghost',
-                          title: p.hasClientHalf ? '含 Client 半，请到 Cordis 面板操作' : '重跑（重新从磁盘加载实现，改完代码点这个）',
+                          title: p.hasClientHalf ? TB_T('含 Client 半，请到 Cordis 面板操作', 'Has a client half; use the Cordis panel') : TB_T('重跑（重新从磁盘加载实现，改完代码点这个）', 'Restart (reload the implementation from disk; click this after editing code)'),
                           disabled: Boolean(p.hasClientHalf),
                           style: p.hasClientHalf ? { opacity: 0.4, cursor: 'default' } : null,
                           onClick: () => restartPlugin(p),
-                        }, '重跑'),
+                        }, TB_T('重跑', 'Restart')),
                         React.createElement('button', {
                           type: 'button',
                           className: 'tb-switch' + (p.running ? ' tb-switch-on' : ''),
                           // canStop=false：宿主缺少 stopFromPanel（停止降级）——运行中的插件开关禁用，停止的仍可启动
-                          title: p.hasClientHalf ? '含 Client 半，请到 Cordis 面板操作'
-                            : p.running ? (p.canStop === false ? '当前 DSH 缺少停止接口（stopFromPanel），无法停止' : '停止该插件')
-                            : '启动该插件',
+                          title: p.hasClientHalf ? TB_T('含 Client 半，请到 Cordis 面板操作', 'Has a client half; use the Cordis panel')
+                            : p.running ? (p.canStop === false ? TB_T('当前 DSH 缺少停止接口（stopFromPanel），无法停止', 'This DSH lacks the stop API (stopFromPanel); cannot stop') : TB_T('停止该插件', 'Stop this plugin'))
+                            : TB_T('启动该插件', 'Start this plugin'),
                           disabled: Boolean(p.hasClientHalf) || (p.running && p.canStop === false),
                           style: (p.hasClientHalf || (p.running && p.canStop === false)) ? { opacity: 0.4, cursor: 'default' } : null,
                           onClick: () => togglePlugin(p),
@@ -6501,14 +6518,14 @@ return {
                         return React.createElement('div', { key: 'cat-' + c.id },
                           React.createElement('div', {
                             className: 'tb-tree-cat' + (open ? ' tb-tree-cat-open' : '') + (dragId && catOf(dragId) !== c.id ? ' tb-tree-cat-drop' : ''),
-                            title: '点击折叠/展开；拖节点到此标题上即改分类（与导航行联动）',
+                            title: TB_T('点击折叠/展开；拖节点到此标题上即改分类（与导航行联动）', 'Click to collapse/expand; drop a node on this heading to recategorize (synced with the nav rows)'),
                             onClick: () => toggleCat(c.id),
                             onDragOver: (e) => { if (dragId) e.preventDefault() },
                             onDrop: (e) => { e.preventDefault(); if (dragId) moveNode(dragId, c.id); setDragId(null) },
                           },
                             React.createElement('span', { className: 'tb-tree-chev' }, chevron),
                             React.createElement('span', { className: 'tb-tree-cat-label' }, c.label),
-                            React.createElement('span', { className: 'tb-note' }, list.length + ' 个 · ' + running + ' 运行'),
+                            React.createElement('span', { className: 'tb-note' }, list.length + TB_T(' 个 · ', ' · ') + running + TB_T(' 运行', ' running')),
                           ),
                           open ? React.createElement('div', { className: 'tb-tree-kids' }, list.map(manageRow)) : null,
                         )
@@ -6520,17 +6537,17 @@ return {
         body = currentCwd
           ? React.createElement('div', { className: 'tb-empty' },
               canRebuildFromDisk
-                ? '当前工作区未检测到 dsh-dynamic-toolbox\n切换到一个包含工具箱的工作区后自动加载；本工作区下不显示工具'
-                : '当前工作区暂未挂载本工具箱合集\n切换到一个有效工作区后自动加载；本工作区下不显示工具',
+                ? TB_T('当前工作区未检测到 dsh-dynamic-toolbox\n切换到一个包含工具箱的工作区后自动加载；本工作区下不显示工具', 'No dsh-dynamic-toolbox detected in the current workspace\nSwitch to a workspace containing the toolbox to load it automatically; no tools are shown in this workspace')
+                : TB_T('当前工作区暂未挂载本工具箱合集\n切换到一个有效工作区后自动加载；本工作区下不显示工具', 'This toolbox bundle is not mounted in the current workspace\nSwitch to a valid workspace to load it automatically; no tools are shown in this workspace'),
             )
           : React.createElement('div', { className: 'tb-empty' },
-              '暂无工具\n运行工具插件（如 Jira）后自动出现在这里；已停止的插件可在右上角管理按钮里重新启动',
+              TB_T('暂无工具\n运行工具插件（如 Jira）后自动出现在这里；已停止的插件可在右上角管理按钮里重新启动', 'No tools yet\nTool plugins (e.g. Jira) appear here automatically once running; stopped plugins can be restarted via the manage button at the top right'),
             )
       } else {
         body = React.createElement('div', { className: 'tb-frame', ref: panelRef, onClick: onPanelClick, onKeyDown: onPanelKeyDown, onInput: onPanelInput, onPointerDown: onFlowRailResizeDown },
           error ? React.createElement('div', { className: 'tb-error', role: 'alert' },
             String(error),
-            active === 'flow' ? React.createElement('button', { type: 'button', className: 'tb-btn', onClick: () => loadPanel('flow', 'refresh') }, '重新同步') : null,
+            active === 'flow' ? React.createElement('button', { type: 'button', className: 'tb-btn', onClick: () => loadPanel('flow', 'refresh') }, TB_T('重新同步', 'Resync')) : null,
           ) : null,
           copied ? React.createElement('div', { className: 'tb-banner tb-banner-info' }, String(copied)) : null,
           active === 'flow' && flowUiNotice ? React.createElement('div', { className: 'tb-banner tb-banner-info', title: flowUiNotice }, String(flowUiNotice)) : null,
@@ -6539,7 +6556,7 @@ return {
             ? active === 'flow' && typeof document !== 'undefined'
               ? React.createElement('div', { className: 'tb-panel-html' }, React.createElement(FlowStablePanel, { html, workspace: currentCwd }))
               : React.createElement('div', { className: 'tb-panel-html', dangerouslySetInnerHTML: { __html: html } })
-            : React.createElement('div', { className: 'tb-notice' }, '加载面板…'),
+            : React.createElement('div', { className: 'tb-notice' }, TB_T('加载面板…', 'Loading panel…')),
           flowZoomControl,
           flowSelectionBar,
           flowBringDialog,
@@ -6549,9 +6566,9 @@ return {
           showJumpLatest ? React.createElement('button', {
             type: 'button',
             className: 'tb-jump-latest',
-            title: '平滑回到当前面板的最新内容',
+            title: TB_T('平滑回到当前面板的最新内容', 'Smoothly return to the latest content in this panel'),
             onClick: jumpToLatest,
-          }, '↓ 回到最新') : null,
+          }, TB_T('↓ 回到最新', '↓ Back to latest')) : null,
         )
       }
 
@@ -6575,8 +6592,8 @@ return {
         },
           React.createElement('span', {
             className: 'jr-drawer-title',
-            title: fullDisplayName + (managing ? ' · 管理' : ''),
-          }, managing ? compactDisplayName + ' · 管理' : compactDisplayName),
+            title: fullDisplayName + (managing ? TB_T(' · 管理', ' · manage') : ''),
+          }, managing ? compactDisplayName + TB_T(' · 管理', ' · manage') : compactDisplayName),
           themeButton,
           pipButton,
           gearButton,
@@ -6588,7 +6605,7 @@ return {
         managing || tools.length === 1 ? null : React.createElement('div', { className: 'tb-nav' },
           React.createElement('input', {
             className: 'tb-input tb-nav-search',
-            placeholder: '搜索工具（共 ' + tools.length + ' 个，匹配名称 / ID）',
+            placeholder: TB_T('搜索工具（共 ', 'Search tools (') + tools.length + TB_T(' 个，匹配名称 / ID）', ' total; matches name / ID)'),
             value: tabFilter,
             onChange: (e) => setTabFilter(e.target.value),
           }),
@@ -6597,13 +6614,13 @@ return {
               key: c.id,
               type: 'button',
               className: 'tb-chip' + (!searching && c.id === effCat ? ' tb-chip-on' : ''),
-              title: '分类「' + c.label + '」；管理页（右上角管理按钮）可把节点拖到别的分类',
+              title: TB_T('分类「', 'Category "') + c.label + TB_T('」；管理页（右上角管理按钮）可把节点拖到别的分类', '"; the manage page (manage button at the top right) lets you drag nodes to another category'),
               onClick: () => pickCat(c.id),
             }, c.label + ' · ' + catCounts[c.id]))),
           React.createElement(HRow, { className: 'tb-hrow tb-tools' },
             shownTools.length
               ? shownTools.map(toolButton)
-              : React.createElement('span', { className: 'tb-hrow-empty' }, searching ? '无匹配工具' : '该分类暂无运行中的工具')),
+              : React.createElement('span', { className: 'tb-hrow-empty' }, searching ? TB_T('无匹配工具', 'No matching tools') : TB_T('该分类暂无运行中的工具', 'No running tools in this category'))),
         ),
         React.createElement('div', { className: 'jr-drawer-body' }, body),
         handles,
@@ -6634,7 +6651,7 @@ return {
         drawerWithPortal,
         snapHint ? React.createElement('div', { className: 'jr-snap-indicator' }) : null,
         resize ? React.createElement('div', { className: 'jr-resize-badge' },
-          Math.round(width || 520) + ' × ' + (height ? Math.round(height) : '自动'),
+          Math.round(width || 520) + ' × ' + (height ? Math.round(height) : TB_T('自动', 'auto')),
         ) : null,
       )
       return RT.bundleId === 'dynamic' ? overlay : React.createElement('div', {
@@ -6649,7 +6666,7 @@ return {
         return React.createElement('div', {
           'data-dsh-toolbox-scope': RT.domValue(),
           style: { width: '100%', height: '100%' },
-        }, React.createElement('div', { className: 'tb-notice' }, '流镜右侧栏承载暂不可用。'))
+        }, React.createElement('div', { className: 'tb-notice' }, TB_T('流镜右侧栏承载暂不可用。', 'The Flowglass sidebar host is temporarily unavailable.')))
       }
       return React.createElement(Drawer, {
         embedded: true,
@@ -6724,7 +6741,7 @@ return {
           name: 'shell.overlay',
           id: RT.slot('drawer'),
           order: 120,
-          label: RT.displayName + '抽屉',
+          label: RT.displayName + TB_T('抽屉', ' drawer'),
         },
         (props) => React.createElement(Drawer, props),
       ))
@@ -6770,8 +6787,8 @@ return {
         const nativeToolbox = OFFICIAL_TOOLBOX_ONLY
         const nativeId = nativeToolbox ? TOOLBOX_NATIVE_ID : FLOW_NATIVE_ID
         const nativeKind = nativeToolbox ? TOOLBOX_NATIVE_KIND : FLOW_NATIVE_KIND
-        const nativeTitle = nativeToolbox ? '工具箱' : '流镜'
-        const nativeDescription = nativeToolbox ? '打开工作区工具箱' : '查看当前会话、工具调用与子代理执行流程'
+        const nativeTitle = nativeToolbox ? TB_T('工具箱', 'Toolbox') : TB_T('流镜', 'Flowglass')
+        const nativeDescription = nativeToolbox ? TB_T('打开工作区工具箱', 'Open the workspace toolbox') : TB_T('查看当前会话、工具调用与子代理执行流程', 'View the current session, tool calls, and subagent execution flow')
         // page type：无 resource patterns（按 kind 打开）；guide 项排在文件等常用入口之后
         const definition = {
           id: nativeId,
@@ -6855,11 +6872,11 @@ return {
         bsService = service
         bsDescriptor = {
           id: FLOW_TAB_ID,
-          title: '流镜',
+          title: TB_T('流镜', 'Flowglass'),
           order: 35,
           // 原生多 pane 语义下 single 只保证目标 pane 内去重（0.19 契约）
           single: true,
-          description: '查看当前会话、工具调用与子代理执行流程',
+          description: TB_T('查看当前会话、工具调用与子代理执行流程', 'View the current session, tool calls, and subagent execution flow'),
           icon: (size) => React.createElement('svg', {
             width: size || 16, height: size || 16, viewBox: '0 0 16 16', fill: 'none',
             stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round',
