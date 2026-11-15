@@ -153,10 +153,11 @@ const makeLocalStorage = (init) => {
 }
 
 const evalClient = (src, extra) => {
-  const fn = new Function('ctx', 'React', 'host', 'styles', 'console', 'document', 'MutationObserver', 'localStorage',
+  // 0.7.5 起 UI 语言跟随浏览器语言；仿真默认钉中文（navigator 由参数注入，避免读到 Node 全局 en-US）
+  const fn = new Function('ctx', 'React', 'host', 'styles', 'console', 'document', 'MutationObserver', 'localStorage', 'navigator',
     'return (async () => {\n' + src + '\n})()')
   return fn(extra.ctx, React, extra.host || { call: async () => ({ ok: false }) }, extra.styles, console,
-    extra.document, extra.MutationObserver, extra.localStorage)
+    extra.document, extra.MutationObserver, extra.localStorage, extra.navigator || { language: 'zh-CN' })
 }
 
 const tick = () => new Promise((r) => setTimeout(r, 15))
@@ -450,7 +451,7 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
         && src.indexOf("document.createElement('button')") >= 0
         && src.indexOf("head.insertBefore(previewButton, copy || null)") >= 0)
     check('详情复制按钮保持 SVG 图标，反馈只更新 title 与 aria-label',
-      src.indexOf("btn.setAttribute('title', ok ? '已复制' : '复制失败')") >= 0
+      src.indexOf("btn.setAttribute('title', ok ? TB_T('已复制', 'Copied') : TB_T('复制失败', 'Copy failed'))") >= 0
         && src.indexOf("btn.textContent = ok ? '已复制' : '复制失败'") < 0)
     check('框选图标栏位于 Zoom 上方，计数使用圆形描边', css.indexOf('.tb-flow-zoom-float.with-selection{bottom:14px}') >= 0
       && css.indexOf('.tb-flow-selection-bar{bottom:54px') >= 0 && css.indexOf('.tb-flow-selection-count{width:24px;height:24px;padding:0') >= 0)
@@ -586,7 +587,7 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
         && css.indexOf('.tb-flow-bring-popup::before,.fl-info-pop::before,.fl-zoom-add-pop::before{') >= 0
         && css.indexOf('.fl-info:hover .fl-info-pop,.fl-info:focus .fl-info-pop{display:block;animation:jrDrawerUp .12s ease-out}') >= 0)
     check('并发会话标题带任务/分支序号/模型指向，历史树位于右侧；拓扑不写死进标题（由 zoomTopology 按轮次现算）',
-      src.indexOf('zoomBranchTitle') >= 0 && src.indexOf("' · 分支 '") >= 0
+      src.indexOf('zoomBranchTitle') >= 0 && src.indexOf("TB_T('分支 ', 'Branch ')") >= 0
         && src.indexOf("' 轮 · ' + spec.length + '→'") < 0
         && src.indexOf("' 轮 · 1→' + targetCount") < 0
         && src.indexOf("轮分支 1→'") < 0 && src.indexOf("轮并发 ' + spec.length") < 0
@@ -818,6 +819,27 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
         && src.indexOf('String(delta).slice(0, room)') >= 0)
     check('面板 RPC 契约透传 live（registry 同步见 sim-flow）', src.indexOf('live && typeof live === \'object\'') >= 0
       || read('shared/registry.js').indexOf('call.live') >= 0)
+  }
+
+  // —— 路径 E：浏览器语言 en → 英文界面（0.7.5 双语） ——
+  {
+    check('E: 源码含语言探测与 TB_T 双语助手', src.indexOf('TB_UI_LANG') >= 0 && src.indexOf('const TB_T = (zh, en)') >= 0
+      && src.indexOf("navigator.language") >= 0)
+    const flowSrc = 'const TOOLBOX_RUNTIME_OVERRIDES = { bundleId: \'flow\', displayName: \'流镜\' }\n' + src
+    const slots = makeSlots()
+    const ctx = makeCtx(); ctx.slotsFor = slots
+    const definitions = []
+    ctx.services.sidebarRightTabs = { register(def) { definitions.push(def); return () => { const i = definitions.indexOf(def); if (i >= 0) definitions.splice(i, 1) } } }
+    ctx.services.sidebarRight = { openTab() {} }
+    const impl = await evalClient(flowSrc, { ctx, styles: { insert() { return () => {} } }, localStorage: makeLocalStorage({}), navigator: { language: 'en-US' } })
+    impl.apply(ctx)
+    ctx.runInject()
+    const def = definitions[0]
+    check('E: 浏览器 en 时官方 Tab 标题显示 Flowglass',
+      Boolean(def) && def.title() === 'Flowglass' && def.guide[0].title() === 'Flowglass')
+    check('E: 英文面板请求携带 lang="en"', src.indexOf('lang: TB_UI_LANG') >= 0
+      && read('shared/registry.js').indexOf("call.lang === 'en'") >= 0)
+    for (const dis of ctx.teardowns) dis()
   }
 
   console.log(failures ? ('\n共 ' + failures + ' 项失败') : '\n全部通过')
