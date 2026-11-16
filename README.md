@@ -67,6 +67,8 @@ dsh plugin --profile web remove dsh-flowglass
 
 安装后重启 Harness；如已安装 `dsh-better-sidebar`，它会作为原生右侧栏不可用时的兼容后备，不是 Flowglass 的必需依赖。
 
+打开右侧栏的「开始」页，点击「流镜」进入；新版 Harness 的「更多工具」菜单也可找到它。原生右侧栏可用时不再显示左侧重复入口，旧宿主保留左侧导航兜底。
+
 ## 能力概览
 
 ### 当前会话

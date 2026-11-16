@@ -8,7 +8,7 @@
 //   面板 DOM「可见且 running」行覆盖（不信任单仓库 toolbox/plugins 清单）；开关关闭后恢复；
 // ⑥工具箱长名称在可见 chrome 统一使用「工具箱」，完整名称保留在 tooltip/aria-label；
 // ⑦DSH 0.1.5 原生右侧栏（bundleId=flow / dynamic-toolbox）：sidebarRightTabs 两段式注册（page type + body Slot）、
-//   自有入口 openTab、原生接管时撤销 better-sidebar 桥、注册失败恢复固定右侧兜底、旧 drawer 偏好忽略、
+//   原生 guide 入口、接管时隐藏左侧兜底并撤销 better-sidebar 桥、注册失败恢复固定右侧兜底、旧 drawer 偏好忽略、
 //   原生 Tab body 透传 Slot 标准属性（sessionId/useSessions/useTabInfo→visible），切 Session 保持已展开流镜。
 const fs = require('fs')
 const path = require('path')
@@ -230,6 +230,7 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     check('G: 静态工具箱注册进官方下拉框', definitions.length === 1
       && def.id === 'dsh-dynamic-toolbox/native' && def.kind === 'dsh-dynamic-toolbox:toolbox'
       && def.title() === '工具箱' && def.guide[0].title() === '工具箱'
+      && def.guide[0].id === def.kind
       && def.guide[0].description().indexOf('工作区工具箱') >= 0)
     check('G: 静态工具箱不注册独立 footer 入口或 shell.overlay 抽屉',
       slots.injected['sidebar.footer.action'] === undefined && slots.injected['shell.overlay'] === undefined,
@@ -625,7 +626,7 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     check('D: page type 不声明 resource patterns（按 kind 打开）', def && def.patterns === undefined)
     check('D: 标题与 guide 项（标题/描述/图标/顺序）',
       def && def.title() === '流镜' && def.guide && def.guide.length === 1
-        && def.guide[0].order === 40 && def.guide[0].title() === '流镜'
+        && def.guide[0].id === def.kind && def.guide[0].order === 40 && def.guide[0].title() === '流镜'
         && def.guide[0].description().indexOf('子代理') >= 0 && typeof def.guide[0].icon === 'function')
     slots.activateAll()
     const configReg = slots.registrations.find((r) => r.entry && r.entry.name === 'plugins.bundle.config' && r.entry.key === 'dsh-flowglass')
@@ -683,13 +684,11 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
         && src.indexOf('const keepNativeFlowOpen = readFlowPreferences().keepOpenOnSessionSwitch && nativeFlowVisible') >= 0
         && src.indexOf('(isFlowFollow || keepNativeFlowOpen) && nativeOpenTab') >= 0
         && src.indexOf('nativeFlowVisible = false', src.indexOf('function FlowglassNativeTabBody')) >= 0)
-    // 无 DOM → footer Entry 兜底：原生激活时点击走 openTab（自动展开），不开独立抽屉
+    // 原生接管后只保留「开始」页入口，不在左侧 footer 重复展示。
     const entryReg = slots.registrations.find((r) => r.entry && r.entry.name === 'sidebar.footer.action')
-    check('D: 无 DOM 时 footer Entry 仍注册（原生激活不隐藏入口）', Boolean(entryReg))
+    check('D: 无 DOM 时保留 footer 兜底注册', Boolean(entryReg))
     const rendered = renderHooked(entryReg.component({ wide: true }).type, { wide: true })
-    check('D: 原生激活 → Entry 可见且标题指向右侧栏', rendered.children.indexOf('流镜') >= 0 && String(rendered.props.title).indexOf('右侧栏') >= 0)
-    rendered.props.onClick()
-    check('D: 点击入口 → ctx.sidebarRight.openTab(dsh-flowglass:flow)', openTabCalls.length === 1 && openTabCalls[0] === 'dsh-flowglass:flow')
+    check('D: 原生激活 → footer 入口隐藏，guide 入口仍注册', rendered === null && def.guide.length === 1)
     for (const dis of ctx.teardowns) dis()
     check('D: teardown 撤销 page type 注册', definitions.length === 0)
   }
@@ -712,8 +711,7 @@ const tick = () => new Promise((r) => setTimeout(r, 15))
     check('D2: controller 到达后完成原生注册', definitions.length === 1)
     const entryReg = slots.registrations.find((r) => r.entry && r.entry.name === 'sidebar.footer.action')
     const rendered = renderHooked(entryReg.component({ wide: true }).type, { wide: true })
-    rendered.props.onClick()
-    check('D2: 晚到 controller 被原生入口正确调用', openTabCalls[0] === 'dsh-flowglass:flow')
+    check('D2: controller 晚到后隐藏 footer，保留可寻址 guide 入口', rendered === null && definitions[0].guide[0].id === 'dsh-flowglass:flow')
     for (const dis of ctx.teardowns) dis()
   }
 

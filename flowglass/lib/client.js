@@ -1845,20 +1845,15 @@ return {
     function Entry(props) {
       const isOpen = useOpenState()
       const sidebarActive = useIntegrationActive()
-      const nativeActive = integration.native
-      // 原生右侧栏生效时入口保留：点击 openTab（自动展开侧栏并聚焦流镜 Tab）；
-      // Better Sidebar 桥生效时入口让位（Tab 已在其面板内）；两者都不可用 → 固定右侧兜底面板。
-      if (sidebarActive && !nativeActive) return null
+      // 侧栏集成提供自己的入口；两者都不可用时才显示固定面板入口。
+      if (sidebarActive) return null
       return React.createElement(
         'button',
         {
           type: 'button',
-          className: 'tb-entry' + (isOpen && !nativeActive ? ' tb-entry-active' : ''),
-          title: fullDisplayName + (nativeActive ? '（在右侧栏打开流镜）' : '（工具集）'),
-          onClick: () => {
-            if (nativeActive && nativeOpenTab) { try { nativeOpenTab() } catch (e) {} return }
-            store.toggle()
-          },
+          className: 'tb-entry' + (isOpen ? ' tb-entry-active' : ''),
+          title: fullDisplayName + '（工具集）',
+          onClick: () => { store.toggle() },
         },
         props.wide ? compactDisplayName : '箱',
       )
@@ -1900,11 +1895,17 @@ return {
         return undefined
       }
       function placeEntry(root, entry) {
+        const navigation = root.querySelector('nav[class*="panelList"]')
+        if (navigation) {
+          if (entry.parentElement !== navigation) navigation.appendChild(entry)
+          return true
+        }
         const button = newSessionButton(root)
         if (!button) return false
         if (entry.parentElement !== root) {
-          const row = button.closest('[class*="logoRow"]')
-          const base = (row && row.parentElement === root) ? row : button
+          let base = button
+          while (base.parentElement && base.parentElement !== root) base = base.parentElement
+          if (base.parentElement !== root) return false
           const family = Array.prototype.filter.call(root.children, (el) => el.matches && el.matches(NAV_FAMILY_SEL))
           const anchor = family.length > 0 ? family[family.length - 1].nextElementSibling : base.nextElementSibling
           root.insertBefore(entry, anchor)
@@ -1956,7 +1957,7 @@ return {
         if (store.isOpen()) entry.setAttribute('data-active', 'true')
         else entry.removeAttribute('data-active')
         if (!entry.style) return
-        // 原生生效：入口保留（点击 openTab）；Better Sidebar 桥生效：让位；其余：固定兜底入口
+        // 兼容入口随集成状态同步；Flow 原生接管时由外层撤销整条 DOM 入口。
         if (integration.active() && !integration.native) entry.style.display = 'none'
         else entry.style.display = ''
       }
@@ -6708,10 +6709,20 @@ return {
     }
 
     if (!OFFICIAL_TOOLBOX_ONLY && typeof document !== 'undefined' && typeof MutationObserver !== 'undefined') {
-      // 侧边栏导航区无官方 Slot：DOM 注入导航条目（新会话下方、SSH 之后），disposer 随插件停止清理
-      ctx.effect(() => mountSidebarEntry())
+      // 原生流镜从右侧栏「开始」页打开；旧宿主才需要左侧导航入口。
+      ctx.effect(() => {
+        let disposeEntry = null
+        const syncEntry = () => {
+          if (RT.bundleId === 'flow' && integration.active()) {
+            if (disposeEntry) { disposeEntry(); disposeEntry = null }
+          } else if (!disposeEntry) disposeEntry = mountSidebarEntry()
+        }
+        syncEntry()
+        const unsubscribe = integration.subscribe(syncEntry)
+        return () => { unsubscribe(); if (disposeEntry) disposeEntry() }
+      })
     } else if (!OFFICIAL_TOOLBOX_ONLY) {
-      // 无 DOM 环境兜底：官方 footer Slot（rc.7 root-scoped list Slot，owner 只传 { wide }）
+      // 无 DOM 环境兜底；集成可用时 Entry 自行隐藏。
       slots.inject('sidebar.footer.action', () => slots.register(
         { name: 'sidebar.footer.action', id: RT.slot('entry'), order: -1000, label: RT.displayName },
         (props) => React.createElement(Entry, { wide: Boolean(props.wide) }),
@@ -6778,6 +6789,7 @@ return {
           kind: nativeKind,
           title: () => nativeTitle,
           guide: [{
+            id: nativeKind,
             order: 40,
             title: () => nativeTitle,
             description: () => nativeDescription,
